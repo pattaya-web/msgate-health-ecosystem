@@ -1,0 +1,290 @@
+@import "tailwindcss";
+
+/* next-themes drives the theme with a class, so dark: must not fall back to
+   prefers-color-scheme (which would darken the app against the user's choice). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --primary: #059669;
+  --primary-foreground: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --border: #e2e8f0;
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #e11d48;
+  --shell: #f8fafc;
+  --panel: rgba(255, 255, 255, 0.82);
+}
+
+.dark {
+  --background: #0b1220;
+  --foreground: #e2e8f0;
+  --card: #111827;
+  --primary: #34d399;
+  --primary-foreground: #ffffff;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --border: #1e293b;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+  --shell: #0b1220;
+  --panel: rgba(17, 24, 39, 0.78);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --font-sans: var(--font-app-sans);
+  --font-mono: var(--font-app-mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
+}
+
+/* Metric-heavy UI: keep digits aligned across every card and table. */
+.tabular-nums,
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--primary) 20%, white);
+}
+
+/* Emerald glass logo */
+.brand-logo-glass {
+  background: linear-gradient(135deg, #34d399 0%, #059669 45%, #047857 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22) inset,
+    0 8px 20px -8px rgba(5, 150, 105, 0.65),
+    0 2px 6px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(10px);
+  animation: logo-breathe 4.5s ease-in-out infinite;
+}
+
+.brand-logo-glow {
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.55) 0%, transparent 70%);
+  filter: blur(10px);
+  animation: logo-pulse 3.2s ease-in-out infinite;
+}
+
+.brand-logo-icon {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
+  animation: logo-icon-float 3.8s ease-in-out infinite;
+}
+
+@keyframes logo-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes logo-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes logo-icon-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+.glass-chip {
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.glass-panel {
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/* Emerald ambience behind the whole cockpit */
+.app-aurora {
+  background:
+    radial-gradient(1200px 560px at 6% -12%, rgba(16, 185, 129, 0.14), transparent 60%),
+    radial-gradient(900px 480px at 100% -6%, rgba(45, 212, 191, 0.11), transparent 58%),
+    radial-gradient(760px 520px at 50% 110%, rgba(5, 150, 105, 0.07), transparent 62%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+.dark .app-aurora {
+  background:
+    radial-gradient(1200px 560px at 6% -12%, rgba(16, 185, 129, 0.16), transparent 62%),
+    radial-gradient(900px 480px at 100% -6%, rgba(20, 184, 166, 0.12), transparent 58%),
+    radial-gradient(760px 520px at 50% 110%, rgba(5, 150, 105, 0.1), transparent 62%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+/* Swipeable metric rails on small screens */
+.rail {
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+/* Slim scrollbars for the data tables */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--primary) 35%, transparent) transparent;
+}
+
+.thin-scroll::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.thin-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-drawer-in {
+  animation: drawer-in 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Dark mode: soften common hard-coded slate surfaces on pages */
+.dark .bg-\[\#F8FAFC\] {
+  background-color: var(--background) !important;
+}
+
+.dark .bg-white {
+  background-color: #111827 !important;
+}
+
+.dark .bg-white\/90 {
+  background-color: rgba(17, 24, 39, 0.9) !important;
+}
+
+.dark .bg-slate-50,
+.dark .bg-slate-50\/50,
+.dark .bg-slate-50\/70 {
+  background-color: #0f172a !important;
+}
+
+.dark .text-slate-900 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-slate-800 {
+  color: #e2e8f0 !important;
+}
+
+.dark .text-slate-700 {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-200\/80,
+.dark .border-slate-100 {
+  border-color: #1e293b !important;
+}
+
+.dark .hover\:bg-slate-50:hover {
+  background-color: #1e293b !important;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: #1e293b !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .brand-logo-glass,
+  .brand-logo-glow,
+  .brand-logo-icon,
+  .animate-drawer-in,
+  .animate-fade-in {
+    animation: none;
+  }
+}
