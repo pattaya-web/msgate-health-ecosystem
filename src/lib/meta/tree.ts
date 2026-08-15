@@ -232,31 +232,34 @@ type SyncMaps = {
   tokenByObject: Map<string, string>;
 };
 
-const state = ((globalThis as typeof globalThis & {
-  __msgateMetaTree?: {
-    cache: Map<string, { at: number; tree: AdsTree }>;
-    /** Ad-level lifetime spend changes slowly — reuse across soft syncs. */
-    lifetime: Map<string, { at: number; rows: RawInsight[] }>;
-    /** Campaigns / adsets / ads — independent of the date window. */
-    structure: Map<
-      string,
-      { at: number; campaigns: RawCampaign[]; adsets: RawAdset[]; ads: RawAd[] }
-    >;
-    /** Token → ad accounts discovery. */
-    owned: { at: number; accounts: Array<RawAccount & { token: string }>; tokensWorking: number; errors: string[] } | null;
-    maps: SyncMaps;
-  };
-}).__msgateMetaTree ??= {
+type MetaTreeState = {
+  cache: Map<string, { at: number; tree: AdsTree }>;
+  /** Ad-level lifetime spend changes slowly — reuse across soft syncs. */
+  lifetime: Map<string, { at: number; rows: RawInsight[] }>;
+  /** Campaigns / adsets / ads — independent of the date window. */
+  structure: Map<
+    string,
+    { at: number; campaigns: RawCampaign[]; adsets: RawAdset[]; ads: RawAd[] }
+  >;
+  /** Token → ad accounts discovery. */
+  owned: {
+    at: number;
+    accounts: Array<RawAccount & { token: string }>;
+    tokensWorking: number;
+    errors: string[];
+  } | null;
+  maps: SyncMaps;
+};
+
+const globalRef = globalThis as typeof globalThis & { __msgateMetaTree?: MetaTreeState };
+
+const state: MetaTreeState = (globalRef.__msgateMetaTree ??= {
   cache: new Map(),
   lifetime: new Map(),
   structure: new Map(),
   owned: null,
   maps: { tokenByAccount: new Map(), tokenByObject: new Map() },
 });
-
-if (!state.lifetime) state.lifetime = new Map();
-if (!state.structure) state.structure = new Map();
-if (state.owned === undefined) state.owned = null;
 
 // Soft refreshes hit cache; Sync forces a rebuild.
 // Historical ranges barely move — keep them warm so date toggles feel instant.
