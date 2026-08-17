@@ -704,45 +704,45 @@ export function MobilePilot({
 
   return (
     <div className="space-y-2.5 lg:hidden">
-      <div className="grid grid-cols-3 gap-0.5 rounded-xl bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
+      <div className="grid grid-cols-3 gap-0.5 rounded-lg bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
         {PHASE_TABS.map((bucket) => (
           <button
             key={bucket}
             type="button"
             onClick={() => setPhaseTab(bucket)}
             className={cn(
-              "rounded-lg px-1.5 py-2 text-center transition-colors",
+              "flex min-w-0 items-center justify-center gap-1 overflow-hidden rounded-md px-1 py-1 whitespace-nowrap transition-colors",
               phaseTab === bucket
                 ? "bg-white shadow-sm dark:bg-slate-900"
                 : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
             )}
           >
-            <p
+            <span
               className={cn(
-                "text-[10px] font-semibold leading-tight",
+                "text-[10px] font-semibold",
                 phaseTab === bucket ? "text-slate-900 dark:text-slate-50" : ""
               )}
             >
-              {BUCKET_LABELS[bucket]}
-            </p>
-            <p
+              {bucket === "hyperscaling" ? "Hyper" : bucket === "scaling" ? "Scaling" : "Testing"}
+            </span>
+            <span
               className={cn(
-                "mt-0.5 text-[10px] font-semibold tabular-nums",
-                phaseTab === bucket ? "text-slate-700 dark:text-slate-200" : "text-slate-400"
+                "text-[10px] tabular-nums",
+                phaseTab === bucket ? "text-slate-600 dark:text-slate-300" : "text-slate-400"
               )}
             >
               {phaseCounts[bucket].camp}
-            </p>
-            <p
+            </span>
+            <span
               className={cn(
-                "mt-0.5 text-[9px] font-semibold tabular-nums",
+                "text-[10px] font-semibold tabular-nums",
                 phaseTab === bucket ? "text-slate-900 dark:text-slate-50" : "text-slate-400"
               )}
             >
               {phaseCounts[bucket].budget
-                ? `${formatCurrency(phaseCounts[bucket].budget)}/j`
+                ? formatCurrency(phaseCounts[bucket].budget)
                 : "—"}
-            </p>
+            </span>
           </button>
         ))}
       </div>
@@ -762,7 +762,7 @@ export function MobilePilot({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start gap-1.5">
                       <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-                        <p className="min-w-0 max-w-full truncate text-[12px] font-semibold leading-snug text-slate-900 dark:text-slate-50">
+                        <p className="min-w-0 max-w-full truncate text-[13px] font-semibold leading-snug text-slate-900 dark:text-slate-50">
                           {row.campaign.name}
                         </p>
                         {formatCreatedFr(row.campaign.createdTime) ? (

@@ -11,7 +11,6 @@ import {
   Download,
   EyeOff,
   ExternalLink,
-  FolderDown,
   Image as ImageIcon,
   Loader2,
   MessageSquare,
@@ -69,6 +68,12 @@ const PHASE: Record<CampaignBucket, { rail: string; dot: string; chip: string }>
     dot: "bg-slate-400",
     chip: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   },
+};
+
+const PHASE_TAB_SHORT: Record<PhaseTab, string> = {
+  hyperscaling: "Hyper",
+  scaling: "Scaling",
+  testing: "Testing",
 };
 
 const PRESETS = [
@@ -238,11 +243,13 @@ function ColumnHeader() {
 }
 
 function KindBadge({ kind }: { kind: "campagne" | "adset" | "creative" }) {
-  const label = kind === "campagne" ? "CAMPAGNE" : kind === "adset" ? "ADSET" : "CRÉA";
+  const label = kind === "campagne" ? "C" : kind === "adset" ? "S" : "A";
+  const title = kind === "campagne" ? "Campagne" : kind === "adset" ? "Ad set" : "Créa";
   return (
     <span
+      title={title}
       className={cn(
-        "shrink-0 rounded-md px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide",
+        "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-[7px] font-bold leading-none",
         kind === "campagne" && "bg-indigo-600 text-white",
         kind === "adset" && "bg-violet-600 text-white",
         kind === "creative" && "bg-slate-600 text-white"
@@ -259,7 +266,7 @@ function CreatedPill({ value }: { value: string }) {
   return (
     <span
       title={`Créé le ${label}`}
-      className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+      className="shrink-0 rounded bg-slate-100 px-1 py-px text-[8px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
     >
       {label}
     </span>
@@ -284,7 +291,7 @@ function ActionChip({
   children: React.ReactNode;
 }) {
   const className = cn(
-    "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[9px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40",
+    "inline-flex h-5 shrink-0 items-center gap-0.5 rounded px-1 text-[8px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-40",
     tone === "solid" && "bg-emerald-600 text-white hover:bg-emerald-700",
     tone === "green" &&
       "text-emerald-700 ring-1 ring-emerald-500/40 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-500/10",
@@ -401,33 +408,6 @@ function Chevron({ open }: { open: boolean }) {
         open && "rotate-90"
       )}
     />
-  );
-}
-
-function IconAction({
-  title,
-  busy,
-  onClick,
-  children,
-}: {
-  title: string;
-  busy?: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      disabled={busy}
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      className="rounded-md p-1 text-slate-400 opacity-60 transition-all hover:bg-slate-100 hover:text-slate-800 hover:opacity-100 disabled:opacity-40 group-hover:opacity-100 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-    >
-      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : children}
-    </button>
   );
 }
 
@@ -1099,15 +1079,20 @@ export default function AdsPage() {
       {/* Header: stack on mobile, row on desktop */}
       <div className="order-1 flex flex-col gap-2 lg:order-1 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="min-w-0">
-          <h1 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+          <h1 className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50">
             Ads Meta
+            {tree?.errors.length ? (
+              <span
+                title={`${tree.tokensWorking}/${tree.tokensTotal} tokens — ${tree.errors[0]}`}
+                className="inline-flex"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              </span>
+            ) : null}
+            {refreshing && tree ? (
+              <span className="text-[11px] font-normal text-slate-400">maj…</span>
+            ) : null}
           </h1>
-          <p className="truncate text-[11px] text-slate-400">
-            {tree
-              ? `${tree.stats.accounts} comptes · sync ${(tree.syncMs / 1000).toFixed(1)} s · ${tree.tokensWorking}/${tree.tokensTotal} tokens`
-              : "Synchronisation…"}
-            {refreshing && tree ? " · maj…" : ""}
-          </p>
         </div>
 
         <div className="flex min-w-0 flex-col gap-1.5 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
@@ -1463,18 +1448,6 @@ export default function AdsPage() {
         </div>
       </div>
 
-      {tree?.errors.length ? (
-        <div className="order-4 flex gap-2 rounded-2xl bg-amber-50 px-3 py-2 text-[11px] text-amber-900 ring-1 ring-amber-500/20 lg:order-6 dark:bg-amber-500/10 dark:text-amber-200">
-          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
-          <div className="min-w-0">
-            <p className="font-medium">
-              {tree.tokensWorking}/{tree.tokensTotal} tokens actifs — de la dépense peut manquer.
-            </p>
-            <p className="truncate opacity-80">{tree.errors[0]}</p>
-          </div>
-        </div>
-      ) : null}
-
       {loading && !tree ? (
         <div className="order-4 flex h-40 items-center justify-center rounded-2xl bg-white ring-1 ring-slate-900/[0.06] lg:order-6 dark:bg-slate-900/70">
           <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
@@ -1506,7 +1479,7 @@ export default function AdsPage() {
             )}
           >
             <div className="min-w-0 space-y-2.5">
-              <div className="grid grid-cols-3 gap-0.5 rounded-xl bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
+              <div className="grid grid-cols-3 gap-0.5 rounded-lg bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
                 {PHASE_TABS.map((bucket) => {
                   const group = groups.find((item) => item.bucket === bucket);
                   const count = group?.campaignCount ?? 0;
@@ -1518,37 +1491,37 @@ export default function AdsPage() {
                       type="button"
                       onClick={() => setPhaseTab(bucket)}
                       className={cn(
-                        "rounded-lg px-2 py-2 text-center transition-colors",
+                        "flex min-w-0 items-center justify-center gap-1 overflow-hidden rounded-md px-1.5 py-1 whitespace-nowrap transition-colors",
                         selected
                           ? "bg-white shadow-sm dark:bg-slate-900"
                           : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
                       )}
                     >
-                      <p
+                      <span
                         className={cn(
-                          "text-[12px] font-semibold",
+                          "text-[10px] font-semibold",
                           selected ? "text-slate-900 dark:text-slate-50" : ""
                         )}
                       >
-                        {BUCKET_LABELS[bucket]}
-                      </p>
-                      <p
+                        {PHASE_TAB_SHORT[bucket]}
+                      </span>
+                      <span
                         className={cn(
-                          "mt-0.5 text-[11px] font-semibold tabular-nums",
-                          selected ? "text-slate-700 dark:text-slate-200" : "text-slate-400"
+                          "text-[10px] tabular-nums",
+                          selected ? "text-slate-600 dark:text-slate-300" : "text-slate-400"
                         )}
                       >
-                        {count} camp.
-                      </p>
-                      <p
+                        {count}
+                      </span>
+                      <span
                         className={cn(
-                          "mt-0.5 text-[10px] font-semibold tabular-nums",
+                          "text-[10px] font-semibold tabular-nums",
                           selected ? "text-slate-900 dark:text-slate-50" : "text-slate-400"
                         )}
                         title="Budget journalier total — campagnes ON uniquement"
                       >
-                        {budget ? formatCurrency(budget) : "—"}/j
-                      </p>
+                        {budget ? formatCurrency(budget) : "—"}
+                      </span>
                     </button>
                   );
                 })}
@@ -1567,40 +1540,42 @@ export default function AdsPage() {
                     const tone = PHASE[group.bucket];
                     return (
                       <section className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/10 dark:bg-slate-900/70 dark:ring-white/10">
-                        <div className="flex items-center gap-2 border-b border-slate-900/[0.05] px-2.5 py-2 dark:border-white/[0.05]">
-                          <span className={cn("h-8 w-1 shrink-0 rounded-full", tone.rail)} />
-                          <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-900 dark:text-slate-50">
+                        <div className="flex items-center gap-2 border-b border-slate-900/[0.05] px-2.5 py-1 dark:border-white/[0.05]">
+                          <span className={cn("h-4 w-1 shrink-0 rounded-full", tone.rail)} />
+                          <p className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-900 dark:text-slate-50">
                             {BUCKET_LABELS[group.bucket]}
                           </p>
                           <span
-                            className="shrink-0 text-[12px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-400"
+                            className="shrink-0 text-[11px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-400"
                             title="Budget journalier total — campagnes ON"
                           >
                             {group.dailyBudget ? formatCurrency(group.dailyBudget) : "—"}
-                            <span className="ml-0.5 text-[10px] font-medium text-emerald-600/70 dark:text-emerald-400/70">
+                            <span className="ml-0.5 text-[9px] font-medium text-emerald-600/70 dark:text-emerald-400/70">
                               /j
                             </span>
                           </span>
                         </div>
                         <ColumnHeader />
-                        {group.accounts.map((account) => (
-                          <AccountRow
-                            key={`${group.bucket}:${account.id}`}
-                            account={account}
-                            bucket={group.bucket}
-                            open={open}
-                            busy={busy}
-                            onToggle={toggle}
-                            onWrite={write}
-                            onZip={downloadZip}
-                            onAdDownload={downloadAd}
-                            onOpenAd={setPanelAd}
-                            hsAdIds={hsAdIds}
-                            deadAdIds={deadAdIds}
-                            deadCampaignIds={deadCampaignIds}
-                            onHideAd={hideAd}
-                          />
-                        ))}
+                        {group.accounts.flatMap((account) =>
+                          account.campaigns.map((campaign) => (
+                            <CampaignRow
+                              key={campaign.id}
+                              campaign={campaign}
+                              account={account}
+                              open={open}
+                              busy={busy}
+                              onToggle={toggle}
+                              onWrite={write}
+                              onZip={downloadZip}
+                              onAdDownload={downloadAd}
+                              onOpenAd={setPanelAd}
+                              hsAdIds={hsAdIds}
+                              deadAdIds={deadAdIds}
+                              deadCampaignIds={deadCampaignIds}
+                              onHideAd={hideAd}
+                            />
+                          ))
+                        )}
                       </section>
                     );
                   })()
@@ -1614,28 +1589,30 @@ export default function AdsPage() {
                         key="other"
                         className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70"
                       >
-                        <div className="border-b border-slate-900/[0.05] px-2.5 py-2 text-[12px] font-semibold dark:border-white/[0.05]">
+                        <div className="border-b border-slate-900/[0.05] px-2.5 py-1 text-[11px] font-semibold dark:border-white/[0.05]">
                           {BUCKET_LABELS.other} ({group.campaignCount})
                         </div>
                         <ColumnHeader />
-                        {group.accounts.map((account) => (
-                          <AccountRow
-                            key={`other:${account.id}`}
-                            account={account}
-                            bucket="other"
-                            open={open}
-                            busy={busy}
-                            onToggle={toggle}
-                            onWrite={write}
-                            onZip={downloadZip}
-                            onAdDownload={downloadAd}
-                            onOpenAd={setPanelAd}
-                            hsAdIds={hsAdIds}
-                            deadAdIds={deadAdIds}
-                            deadCampaignIds={deadCampaignIds}
-                            onHideAd={hideAd}
-                          />
-                        ))}
+                        {group.accounts.flatMap((account) =>
+                          account.campaigns.map((campaign) => (
+                            <CampaignRow
+                              key={campaign.id}
+                              campaign={campaign}
+                              account={account}
+                              open={open}
+                              busy={busy}
+                              onToggle={toggle}
+                              onWrite={write}
+                              onZip={downloadZip}
+                              onAdDownload={downloadAd}
+                              onOpenAd={setPanelAd}
+                              hsAdIds={hsAdIds}
+                              deadAdIds={deadAdIds}
+                              deadCampaignIds={deadCampaignIds}
+                              onHideAd={hideAd}
+                            />
+                          ))
+                        )}
                       </section>
                     ))
                 : null}
@@ -1688,91 +1665,26 @@ function countAlertsInCampaign(
   return { hs, dead };
 }
 
-function AccountRow({
-  account,
-  bucket,
-  ...shared
-}: RowShared & { account: AccountNode; bucket: CampaignBucket }) {
-  const key = `a:${bucket}:${account.id}`;
-  const isOpen = shared.open[key] ?? false;
-  const zipKey = `zip-${key}`;
-
-  return (
-    <div className="border-b border-slate-900/[0.04] last:border-0 dark:border-white/[0.04]">
-      <HoverRow
-        className="cursor-pointer pl-2.5"
-        onClick={() => shared.onToggle(key)}
-      >
-        <Chevron open={isOpen} />
-        <span className="min-w-0 flex-1 truncate">
-          <span className="font-medium text-slate-800 dark:text-slate-100">{account.name}</span>
-          {account.business ? (
-            <span className="ml-1.5 rounded-md bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-              {account.business}
-            </span>
-          ) : null}
-          <span className="ml-1.5 text-[10px] text-slate-400">
-            {account.campaigns.length} camp. · {account.currency}
-          </span>
-        </span>
-        <MetricsRail
-          budget={
-            <span className="text-[11px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-              {account.dailyBudget ? `$${account.dailyBudget.toFixed(0)}` : "—"}
-            </span>
-          }
-          metrics={account.metrics}
-          actions={
-            <IconAction
-              title="Télécharger toutes les créa du compte"
-              busy={shared.busy[zipKey]}
-              onClick={() =>
-                void shared.onZip(
-                  account.campaigns.flatMap(adIdsOfCampaign),
-                  account.name,
-                  zipKey
-                )
-              }
-            >
-              <FolderDown className="h-3 w-3" />
-            </IconAction>
-          }
-        />
-      </HoverRow>
-
-      {isOpen
-        ? account.campaigns.map((campaign) => (
-            <CampaignRow
-              key={campaign.id}
-              campaign={campaign}
-              currency={account.currency}
-              {...shared}
-            />
-          ))
-        : null}
-    </div>
-  );
-}
-
 function CampaignRow({
   campaign,
-  currency,
+  account,
   ...shared
-}: RowShared & { campaign: CampaignNode; currency: string }) {
+}: RowShared & { campaign: CampaignNode; account: AccountNode }) {
   const key = `c:${campaign.id}`;
   const isOpen = shared.open[key] ?? false;
   const zipKey = `zip-${key}`;
   const dead = shared.deadCampaignIds.has(campaign.id);
   const alerts = countAlertsInCampaign(campaign, shared.hsAdIds, shared.deadAdIds);
+  const currency = account.currency;
 
   return (
-    <div>
+    <div className="border-b border-slate-900/[0.04] last:border-0 dark:border-white/[0.04]">
       <HoverRow
         className={cn(
-          "cursor-pointer pl-6",
+          "cursor-pointer pl-2.5",
           dead
             ? "bg-rose-50/80 ring-1 ring-inset ring-rose-500/20 dark:bg-rose-500/10 dark:ring-rose-400/20"
-            : "bg-slate-50/30 dark:bg-slate-800/10"
+            : "bg-slate-50/40 dark:bg-slate-800/15"
         )}
         onClick={() => shared.onToggle(key)}
       >
@@ -1792,20 +1704,25 @@ function CampaignRow({
         />
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="min-w-0 truncate text-[12px] font-medium text-slate-800 dark:text-slate-100">
+            <span className="min-w-0 truncate text-[13px] font-semibold text-slate-900 dark:text-slate-50">
               {campaign.name}
             </span>
+            <span
+              title={account.name}
+              className="hidden max-w-[6.5rem] shrink-0 truncate rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-500 sm:inline dark:bg-slate-800 dark:text-slate-400"
+            >
+              {account.name}
+            </span>
             {alerts.hs ? (
-              <span className="shrink-0 rounded-md bg-emerald-600/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
+              <span className="shrink-0 rounded bg-emerald-600/90 px-1 py-px text-[7px] font-bold uppercase tracking-wide text-white">
                 {alerts.hs} HS
               </span>
             ) : null}
             {alerts.dead ? (
-              <span className="shrink-0 rounded-md bg-rose-600/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
+              <span className="shrink-0 rounded bg-rose-600/90 px-1 py-px text-[7px] font-bold uppercase tracking-wide text-white">
                 {alerts.dead} sans vente
               </span>
             ) : null}
-            <CreatedPill value={campaign.createdTime} />
           </div>
           <ActionChip
             label="Créa"
@@ -1860,7 +1777,7 @@ function AdsetRow({
 
   return (
     <div>
-      <HoverRow className="cursor-pointer pl-10" onClick={() => shared.onToggle(key)}>
+      <HoverRow className="cursor-pointer pl-7" onClick={() => shared.onToggle(key)}>
         <Chevron open={isOpen} />
         <KindBadge kind="adset" />
         <StatusToggle
@@ -1889,8 +1806,8 @@ function AdsetRow({
           >
             <Download className="h-2.5 w-2.5" />
           </ActionChip>
-          <span className="hidden shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 ring-1 ring-emerald-500/30 sm:inline dark:text-emerald-300">
-            {adset.activeAds} créa. active{adset.activeAds > 1 ? "s" : ""}
+          <span className="hidden shrink-0 rounded px-1 py-px text-[8px] font-medium text-emerald-700 ring-1 ring-emerald-500/30 sm:inline dark:text-emerald-300">
+            {adset.activeAds} créa
           </span>
         </div>
         <MetricsRail
@@ -1925,7 +1842,7 @@ function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
     <HoverRow
       data-ad-id={ad.id}
       className={cn(
-        "flex-wrap items-start gap-y-1.5 pl-14 transition-shadow duration-300",
+        "flex-wrap items-start gap-y-1.5 pl-11 transition-shadow duration-300",
         paused && "opacity-55 grayscale-[0.45]",
         dead && !paused && "bg-rose-50/90 ring-1 ring-inset ring-rose-500/25 dark:bg-rose-500/15 dark:ring-rose-400/25",
         dead && paused && "bg-slate-100/80 ring-1 ring-inset ring-slate-400/25 dark:bg-slate-800/50 dark:ring-slate-500/25",

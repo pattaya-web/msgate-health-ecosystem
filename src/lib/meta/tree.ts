@@ -122,6 +122,19 @@ function accumulate(target: Metrics, source: Metrics) {
   target.purchaseValue += source.purchaseValue;
 }
 
+function insightMetrics(row: RawInsight): Metrics {
+  return {
+    spend: Number(row.spend) || 0,
+    impressions: Number(row.impressions) || 0,
+    clicks: Number(row.clicks) || 0,
+    cpc: 0,
+    ctr: 0,
+    purchases: pickAction(row.actions),
+    purchaseValue: pickAction(row.action_values),
+    roas: 0,
+  };
+}
+
 /* ------------------------------------------------------------------ *
  * Raw Graph shapes
  * ------------------------------------------------------------------ */
@@ -266,6 +279,7 @@ const state: MetaTreeState = (globalRef.__msgateMetaTree ??= {
 const ttlFor = (preset: DatePreset) => (preset === "today" ? 60_000 : 20 * 60_000);
 const LIFETIME_TTL_MS = 30 * 60_000;
 const STRUCTURE_TTL_MS = 12 * 60_000;
+const STRUCTURE_TTL_TODAY_MS = 60_000;
 const OWNED_TTL_MS = 12 * 60_000;
 
 export function getTokenForObject(objectId: string) {
@@ -361,6 +375,7 @@ export async function buildAdsTree(params: {
   }
 
   const insightsByAccount = new Map<string, RawInsight[]>();
+  const campaignInsightsByAccount = new Map<string, RawInsight[]>();
   const lifetimeByAccount = new Map<string, RawInsight[]>();
   const campaignsByAccount = new Map<string, RawCampaign[]>();
   const adsetsByAccount = new Map<string, RawAdset[]>();
@@ -369,6 +384,7 @@ export async function buildAdsTree(params: {
   await Promise.all(
     [...byToken.entries()].map(async ([token, accounts]) => {
       const tick = Date.now();
+      const structTtl = params.preset === "today" ? STRUCTURE_TTL_TODAY_MS : STRUCTURE_TTL_MS;
       const requests = accounts.flatMap((account) => {
         const act = `act_${account.account_id}`;
         const id = account.account_id;
@@ -377,11 +393,14 @@ export async function buildAdsTree(params: {
             key: `insights:${id}`,
             relativeUrl: `${act}/insights?level=ad&fields=${INSIGHT_FIELDS}&limit=500&${dates}`,
           },
+          {
+            key: `campaignInsights:${id}`,
+            relativeUrl: `${act}/insights?level=campaign&fields=campaign_id,spend,impressions,clicks,actions,action_values&limit=200&${dates}`,
+          },
         ];
 
         const struct = state.structure.get(id);
-        const structFresh =
-          !params.force && struct && tick - struct.at < STRUCTURE_TTL_MS;
+        const structFresh = !params.force && struct && tick - struct.at < structTtl;
 
         if (structFresh && struct) {
           campaignsByAccount.set(id, struct.campaigns);
@@ -431,6 +450,7 @@ export async function buildAdsTree(params: {
           }
           const rows = await followPages(result.body);
           if (kind === "insights") insightsByAccount.set(accountId, rows as RawInsight[]);
+          if (kind === "campaignInsights") campaignInsightsByAccount.set(accountId, rows as RawInsight[]);
           if (kind === "lifetime") {
             lifetimeByAccount.set(accountId, rows as RawInsight[]);
             state.lifetime.set(accountId, { at: Date.now(), rows: rows as RawInsight[] });
@@ -464,25 +484,37 @@ export async function buildAdsTree(params: {
     const token = account.token;
     currencies.add(account.currency);
 
+    const adInsights = insightsByAccount.get(account.account_id) || [];
     const metricsByAd = new Map<string, Metrics>();
-    for (const row of insightsByAccount.get(account.account_id) || []) {
+    for (const row of adInsights) {
       if (!row.ad_id) continue;
-      metricsByAd.set(row.ad_id, {
-        spend: Number(row.spend) || 0,
-        impressions: Number(row.impressions) || 0,
-        clicks: Number(row.clicks) || 0,
-        cpc: 0,
-        ctr: 0,
-        purchases: pickAction(row.actions),
-        purchaseValue: pickAction(row.action_values),
-        roas: 0,
-      });
+      metricsByAd.set(row.ad_id, insightMetrics(row));
+    }
+
+    const metricsByCampaign = new Map<string, Metrics>();
+    for (const row of campaignInsightsByAccount.get(account.account_id) || []) {
+      if (!row.campaign_id) continue;
+      metricsByCampaign.set(row.campaign_id, insightMetrics(row));
     }
 
     const lifetimeByAd = new Map<string, number>();
     for (const row of lifetimeByAccount.get(account.account_id) || []) {
       if (row.ad_id) lifetimeByAd.set(row.ad_id, Number(row.spend) || 0);
     }
+
+    const knownAds = new Set((adsByAccount.get(account.account_id) || []).map((ad) => ad.id));
+    const unmatchedByAdset = new Map<string, Metrics>();
+    let orphanedSpend = false;
+    for (const row of adInsights) {
+      if (!row.ad_id || knownAds.has(row.ad_id)) continue;
+      if ((Number(row.spend) || 0) <= 0) continue;
+      orphanedSpend = true;
+      if (!row.adset_id) continue;
+      const bucket = unmatchedByAdset.get(row.adset_id) ?? emptyMetrics();
+      accumulate(bucket, insightMetrics(row));
+      unmatchedByAdset.set(row.adset_id, bucket);
+    }
+    if (orphanedSpend) state.structure.delete(account.account_id);
 
     const adsByAdset = new Map<string, AdNode[]>();
     for (const ad of adsByAccount.get(account.account_id) || []) {
@@ -511,6 +543,8 @@ export async function buildAdsTree(params: {
       const ads = (adsByAdset.get(adset.id) ?? []).sort((a, b) => b.metrics.spend - a.metrics.spend);
       const totals = emptyMetrics();
       for (const ad of ads) accumulate(totals, ad.metrics);
+      const extra = unmatchedByAdset.get(adset.id);
+      if (extra) accumulate(totals, extra);
 
       const node: AdsetNode = {
         id: adset.id,
@@ -538,6 +572,10 @@ export async function buildAdsTree(params: {
       );
       const totals = emptyMetrics();
       for (const adset of adsets) accumulate(totals, adset.metrics);
+      const fromAds = derive(totals);
+      const fromCampaign = metricsByCampaign.get(campaign.id);
+      const metrics =
+        fromCampaign && fromCampaign.spend > fromAds.spend ? derive(fromCampaign) : fromAds;
 
       const campaignDaily = centsToUnits(campaign.daily_budget);
       const adsetDaily = adsets
@@ -562,7 +600,7 @@ export async function buildAdsTree(params: {
             message: issue.error_message || "",
           }))
           .filter((issue) => issue.summary || issue.message || issue.type),
-        metrics: derive(totals),
+        metrics,
         adsets,
       });
     }
