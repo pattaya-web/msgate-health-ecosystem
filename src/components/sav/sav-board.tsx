@@ -18,19 +18,51 @@ import {
   Loader2,
   Mail,
   RefreshCw,
+  ScanSearch,
   Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { KpiCard, PanelTitle, Surface } from "@/components/phoenix/ui";
 import { ErrorState, LoadingState } from "@/components/shared/page-states";
 import { cn, formatNumber } from "@/lib/utils";
-import type { SavInboxPayload, SavThread } from "@/lib/sav/types";
+import type { SavInboxPayload, SavThread, SavThreadReview, SavVerdict } from "@/lib/sav/types";
 
 const PRESETS = [
   { key: "7", label: "7 jours" },
   { key: "14", label: "14 jours" },
   { key: "30", label: "30 jours" },
 ] as const;
+
+/** Un verdict n'a de sens que s'il se lit d'un coup d'œil dans la liste. */
+const VERDICTS: Record<SavVerdict, { label: string; className: string }> = {
+  ok: {
+    label: "OK",
+    className:
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200",
+  },
+  partial: {
+    label: "Incomplet",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  },
+  off: {
+    label: "À côté",
+    className: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-200",
+  },
+};
+
+function VerdictBadge({ verdict }: { verdict: SavVerdict }) {
+  const tone = VERDICTS[verdict];
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+        tone.className
+      )}
+    >
+      {tone.label}
+    </span>
+  );
+}
 
 function rangeFor(days: number) {
   const end = new Date();
@@ -65,6 +97,10 @@ export function SavBoard() {
   const [threadLoading, setThreadLoading] = useState(false);
   const [onlyRefunds, setOnlyRefunds] = useState(false);
   const [onlyAwaiting, setOnlyAwaiting] = useState(false);
+  const [onlyFlagged, setOnlyFlagged] = useState(false);
+  const [reviews, setReviews] = useState<Record<string, SavThreadReview>>({});
+  const [reviewingPeriod, setReviewingPeriod] = useState(false);
+  const [reviewingThread, setReviewingThread] = useState(false);
 
   const load = useCallback(
     async (force?: boolean) => {
@@ -107,12 +143,87 @@ export function SavBoard() {
     }
   }, []);
 
+  /** Les verdicts sont conservés par fil : un rafraîchissement ne les efface pas. */
+  const runReview = useCallback(
+    async (payload: { threadId?: string; start?: string; end?: string }) => {
+      const res = await fetch("/api/sav/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Analyse indisponible");
+
+      const rows = (body.reviews || []) as SavThreadReview[];
+      setReviews((prev) => {
+        const next = { ...prev };
+        for (const review of rows) next[review.threadId] = review;
+        return next;
+      });
+      return body as { reviews: SavThreadReview[]; remaining?: number; failed?: number };
+    },
+    []
+  );
+
+  const reviewPeriod = useCallback(async () => {
+    setReviewingPeriod(true);
+    try {
+      const result = await runReview(rangeFor(days));
+      const flagged = result.reviews.filter(
+        (review) => review.worst === "off" || review.worst === "partial"
+      ).length;
+      toast.success(
+        flagged
+          ? `${flagged} fil(s) à revoir sur ${result.reviews.length} analysés.`
+          : `${result.reviews.length} fil(s) analysés, rien à signaler.`
+      );
+      if (result.remaining) {
+        toast.message(`${result.remaining} fil(s) restants — relance pour continuer.`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Analyse indisponible");
+    } finally {
+      setReviewingPeriod(false);
+    }
+  }, [days, runReview]);
+
+  const reviewSelected = useCallback(async () => {
+    if (!selected) return;
+    setReviewingThread(true);
+    try {
+      await runReview({ threadId: selected.id });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Analyse indisponible");
+    } finally {
+      setReviewingThread(false);
+    }
+  }, [runReview, selected]);
+
   const threads = useMemo(() => {
     let rows = data?.threads ?? [];
     if (onlyRefunds) rows = rows.filter((row) => row.refundHint);
     if (onlyAwaiting) rows = rows.filter((row) => row.awaitingReply);
+    if (onlyFlagged) {
+      rows = rows.filter((row) => {
+        const worst = reviews[row.id]?.worst;
+        return worst === "off" || worst === "partial";
+      });
+    }
     return rows;
-  }, [data, onlyRefunds, onlyAwaiting]);
+  }, [data, onlyRefunds, onlyAwaiting, onlyFlagged, reviews]);
+
+  /** Verdict par message sortant, pour l'afficher au bon endroit dans le fil. */
+  const selectedVerdicts = useMemo(() => {
+    const map = new Map<string, { verdict: SavVerdict; reason: string }>();
+    if (!selected) return map;
+    for (const exchange of reviews[selected.id]?.exchanges ?? []) {
+      map.set(exchange.replyMessageId, {
+        verdict: exchange.verdict,
+        reason: exchange.reason,
+      });
+    }
+    return map;
+  }, [reviews, selected]);
 
   const metrics = data?.metrics;
 
@@ -159,6 +270,20 @@ export function SavBoard() {
               <RefreshCw className="h-3.5 w-3.5" />
             )}
             Rafraîchir
+          </button>
+          <button
+            type="button"
+            onClick={() => void reviewPeriod()}
+            disabled={reviewingPeriod || loading}
+            title="Fait relire les réponses du SAV et signale celles qui ne répondent pas à la demande"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-2.5 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:border-violet-800 dark:text-violet-200 dark:hover:bg-violet-950"
+          >
+            {reviewingPeriod ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ScanSearch className="h-3.5 w-3.5" />
+            )}
+            Analyser
           </button>
         </div>
       </div>
@@ -265,6 +390,18 @@ export function SavBoard() {
                 >
                   Refunds
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setOnlyFlagged((v) => !v)}
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-[10px] font-medium",
+                    onlyFlagged
+                      ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200"
+                      : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"
+                  )}
+                >
+                  À revoir
+                </button>
               </div>
             }
           >
@@ -288,6 +425,9 @@ export function SavBoard() {
                   <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
                     {thread.clientName || thread.client}
                   </span>
+                  {reviews[thread.id]?.worst ? (
+                    <VerdictBadge verdict={reviews[thread.id].worst as SavVerdict} />
+                  ) : null}
                   {thread.refundHint ? (
                     <BadgeDollarSign className="h-3.5 w-3.5 shrink-0 text-amber-600" />
                   ) : null}
@@ -324,7 +464,26 @@ export function SavBoard() {
         </Surface>
 
         <Surface plain className="p-3">
-          <PanelTitle accent="violet">
+          <PanelTitle
+            accent="violet"
+            right={
+              selected ? (
+                <button
+                  type="button"
+                  onClick={() => void reviewSelected()}
+                  disabled={reviewingThread || threadLoading}
+                  className="inline-flex items-center gap-1 rounded-md border border-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-700 disabled:opacity-50 dark:border-violet-800 dark:text-violet-200"
+                >
+                  {reviewingThread ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <ScanSearch className="h-3 w-3" />
+                  )}
+                  Analyser ce fil
+                </button>
+              ) : null
+            }
+          >
             {selected ? `Historique · ${selected.clientName || selected.client}` : "Historique"}
           </PanelTitle>
 
@@ -349,7 +508,9 @@ export function SavBoard() {
               ) : null}
 
               <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
-                {selected.messages.map((message) => (
+                {selected.messages.map((message) => {
+                  const verdict = selectedVerdicts.get(message.id);
+                  return (
                   <div
                     key={message.id}
                     className={cn(
@@ -376,8 +537,17 @@ export function SavBoard() {
                     <pre className="mt-1.5 whitespace-pre-wrap break-words font-sans text-[11px] leading-relaxed text-slate-700 dark:text-slate-200">
                       {message.body || message.preview || "(corps vide)"}
                     </pre>
+                    {verdict ? (
+                      <div className="mt-2 flex items-start gap-1.5 border-t border-slate-200/70 pt-2 dark:border-slate-700/70">
+                        <VerdictBadge verdict={verdict.verdict} />
+                        <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+                          {verdict.reason}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

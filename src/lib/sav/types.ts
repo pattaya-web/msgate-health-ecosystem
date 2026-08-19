@@ -68,3 +68,29 @@ export type SavInboxPayload = {
   fetchedAt: string;
   warnings: string[];
 };
+
+/** Verdict porté sur une réponse du SAV au regard du mail client qui la précède. */
+export type SavVerdict = "ok" | "partial" | "off";
+
+export type SavExchangeReview = {
+  /** Message entrant jugé. */
+  clientMessageId: string;
+  /** Réponse du SAV rattachée à ce message. */
+  replyMessageId: string;
+  verdict: SavVerdict;
+  /** Une phrase : ce qui a été ignoré, ou pourquoi la réponse tombe à côté. */
+  reason: string;
+};
+
+export type SavThreadReview = {
+  threadId: string;
+  client: string;
+  clientName: string;
+  subject: string;
+  /** Horodatage du dernier message au moment de l'analyse : sert de clé de fraîcheur. */
+  lastMessageAt: string;
+  reviewedAt: string;
+  exchanges: SavExchangeReview[];
+  /** Le plus mauvais verdict du fil, `null` si aucun échange analysable. */
+  worst: SavVerdict | null;
+};
