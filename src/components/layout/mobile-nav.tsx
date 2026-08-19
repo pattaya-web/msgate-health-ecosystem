@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/phoenix", label: "Stats", icon: BarChart3 },
   { href: "/ads", label: "Ads", icon: Megaphone },
+  { href: "/sav", label: "SAV", icon: Mail },
   { href: "/process", label: "Process", icon: Workflow },
 ];
 
