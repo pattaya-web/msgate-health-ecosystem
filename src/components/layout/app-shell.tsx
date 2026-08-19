@@ -2,16 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ExternalLink, Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
 import Link from "next/link";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { TimezoneClocks } from "@/components/layout/timezone-clocks";
 import { useAuth } from "@/lib/auth/auth-context";
-import { MSGATE_ADMIN_URL } from "@/lib/constants";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { mockProvider } from "@/lib/providers/mock-provider";
 import { LoadingState } from "@/components/shared/page-states";
 import { cn } from "@/lib/utils";
@@ -22,7 +20,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const wideContent = pathname === "/ads" || pathname?.startsWith("/ads/");
+  const wideContent =
+    pathname === "/ads" ||
+    pathname?.startsWith("/ads/") ||
+    pathname === "/ads-uploader" ||
+    pathname?.startsWith("/ads-uploader/") ||
+    pathname === "/download-tiktok" ||
+    pathname?.startsWith("/download-tiktok/") ||
+    pathname === "/studio" ||
+    pathname?.startsWith("/studio/") ||
+    pathname === "/bank-pages" ||
+    pathname?.startsWith("/bank-pages/");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(true);
   const [hydrated, setHydrated] = useState(false);
@@ -167,18 +175,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <ThemeToggle />
-
-            <Button
-              asChild
-              size="sm"
-              className="h-8 shrink-0 gap-1.5 bg-gradient-to-r from-emerald-500 to-emerald-700 text-xs text-white shadow-sm hover:from-emerald-600 hover:to-emerald-800"
-            >
-              <a href={MSGATE_ADMIN_URL} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">MSGate Admin</span>
-                <span className="sm:hidden">Admin</span>
-              </a>
-            </Button>
           </div>
         </header>
 

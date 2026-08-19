@@ -1292,16 +1292,6 @@ export class MockDataProvider implements IDataProvider {
         results.push({ type: "MID", id: mid.id, title: mid.reference_code, href: "/ecosystem?type=mid" });
       }
     }
-    for (const alert of this.store.alerts) {
-      if (alert.title.toLowerCase().includes(q)) {
-        results.push({ type: "Alert", id: alert.id, title: alert.title, href: `/alerts?id=${alert.id}` });
-      }
-    }
-    for (const rc of this.store.recoveryCases) {
-      if (rc.title.toLowerCase().includes(q)) {
-        results.push({ type: "Recovery", id: rc.id, title: rc.title, href: `/recovery/${rc.id}` });
-      }
-    }
     for (const sop of this.store.sops) {
       if (sop.title.toLowerCase().includes(q)) {
         results.push({ type: "SOP", id: sop.id, title: sop.title, href: `/sop/${sop.id}` });

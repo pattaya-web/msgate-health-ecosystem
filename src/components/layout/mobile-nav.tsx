@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, LayoutDashboard, Megaphone, Menu, Network } from "lucide-react";
+import { BarChart3, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/", label: "Cockpit", icon: LayoutDashboard },
-  { href: "/ecosystem", label: "Ecosystem", icon: Network },
-  { href: "/phoenix", label: "STATS", icon: BarChart3 },
+  { href: "/phoenix", label: "Stats", icon: BarChart3 },
   { href: "/ads", label: "Ads", icon: Megaphone },
+  { href: "/process", label: "Process", icon: Workflow },
 ];
 
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
@@ -20,7 +19,12 @@ export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
       <div className="flex items-stretch">
         {items.map((item) => {
           const active =
-            item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            item.href === "/process"
+              ? pathname === "/process" ||
+                pathname.startsWith("/process/") ||
+                pathname === "/sop" ||
+                pathname.startsWith("/sop/")
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
             <Link

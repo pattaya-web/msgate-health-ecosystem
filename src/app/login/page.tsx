@@ -5,11 +5,10 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth/auth-context";
 import { DEMO_CREDENTIALS } from "@/lib/mock/data";
-import { MSGATE_ADMIN_URL } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -167,16 +166,6 @@ export default function LoginPage() {
             ))}
           </CardContent>
         </Card>
-
-        <a
-          href={MSGATE_ADMIN_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          Ouvrir MSGate Admin (factures, ads, refunds)
-        </a>
       </div>
     </div>
   );

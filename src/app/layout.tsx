@@ -20,7 +20,7 @@ const appMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "MSGate Health Ecosystem",
   description:
-    "Operational health cockpit for infrastructure, recovery, SOP and weekly business KPIs.",
+    "Operational health cockpit for ads, stats, ecosystem and process.",
 };
 
 export const viewport: Viewport = {

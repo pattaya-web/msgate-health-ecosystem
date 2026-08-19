@@ -22,12 +22,28 @@ export async function graphGet<T extends GraphError>(path: string, token: string
 export async function graphPost<T extends GraphError>(
   path: string,
   token: string,
-  body: Record<string, string>
+  body: Record<string, unknown>
 ): Promise<T> {
+  const params = new URLSearchParams();
+  params.set("access_token", token);
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined || value === null) continue;
+    params.set(key, typeof value === "string" ? value : JSON.stringify(value));
+  }
   const res = await fetch(`${GRAPH}/${requireMetaConfig().apiVersion}/${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ ...body, access_token: token }),
+    body: params,
+    cache: "no-store",
+  });
+  return (await res.json()) as T;
+}
+
+export async function graphPostForm<T extends GraphError>(path: string, token: string, form: FormData): Promise<T> {
+  form.set("access_token", token);
+  const res = await fetch(`${GRAPH}/${requireMetaConfig().apiVersion}/${path}`, {
+    method: "POST",
+    body: form,
     cache: "no-store",
   });
   return (await res.json()) as T;

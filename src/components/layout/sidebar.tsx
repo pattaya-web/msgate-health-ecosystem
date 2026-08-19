@@ -3,36 +3,32 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   BarChart3,
-  BookOpen,
-  BriefcaseBusiness,
-  ExternalLink,
-  LayoutDashboard,
+  Download,
+  Landmark,
   LogOut,
   Megaphone,
   Network,
   PanelLeftClose,
   Settings,
-  Shield,
+  Sparkles,
+  Upload,
   Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
-import { MSGATE_ADMIN_URL } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/layout/brand-logo";
 
 const nav = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/phoenix", label: "Stats", icon: BarChart3 },
+  { href: "/ads", label: "Ads · meta spend", icon: Megaphone },
+  { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
+  { href: "/download-tiktok", label: "Download Tiktok", icon: Download },
+  { href: "/studio", label: "Creatives", icon: Sparkles },
+  { href: "/bank-pages", label: "Bank pages", icon: Landmark },
+  { href: "/process", label: "Process", icon: Workflow },
   { href: "/ecosystem", label: "Ecosystem", icon: Network },
-  { href: "/phoenix", label: "STATS", icon: BarChart3 },
-  { href: "/ads", label: "Ads · Meta spend", icon: Megaphone },
-  { href: "/process", label: "Process IBO · MID · BANK · SHOP", icon: Workflow },
-  { href: "/recovery", label: "Recovery", icon: Shield },
-  { href: "/sop", label: "SOP", icon: BookOpen },
-  { href: "/business", label: "Business", icon: BriefcaseBusiness },
-  { href: "/alerts", label: "Alerts", icon: AlertTriangle },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -74,26 +70,14 @@ export function Sidebar({
         </div>
       </div>
 
-      <div className="px-3 pt-3">
-        <a
-          href={MSGATE_ADMIN_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="glass-chip flex w-full items-center justify-between gap-2 px-2.5 py-2 text-[11px] font-medium text-slate-700 transition hover:border-emerald-300/60 hover:text-emerald-800 dark:text-slate-200 dark:hover:text-emerald-300"
-        >
-          <span className="truncate">MSGate Admin</span>
-          <ExternalLink className="h-3 w-3 shrink-0 text-emerald-600" />
-        </a>
-        <p className="mt-1.5 px-0.5 text-[10px] leading-snug text-slate-400">
-          Factures · Ads · Refunds — site principal
-        </p>
-      </div>
-
       <nav className="flex-1 space-y-0.5 px-2 py-3">
         {nav.map((item) => {
           const active =
-            item.href === "/"
-              ? pathname === "/"
+            item.href === "/process"
+              ? pathname === "/process" ||
+                pathname.startsWith("/process/") ||
+                pathname === "/sop" ||
+                pathname.startsWith("/sop/")
               : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
