@@ -55,6 +55,34 @@ function firstExternal(candidates: Address[][], house: Set<string>) {
   return null;
 }
 
+/**
+ * Un mail SAV pèse souvent plusieurs centaines de Ko (HTML, images inlinées,
+ * historique cité). L'aperçu n'en utilise que les premiers caractères : on ne
+ * télécharge donc que le début du message, sinon lire deux semaines de boîte
+ * représente des dizaines de Mo et dépasse la durée de la requête.
+ */
+const PREVIEW_BYTES = 16 * 1024;
+
+/** Beaucoup de clients écrivent en HTML seul : sans ça l'aperçu affiche les balises. */
+export function htmlToText(value: string) {
+  return value
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\/?(br|p|div|tr|li|h[1-6])[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+/** Le corps utile d'un message, quel que soit le format d'origine. */
+function bodyText(parsed: { text?: string | null; html?: string | false | null }) {
+  if (parsed.text) return parsed.text;
+  return parsed.html ? htmlToText(String(parsed.html)) : "";
+}
+
 /** Un « Re: Re: TR: sujet » et « sujet » appartiennent au même fil. */
 export function normalizeSubject(value: string) {
   return value
@@ -126,7 +154,12 @@ async function readMailbox(
 
     for await (const message of client.fetch(
       wanted,
-      { uid: true, envelope: true, source: Boolean(options.withBodies) },
+      {
+        uid: true,
+        envelope: true,
+        // Aperçu seulement : le début du message suffit, le reste coûte cher.
+        source: options.withBodies ? { maxLength: PREVIEW_BYTES } : false,
+      },
       { uid: true }
     )) {
       const envelope = message.envelope;
@@ -147,12 +180,14 @@ async function readMailbox(
       // seul un aperçu est conservé, suffisant pour repérer une demande de refund.
       let preview = "";
       if (options.withBodies && message.source) {
-        const parsed = await simpleParser(message.source);
-        preview = (parsed.text || parsed.html || "")
-          .toString()
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 400);
+        try {
+          // La source est tronquée : le parseur rend ce qu'il a pu lire, et un
+          // message illisible ne doit pas faire tomber la lecture de la boîte.
+          const parsed = await simpleParser(message.source);
+          preview = bodyText(parsed).replace(/\s+/g, " ").trim().slice(0, 400);
+        } catch {
+          preview = "";
+        }
       }
 
       out.push({
@@ -216,10 +251,7 @@ export async function fetchSavBodies(ids: string[]): Promise<Map<string, string>
         )) {
           if (!message.source) continue;
           const parsed = await simpleParser(message.source);
-          bodies.set(
-            `${target.direction}-${message.uid}`,
-            (parsed.text || parsed.html || "").toString().trim()
-          );
+          bodies.set(`${target.direction}-${message.uid}`, bodyText(parsed).trim());
         }
       } finally {
         lock.release();
