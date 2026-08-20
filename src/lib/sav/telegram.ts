@@ -47,6 +47,14 @@ export async function sendTelegram(html: string) {
     cache: "no-store",
   });
 
-  const body = (await res.json()) as { ok?: boolean; description?: string };
+  // Un proxy ou un blocage réseau répond en texte brut : `res.json()` planterait
+  // sur une erreur de parsing au lieu de dire ce qui s'est réellement passé.
+  const raw = await res.text();
+  let body: { ok?: boolean; description?: string } = {};
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw new Error(`Réponse Telegram inattendue (HTTP ${res.status}) : ${raw.slice(0, 200)}`);
+  }
   if (!res.ok || !body.ok) throw new Error(body.description || "Envoi Telegram refusé");
 }
