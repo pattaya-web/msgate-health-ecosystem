@@ -8,7 +8,10 @@ import {
   FolderClock,
   Link2,
   Loader2,
+  Maximize2,
+  Scissors,
   Sparkles,
+  Upload,
   UserRound,
   X,
 } from "lucide-react";
@@ -40,6 +43,7 @@ const EMPTY: ProductInput = {
   comparePrice: "",
   keyPoints: ["", "", ""],
   imageUrls: [],
+  brand: "",
   kind: "other",
 };
 
@@ -174,6 +178,32 @@ export default function UgcPage() {
       setFetching(false);
     }
   }, [url]);
+
+  /** Un visage déjà trouvé ailleurs : plus rapide qu'une génération. */
+  async function uploadAvatar(file: File | undefined) {
+    if (!file) return;
+    setAvatarBusy(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await fetch("/api/ugc", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "upload-avatar", avatarDataUrl: String(reader.result || "") }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error);
+        setAvatarUrl(body.url);
+        setAvatarOpen(true);
+        toast.success("Avatar chargé");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Upload impossible");
+      } finally {
+        setAvatarBusy(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
 
   /** Génère le portrait de référence, réutilisé sur tous les clips du lot. */
   async function makeAvatar() {
@@ -324,7 +354,7 @@ export default function UgcPage() {
         ))}
       </div>
 
-      {tab === "results" ? <Results batches={batches} /> : null}
+      {tab === "results" ? <Results batches={batches} onChange={loadBatches} /> : null}
 
       <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]", tab !== "generate" && "hidden")}>
         <div className="space-y-4">
@@ -371,6 +401,7 @@ export default function UgcPage() {
               <Field label="Nom du produit" value={product.name} onChange={(v) => setProduct((c) => ({ ...c, name: v }))} placeholder="Robe en lin écru" />
               <Field label="Description courte" value={product.description} onChange={(v) => setProduct((c) => ({ ...c, description: v }))} placeholder="Coupe droite, lin lavé, doublée" />
               <Field label="Prix affiché" value={product.price} onChange={(v) => setProduct((c) => ({ ...c, price: v }))} placeholder="39 €" />
+              <Field label="Marque (citée dans le CTA)" value={product.brand} onChange={(v) => setProduct((c) => ({ ...c, brand: v }))} placeholder="Boomba" />
               <Field label="Prix barré" value={product.comparePrice} onChange={(v) => setProduct((c) => ({ ...c, comparePrice: v }))} placeholder="79 €" />
             </div>
 
@@ -470,10 +501,22 @@ export default function UgcPage() {
                     </button>
                   ))}
                 </div>
-                <Button size="sm" variant="outline" onClick={() => void makeAvatar()} disabled={avatarBusy}>
-                  {avatarBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserRound className="h-3.5 w-3.5" />}
-                  {avatarUrl ? "Regénérer l'avatar" : "Générer l'avatar"}
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void makeAvatar()} disabled={avatarBusy}>
+                    {avatarBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserRound className="h-3.5 w-3.5" />}
+                    {avatarUrl ? "Regénérer" : "Générer l'avatar"}
+                  </Button>
+                  <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => void uploadAvatar(event.target.files?.[0])}
+                    />
+                    <Upload className="h-3 w-3" />
+                    Charger un visage
+                  </label>
+                </div>
               </div>
 
               {avatarBusy && !avatarUrl ? (
@@ -746,7 +789,30 @@ export default function UgcPage() {
  * Tous les lots lancés, relus depuis le disque. Chaque clip abouti est servi
  * depuis le mp4 rapatrié : il reste lisible même après l'expiration de l'URL Kie.
  */
-function Results({ batches }: { batches: UgcBatch[] }) {
+function Results({ batches, onChange }: { batches: UgcBatch[]; onChange: () => void }) {
+  const [zoom, setZoom] = useState<string | null>(null);
+  const [cutting, setCutting] = useState("");
+
+  /** Recolle les clips d'un angle en une vidéo unique, prête à publier. */
+  async function stitch(batchId: string, angleId: string) {
+    setCutting(`${batchId}:${angleId}`);
+    try {
+      const res = await fetch("/api/ugc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stitch", batchId, angleId }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      toast.success("Montage prêt");
+      onChange();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Montage impossible");
+    } finally {
+      setCutting("");
+    }
+  }
+
   if (!batches.length) {
     return (
       <EmptyState
@@ -758,6 +824,22 @@ function Results({ batches }: { batches: UgcBatch[] }) {
 
   return (
     <div className="space-y-3">
+      {zoom ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4"
+          onClick={() => setZoom(null)}
+        >
+          <video
+            src={zoom}
+            controls
+            autoPlay
+            playsInline
+            onClick={(event) => event.stopPropagation()}
+            className="max-h-[92vh] w-auto max-w-full rounded-xl shadow-2xl"
+          />
+        </div>
+      ) : null}
+
       {batches.map((batch) => {
         const ready = batch.jobs.filter((job) => job.state === "done").length;
         const failed = batch.jobs.filter((job) => job.state === "fail").length;
@@ -780,49 +862,148 @@ function Results({ batches }: { batches: UgcBatch[] }) {
               </span>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {batch.jobs.map((job, index) => {
-                const src = job.file
-                  ? `/api/ugc/file?id=${encodeURIComponent(batch.id)}&file=${encodeURIComponent(job.file)}`
-                  : job.urls[0];
-                return (
-                  <div key={`${batch.id}-${index}`} className="w-[150px]">
-                    <div className="relative aspect-[9/16] overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
-                      {src ? (
-                        <video src={src} controls playsInline className="h-full w-full object-cover" />
-                      ) : job.state === "fail" ? (
-                        <div className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center">
-                          <X className="h-4 w-4 text-rose-500" />
-                          <span className="text-[9px] leading-tight text-rose-600">{job.error}</span>
-                        </div>
-                      ) : (
-                        <div className="flex h-full items-center justify-center">
-                          <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-1">
-                      <span className="truncate text-[10px] text-slate-500">
-                        {job.angleName} · {job.sceneLabel}
-                      </span>
-                      {src ? (
-                        <a
-                          href={src}
-                          download={`${job.angleId}-${job.sceneLabel}.mp4`}
-                          className="shrink-0 text-slate-400 hover:text-emerald-600"
-                          title="Télécharger"
-                        >
-                          <Download className="h-3 w-3" />
-                        </a>
-                      ) : null}
-                    </div>
+            {/* Un bloc par angle : les clips, puis le montage de cet angle. */}
+            {[...new Set(batch.jobs.map((job) => job.angleId))].map((angleId) => {
+              const jobs = batch.jobs.filter((job) => job.angleId === angleId);
+              const allReady = jobs.every((job) => job.state === "done" && job.file);
+              const cut = batch.cuts?.[angleId];
+              const cutSrc = cut ? fileUrl(batch.id, cut) : null;
+              const busy = cutting === `${batch.id}:${angleId}`;
+
+              return (
+                <div key={angleId} className="mb-3 last:mb-0">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300">
+                      {jobs[0]?.angleName}
+                    </span>
+                    {allReady && !cut ? (
+                      <button
+                        type="button"
+                        onClick={() => void stitch(batch.id, angleId)}
+                        disabled={busy}
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60 dark:bg-emerald-500/15 dark:text-emerald-300"
+                      >
+                        {busy ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Scissors className="h-3 w-3" />
+                        )}
+                        Assembler les {jobs.length} clips
+                      </button>
+                    ) : null}
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {jobs.map((job, index) => {
+                      const src = job.file ? fileUrl(batch.id, job.file) : job.urls[0];
+                      return (
+                        <Clip
+                          key={`${angleId}-${index}`}
+                          src={src}
+                          label={job.sceneLabel}
+                          error={job.state === "fail" ? job.error : null}
+                          download={`${angleId}-${job.sceneLabel}.mp4`}
+                          onZoom={() => src && setZoom(src)}
+                        />
+                      );
+                    })}
+
+                    {cutSrc ? (
+                      <Clip
+                        src={cutSrc}
+                        label="Montage complet"
+                        error={null}
+                        download={`${batch.product.handle || "ugc"}-${angleId}.mp4`}
+                        onZoom={() => setZoom(cutSrc)}
+                        highlight
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
           </section>
         );
       })}
+    </div>
+  );
+}
+
+function fileUrl(batchId: string, file: string) {
+  return `/api/ugc/file?id=${encodeURIComponent(batchId)}&file=${encodeURIComponent(file)}`;
+}
+
+/**
+ * Vignette de clip. La vidéo est en `object-contain` : un `cover` remplirait la
+ * case mais rognerait le 9:16, donc précisément ce qu'on veut juger avant de
+ * publier. Le clic ouvre le plein écran.
+ */
+function Clip({
+  src,
+  label,
+  error,
+  download,
+  onZoom,
+  highlight,
+}: {
+  src: string | undefined;
+  label: string;
+  error: string | null;
+  download: string;
+  onZoom: () => void;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="w-[150px]">
+      <div
+        className={cn(
+          "relative aspect-[9/16] overflow-hidden rounded-lg bg-slate-900",
+          highlight && "ring-2 ring-emerald-500"
+        )}
+      >
+        {src ? (
+          <>
+            <video src={src} controls playsInline className="h-full w-full object-contain" />
+            <button
+              type="button"
+              onClick={onZoom}
+              title="Voir en grand, sans recadrage"
+              className="absolute right-1 top-1 rounded-md bg-slate-950/60 p-1 text-white opacity-70 transition-opacity hover:opacity-100"
+            >
+              <Maximize2 className="h-3 w-3" />
+            </button>
+          </>
+        ) : error ? (
+          <div className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center">
+            <X className="h-4 w-4 text-rose-500" />
+            <span className="text-[9px] leading-tight text-rose-400">{error}</span>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+          </div>
+        )}
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-1">
+        <span
+          className={cn(
+            "truncate text-[10px]",
+            highlight ? "font-medium text-emerald-600 dark:text-emerald-400" : "text-slate-500"
+          )}
+        >
+          {label}
+        </span>
+        {src ? (
+          <a
+            href={src}
+            download={download}
+            className="shrink-0 text-slate-400 hover:text-emerald-600"
+            title="Télécharger"
+          >
+            <Download className="h-3 w-3" />
+          </a>
+        ) : null}
+      </div>
     </div>
   );
 }

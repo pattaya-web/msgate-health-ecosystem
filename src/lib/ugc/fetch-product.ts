@@ -11,6 +11,7 @@ import type { ProductInput } from "@/lib/ugc/types";
  */
 type ShopifyProductJson = {
   title?: string;
+  vendor?: string;
   body_html?: string;
   description?: string;
   images?: Array<{ src?: string } | string>;
@@ -113,6 +114,13 @@ function keyPointsFrom(html: string, fallbackText: string): string[] {
   ].slice(0, 6);
 }
 
+/** Le vendor Shopify fait la marque ; sinon on la tire du domaine. */
+function brandOf(vendor: string | undefined, url: string) {
+  if (vendor && vendor.trim()) return vendor.trim();
+  const host = new URL(url).hostname.replace(/^www./i, "").split(".")[0];
+  return host.charAt(0).toUpperCase() + host.slice(1);
+}
+
 function handleOf(url: string) {
   const path = new URL(url).pathname.replace(/\/$/, "");
   return path.split("/").pop() || "produit";
@@ -155,6 +163,7 @@ function fromShopifyProduct(product: ShopifyProductJson, currency: string, url: 
     // Un prix barré inférieur au prix de vente est une donnée morte : on l'écarte.
     comparePrice:
       best?.compare && best.price && best.compare > best.price ? money(best.compare, currency) : "",
+    brand: brandOf(product.vendor, url),
     keyPoints: keyPointsFrom(html, ""),
     imageUrls: images.slice(0, 6),
     // Pré-réglage seulement : l'utilisateur corrige d'un clic dans l'interface.
@@ -249,6 +258,7 @@ export async function fetchProductFromUrl(input: string, depth = 0): Promise<Pro
     description: scraped.description.slice(0, 220),
     price: money(price, currency),
     comparePrice: compare && price && compare > price ? money(compare, currency) : "",
+    brand: brandOf(undefined, url),
     keyPoints: keyPointsFrom(html, scraped.description || scraped.text),
     imageUrls: /^https?:\/\//i.test(scraped.image) ? [secure(scraped.image)] : [],
     kind: guessKind(`${scraped.title} ${scraped.description}`),

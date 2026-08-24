@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
 import path from "path";
+import { stitchClips } from "@/lib/ugc/stitch";
 import type { ProductInput, Resolution, UgcJob } from "@/lib/ugc/types";
 
 /**
@@ -16,6 +17,8 @@ export type UgcBatch = {
   product: Pick<ProductInput, "name" | "handle" | "price" | "imageUrls">;
   resolution: Resolution;
   jobs: UgcJob[];
+  /** Montages produits, un par angle : nom de fichier dans le dossier du lot. */
+  cuts?: Record<string, string>;
 };
 
 function batchDir(id: string) {
@@ -124,6 +127,29 @@ export async function listBatches(): Promise<UgcBatch[]> {
   return batches
     .filter((batch): batch is UgcBatch => Boolean(batch))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * Assemble les clips d'un angle dans l'ordre des scènes. On refuse tant que
+ * l'angle n'est pas complet : un montage amputé d'une scène se remarque tout
+ * de suite et ferait croire à un échec de génération.
+ */
+export async function stitchAngle(batchId: string, angleId: string) {
+  const batch = await readBatch(batchId);
+  if (!batch) throw new Error("Lot introuvable");
+
+  const jobs = batch.jobs.filter((job) => job.angleId === angleId);
+  if (!jobs.length) throw new Error("Angle introuvable dans ce lot");
+  if (jobs.some((job) => job.state !== "done" || !job.file)) {
+    throw new Error("Tous les clips de cet angle ne sont pas encore prêts");
+  }
+
+  const name = `montage-${angleId}.mp4`;
+  await stitchClips(batchDir(batchId), jobs.map((job) => job.file as string), name);
+
+  batch.cuts = { ...(batch.cuts ?? {}), [angleId]: name };
+  await writeBatch(batch);
+  return name;
 }
 
 export async function readBatchFile(id: string, file: string) {

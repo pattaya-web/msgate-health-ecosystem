@@ -21,6 +21,7 @@ export type ProductInput = {
   description: string;
   price: string;
   comparePrice: string;
+  brand: string;
   keyPoints: string[];
   imageUrls: string[];
   kind: ProductKind;

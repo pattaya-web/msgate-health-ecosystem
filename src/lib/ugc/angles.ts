@@ -16,6 +16,10 @@ export const PREAMBLE = [
   "One continuous take, no cuts, no zooms, no transitions, ambient sound. ",
   "The speaker delivers the line in a natural, conversational creator tone. ",
   "Speak the dialogue EXACTLY as written, no improvisation, no added words. ",
+  "DELIVERY: the speaker is ALREADY talking when the clip starts and is still talking when it ends. ",
+  "No silence at the head or tail, no dead air, no pause between sentences, no hesitation, ",
+  "no waiting for a cue, no breath gap. The speech runs continuously for the whole duration, ",
+  "at a natural pace that fills the clip exactly, and stays perfectly lip-synced. ",
   "No on-screen text, no captions, no watermark, no logo overlay, no social media UI.",
 ].join("");
 
@@ -42,6 +46,7 @@ export function fillTemplate(text: string, product: ProductInput, casting: Casti
     product_description: product.description,
     product_price: product.price,
     compare_at_price: product.comparePrice,
+    brand: product.brand,
     key_points: points.join(", "),
     they: pronoun(casting),
     them: casting.gender === "femme" ? "her" : "him",
@@ -117,7 +122,7 @@ export const ANGLES: Angle[] = [
         prompt:
           "SCENE: The protagonist holds {{product_name}} at chest height, looking straight at the lens " +
           "with a calm confident smile.\n\n" +
-          'DIALOGUE (exact, no improv): "It is {{product_price}} right now. Link is right there, go get it."',
+          'DIALOGUE (exact, no improv): "{{brand}} sells it for {{product_price}} right now. Link is right there, go get it."',
       },
     ],
   },
@@ -154,7 +159,7 @@ export const ANGLES: Angle[] = [
         duration: 5,
         prompt:
           "SCENE: The protagonist holds {{product_name}} visible, direct eye contact with the lens.\n\n" +
-          'DIALOGUE (exact, no improv): "Tap the link before they put the price back up."',
+          'DIALOGUE (exact, no improv): "It is on the {{brand}} site. Tap the link before they put the price back up."',
       },
     ],
   },
@@ -190,7 +195,7 @@ export const ANGLES: Angle[] = [
         duration: 6,
         prompt:
           "SCENE: The protagonist holds {{product_name}} at chest height, direct look at the lens.\n\n" +
-          'DIALOGUE (exact, no improv): "If that sounds like your problem too, it is {{product_price}}. Link below."',
+          'DIALOGUE (exact, no improv): "If that sounds like your problem too, it is {{product_price}} on {{brand}}. Link below."',
       },
     ],
   },
@@ -228,7 +233,7 @@ export const ANGLES: Angle[] = [
         duration: 5,
         prompt:
           "SCENE: The protagonist holds {{product_name}} towards the lens, warm smile.\n\n" +
-          'DIALOGUE (exact, no improv): "{{product_price}}. Link is in the bio, go."',
+          'DIALOGUE (exact, no improv): "{{product_price}} from {{brand}}. Link is in the bio, go."',
       },
     ],
   },
@@ -266,7 +271,7 @@ export const ANGLES: Angle[] = [
         prompt:
           "SCENE: The protagonist holds up three fingers, then holds {{product_name}} at chest height, " +
           "direct eye contact.\n\n" +
-          'DIALOGUE (exact, no improv): "Three. {{keypoint3}}. It is {{product_price}}. Go."',
+          'DIALOGUE (exact, no improv): "Three. {{keypoint3}}. {{brand}}, {{product_price}}. Go."',
       },
     ],
   },
@@ -304,7 +309,7 @@ export const ANGLES: Angle[] = [
         duration: 5,
         prompt:
           "SCENE: The protagonist holds {{product_name}} visible, calm direct delivery.\n\n" +
-          'DIALOGUE (exact, no improv): "Link is below. Do not pay {{compare_at_price}} for the same thing."',
+          'DIALOGUE (exact, no improv): "{{brand}}, link is below. Do not pay {{compare_at_price}} for the same thing."',
       },
     ],
   },

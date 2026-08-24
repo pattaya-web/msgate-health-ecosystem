@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { createKieTask, getKieTask } from "@/lib/studio/kie";
+import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
 import { ANGLES, composeScenePrompt } from "@/lib/ugc/angles";
 import { DEFAULT_CASTING, avatarPrompt, type Casting } from "@/lib/ugc/casting";
 import { fetchProductFromUrl } from "@/lib/ugc/fetch-product";
-import { applyResults, createBatch, listBatches } from "@/lib/ugc/store";
+import { applyResults, createBatch, listBatches, stitchAngle } from "@/lib/ugc/store";
 import type { ProductInput, Resolution } from "@/lib/ugc/types";
 
 export const dynamic = "force-dynamic";
@@ -30,14 +30,17 @@ const TRANSIENT =
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Body = {
-  action?: "fetch" | "avatar" | "preview" | "generate" | "status" | "batches";
+  action?: "fetch" | "avatar" | "upload-avatar" | "preview" | "generate" | "status" | "batches" | "stitch";
   url?: string;
   product?: ProductInput;
   angleIds?: string[];
   resolution?: Resolution;
   casting?: Casting;
   avatarUrl?: string;
+  avatarDataUrl?: string;
   taskIds?: string[];
+  batchId?: string;
+  angleId?: string;
 };
 
 /** Réessaie tant que l'erreur est une saturation, avec un délai qui double. */
@@ -91,6 +94,21 @@ export async function POST(request: Request) {
   try {
     if (body.action === "batches") {
       return NextResponse.json({ batches: await listBatches() });
+    }
+
+    if (body.action === "stitch") {
+      if (!body.batchId || !body.angleId) {
+        return NextResponse.json({ error: "Lot ou angle manquant" }, { status: 400 });
+      }
+      const file = await stitchAngle(body.batchId, body.angleId);
+      return NextResponse.json({ file });
+    }
+
+    // Un visage trouvé ailleurs vaut une génération, et va bien plus vite.
+    if (body.action === "upload-avatar") {
+      if (!body.avatarDataUrl) return NextResponse.json({ error: "Image manquante" }, { status: 400 });
+      const url = await uploadBase64(body.avatarDataUrl, `avatar-${Date.now()}.png`);
+      return NextResponse.json({ url });
     }
 
     /**
