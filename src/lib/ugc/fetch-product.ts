@@ -144,7 +144,7 @@ function fromShopifyProduct(product: ShopifyProductJson, currency: string, url: 
 
   const images = (product.images ?? [])
     .map((image) => (typeof image === "string" ? image : image.src ?? ""))
-    .map((src) => (src.startsWith("//") ? `https:${src}` : src))
+    .map(secure)
     .filter((src) => /^https:\/\//i.test(src));
 
   return {
@@ -162,17 +162,45 @@ function fromShopifyProduct(product: ShopifyProductJson, currency: string, url: 
   };
 }
 
-export async function fetchProductFromUrl(input: string): Promise<ProductInput> {
+/** Les CDN servent souvent l'og:image en http : on la remonte en https. */
+function secure(src: string) {
+  if (src.startsWith("//")) return `https:${src}`;
+  return src.replace(/^http:\/\//i, "https://");
+}
+
+/**
+ * Une landing (`/pages/...`) n'a pas de fiche : elle pointe vers un ou plusieurs
+ * produits. On suit le lien le plus cité, qui est celui que la page vend.
+ */
+function linkedProduct(html: string, url: string) {
+  const counts = new Map<string, number>();
+  for (const match of html.matchAll(/\/products\/([a-z0-9][a-z0-9-]{2,})/gi)) {
+    const handle = match[1].toLowerCase();
+    counts.set(handle, (counts.get(handle) ?? 0) + 1);
+  }
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return best ? `${new URL(url).origin}/products/${best[0]}` : null;
+}
+
+export async function fetchProductFromUrl(input: string, depth = 0): Promise<ProductInput> {
   const url = input.trim().split("?")[0].replace(/\/$/, "");
   if (!/^https?:\/\//i.test(url)) throw new Error("URL invalide");
+
+  /**
+   * Shopify localise ses prix sur l'IP appelante : la même fiche renvoie 55.00
+   * depuis un poste français et 880000.00 depuis un datacenter indonésien.
+   * `?currency=` force le marché, sans quoi le mannequin annonce un prix en
+   * roupies dans une pub destinée aux États-Unis.
+   */
+  const wanted = /\.fr\b|\.eu\b|\/fr[-/]/i.test(url) ? "EUR" : "USD";
 
   // 1) Route JSON de Shopify : prix décimaux, toutes les images, prix barré.
   for (const suffix of [".json", ".js"]) {
     try {
-      const raw = await get(`${url}${suffix}`, "application/json");
+      const raw = await get(`${url}${suffix}?currency=${wanted}`, "application/json");
       const parsed = JSON.parse(raw) as { product?: ShopifyProductJson } & ShopifyProductJson;
       const product = parsed.product ?? parsed;
-      const built = fromShopifyProduct(product, currencyOf(raw, url), url);
+      const built = fromShopifyProduct(product, wanted, url);
       if (built?.name) return built;
     } catch {
       // Boutique non-Shopify, route bloquée ou fiche privée : on continue.
@@ -183,6 +211,13 @@ export async function fetchProductFromUrl(input: string): Promise<ProductInput> 
   let html = "";
   try {
     html = await get(url, "text/html");
+
+    // Une landing renvoie vers sa fiche : on y va plutôt que de gratter la page.
+    if (depth === 0 && !/\/products\//i.test(url)) {
+      const target = linkedProduct(html, url);
+      if (target) return fetchProductFromUrl(target, depth + 1);
+    }
+
     const embedded =
       html.match(/(?:var\s+meta|ShopifyAnalytics\.meta)\s*=\s*(\{[\s\S]{0,4000}?\});/)?.[1] ||
       html.match(/"product"\s*:\s*(\{[\s\S]{0,8000}?"variants"[\s\S]{0,8000}?\})\s*[,}]/)?.[1];
@@ -203,7 +238,10 @@ export async function fetchProductFromUrl(input: string): Promise<ProductInput> 
   const compare =
     toAmount(html.match(/"compare_?at_?price"\s*:\s*"?(\d+(?:\.\d+)?)"?/i)?.[1]) ??
     toAmount(html.match(/"highPrice"\s*:\s*"?(\d+(?:\.\d+)?)"?/i)?.[1]);
-  const price = toAmount(scraped.price);
+  // Un entier sous 5 sans centimes vient d'un faux positif de regex, pas d'une
+  // fiche : mieux vaut aucun prix qu'un « un dollar » annoncé dans la vidéo.
+  const loose = toAmount(scraped.price);
+  const price = loose !== null && loose < 5 && Number.isInteger(loose) ? null : loose;
 
   return {
     handle: handleOf(url),
@@ -212,7 +250,7 @@ export async function fetchProductFromUrl(input: string): Promise<ProductInput> 
     price: money(price, currency),
     comparePrice: compare && price && compare > price ? money(compare, currency) : "",
     keyPoints: keyPointsFrom(html, scraped.description || scraped.text),
-    imageUrls: /^https:\/\//i.test(scraped.image) ? [scraped.image] : [],
+    imageUrls: /^https?:\/\//i.test(scraped.image) ? [secure(scraped.image)] : [],
     kind: guessKind(`${scraped.title} ${scraped.description}`),
   };
 }
