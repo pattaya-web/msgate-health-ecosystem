@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  /**
+   * ffmpeg-static localise son binaire via `__dirname`. Bundlé par Next, ce
+   * chemin devient `\ROOT\node_modules\...` et le spawn échoue en ENOENT. On le
+   * sort du bundle pour qu'il soit chargé par le `require` natif de Node.
+   */
+  serverExternalPackages: ["ffmpeg-static"],
+
   async redirects() {
     return [
       { source: "/alerts", destination: "/", permanent: false },

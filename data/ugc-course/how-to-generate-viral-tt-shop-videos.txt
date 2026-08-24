@@ -1,0 +1,169 @@
+# HOW TO GENERATE VIRAL TT SHOP VIDEOS
+
+https://docs.google.com/document/d/1cejtbtqxy0lH6CsLO7FmrdRAdC2tdO36PQdBxHzcTMM/
+
+HOW TO GENERATE VIRAL TT SHOP VIDEOS
+Step-by-step guide
+
+
+Generating The Character
+
+
+The way we will generate the consistent character is really simple.
+
+
+First, pick an image you want to clone (your competitors podcast video, dr barbara, etc…) you know what i mean. (copying is better than creating from scratch for ai)
+
+
+Now we will use this prompt:
+NANO BANANA PRO PROMPT
+
+
+Here's the step-by-step workflow:
+
+
+* 1. Open Gemini
+* 2. Upload image you want to clone
+* 3. Use the nano banana pro prompt for cloning
+* 4. Use that prompt to generate an image with nano banana pro 
+
+
+In the sections below, I'll walk you through the complete workflow for using this character across multiple ai tools and how to lipsync it.
+
+
+Cloning a Voice with Elevenlabs
+
+
+VERY IMPORTANT
+It's always better to copy a voice than to use a default one.
+
+
+ElevenLabs has two different options that I like:
+1. Instant voice clone
+2. Voice Design
+
+
+INSANT VOICE CLONE
+
+
+I like to use instant voice clone. When I copy voices, they sound better than the ones i generate.
+Here’s how it works:
+* Download a video from yt/tt/reels
+* Make it an mp3
+* Upload it to 11labs instant voice clone feature
+* That’s it
+
+
+  
+
+
+
+You can even use professional voice clone if you want to go deeper but not that necessary.
+
+
+VOICE DESIGN
+
+
+This one is good also, you can design a voice and change the accent etc.
+
+Use this prompt to design a voice:
+ELEVENLABS VOICE DESIGN
+
+
+
+
+Here’s how it works:
+* Upload image/video to gemini
+* Use the prompt on the docs above
+* Upload it to 11labs instant voice clone feature
+* That’s it
+
+
+  
+
+
+
+#1 Heygen Avatar IV
+Heygen Avatar IV is pretty good at lipsyncing image to video, the 1080p results are pretty good.
+
+
+This is the video i generated
+
+
+heygen-1080p.mp4
+
+
+
+
+Here’s the workflow:
+- Generate the voice with elevenlabs
+- Go to heygen > create image to video
+- upload the image you generated with nano banana pro
+- upload the voice
+- choose faster generation mode
+- i left custom motion prompts empty   
+
+
+This is it, it’s really simple but effective.
+
+
+Now i will share a new model that’s its also kinda ok, but the third model will be very good and open source.
+
+
+So you can do whatever you want without any restrictions 👿
+
+
+#2 Hedra AI
+
+
+Hedra is also pretty good. If you’re low on budget you can get 13 minutes of lipsync for the 720p version for $30/pm.
+
+
+https://www.hedra.com
+
+
+Here’s the video i generated with hedra:
+hedra-1080p.mp4
+
+
+Here’s the workflow:
+- Generate the voice with elevenlabs
+- Go to hedra > create video > choose hedra character 3
+- upload the image you generated with nano banana pro
+- upload the voice
+- i left instructions prompts empty 
+
+
+  
+
+
+
+
+
+#3 Infinitetalk AI
+
+
+I used infinitetalk from wavespeed ai platform:
+https://wavespeed.ai/models/wavespeed-ai/infinitetalk
+
+
+It's a very good open-source model. It costs $0.15 per second for 720p, which is a little expensive. 
+
+
+However, I prefer to use either heygen or this one.
+
+
+Here’s the video i generated:
+infinitetalk.mp4
+
+
+Here’s the workflow:
+- Generate the voice with elevenlabs
+- Go to wavespeed infinitetalk
+- upload the image you generated with nano banana pro
+- upload the voice
+- i left instructions prompts and mask image empty
+- i choose 720p for resolution
+
+
+That’s it

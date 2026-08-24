@@ -6,6 +6,7 @@ import {
   Download,
   Film,
   FolderClock,
+  GraduationCap,
   Link2,
   Loader2,
   Maximize2,
@@ -57,7 +58,7 @@ export default function UgcPage() {
   const [jobs, setJobs] = useState<UgcJob[]>([]);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
-  const [tab, setTab] = useState<"generate" | "results">("generate");
+  const [tab, setTab] = useState<"generate" | "results" | "course">("generate");
   const [batches, setBatches] = useState<UgcBatch[]>([]);
   const [casting, setCasting] = useState<Casting>(DEFAULT_CASTING);
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -335,6 +336,7 @@ export default function UgcPage() {
           [
             ["generate", "Générer", Film],
             ["results", `Résultats${batches.length ? ` (${batches.length})` : ""}`, FolderClock],
+            ["course", "Leçons", GraduationCap],
           ] as const
         ).map(([id, label, Icon]) => (
           <button
@@ -355,6 +357,7 @@ export default function UgcPage() {
       </div>
 
       {tab === "results" ? <Results batches={batches} onChange={loadBatches} /> : null}
+      {tab === "course" ? <Course /> : null}
 
       <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]", tab !== "generate" && "hidden")}>
         <div className="space-y-4">
@@ -925,6 +928,82 @@ function Results({ batches, onChange }: { batches: UgcBatch[]; onChange: () => v
           </section>
         );
       })}
+    </div>
+  );
+}
+
+type CourseDoc = { file: string; title: string };
+
+/** Le cours Whop, consultable sans quitter l'outil qui s'en sert. */
+function Course() {
+  const [docs, setDocs] = useState<CourseDoc[]>([]);
+  const [open, setOpen] = useState<string>("_cours-complet.md");
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void fetch("/api/ugc/course")
+        .then((res) => res.json())
+        .then((body) => setDocs(body.docs ?? []))
+        .catch(() => setDocs([]));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const timer = setTimeout(() => {
+      setLoading(true);
+      void fetch(`/api/ugc/course?file=${encodeURIComponent(open)}`)
+        .then((res) => res.json())
+        .then((body) => setText(body.text ?? "Document illisible"))
+        .catch(() => setText("Document illisible"))
+        .finally(() => setLoading(false));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [open]);
+
+  if (!docs.length) {
+    return (
+      <EmptyState
+        title="Cours indisponible"
+        description="Les leçons se lisent depuis data/ugc-course. Relance le script d'aspiration si le dossier est vide."
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <nav className="h-fit space-y-1 rounded-2xl bg-white p-2 ring-1 ring-slate-900/[0.06] lg:sticky lg:top-4 dark:bg-slate-900/70 dark:ring-slate-100/[0.06]">
+        {docs.map((doc) => (
+          <button
+            key={doc.file}
+            type="button"
+            onClick={() => setOpen(doc.file)}
+            className={cn(
+              "block w-full rounded-lg px-2.5 py-2 text-left text-[12px] font-medium leading-snug transition-colors",
+              open === doc.file
+                ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
+                : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800"
+            )}
+          >
+            {doc.title}
+          </button>
+        ))}
+      </nav>
+
+      <article className="rounded-2xl bg-white p-4 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-slate-100/[0.06]">
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+          </div>
+        ) : (
+          <pre className="whitespace-pre-wrap break-words font-sans text-[12px] leading-relaxed text-slate-700 dark:text-slate-300">
+            {text}
+          </pre>
+        )}
+      </article>
     </div>
   );
 }

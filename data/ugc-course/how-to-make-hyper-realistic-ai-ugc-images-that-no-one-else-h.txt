@@ -1,0 +1,150 @@
+# HOW TO MAKE HYPER REALISTIC AI UGC IMAGES THAT NO ONE ELSE HAS ACCESS TO
+
+https://docs.google.com/document/d/1GH_l1tsNvGG0zpV8yqot3pN-Ffi5Drx6KqvQ7ONRIG8/
+
+HOW TO MAKE HYPER REALISTIC AI UGC IMAGES THAT NO ONE ELSE HAS ACCESS TO
+(...or can tell are even ai)
+
+
+  
+  
+  
+  
+
+
+
+ok so you wanna go here: 
+
+
+https://chatgpt.com/g/g-69e7d2629a44819188b8f7bbbd63304c-start-frame-maker 
+
+
+^ 0XROAS PROMPT BAKED INTO GPT 
+
+All you do is 
+
+
+1 upload the photo REFERENCE you're using
+
+2 say ‘prompt only’
+
+3 get prompt
+
+Here’s what it looks like:
+
+
+===
+
+
+throw in your reference photo and say like this:
+
+
+  
+
+  
+
+  
+
+  
+
+
+
+thats it
+
+
+===
+then youll get a prompt out like this
+  
+
+
+
+Now… 
+
+
+You can use WHATEVER IMAGE GEN YOU WANT WITH THIS PROMPT 
+
+
+BUT… 
+
+I’ve found that SOUL 2 or SOUL CINEMA gives the best realism with this prompt 
+
+It adds overlays sometimes, that’s fine, will show you how to remove that easy. 
+
+
+but for getting a person who looks VERY DIFFERENT from anything else out there this is what i’ve found to be the best way currently 
+
+
+===
+
+
+the you paste the prompt into Higgsfield Soul 2 or soul cinema there with these settings
+
+
+  
+
+
+
+You can also use kie.ai if you’re using another image model, i just prefer soul 2 or soul cinema on higgsfield because it’s cheap and fast and higgs has these two models exclusively from what i know today 
+
+
+and then.... you get rid of overused gpt characters and you get bangers like these (all from the same prompt)
+
+
+
+
+  
+
+	  
+
+	  
+
+	  
+
+	
+
+	
+
+	
+
+
+
+Now, what if you want to put this character in different positions to use for b roll or another location?
+
+Easy
+
+…once you've got the image of the person you want, THEN you do this with gpt image 2 in kie.ai or higgsfield:
+
+
+  
+
+
+
+
+
+Why do it this way and not just use gpt?
+
+Gpt is great for locking the character with image to image 
+
+With the soul and gpt combo it keeps the realism of the soul character but now places them in other rooms and things with the realism that gpt gives (soul is not that great for other environments and details but GREAT AT FACES
+
+So use soul for selfies then gpt image to image to move the character around
+
+
+Like this: 
+
+
+
+
+  
+
+	  
+
+	  
+
+	  
+
+	
+
+Sometimes you’ll get soul adding overlays like ig and other bits, do the same method as adding the soul image to gpt image with image to image tool and just say ‘remove overlays’ 
+
+Enjoy.

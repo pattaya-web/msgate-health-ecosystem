@@ -1,0 +1,69 @@
+# HOW TO GENERATE VIRAL AI ANIMATIONS
+
+https://docs.google.com/document/d/1qD8LyZP4pMG3l0nkNyTVL5_4uk8kDRHzA6s3-mefDys/
+
+HOW TO GENERATE VIRAL AI ANIMATIONS
+Step-by-step guide
+
+
+Generating The Character
+
+
+The way we will generate the consistent character is really simple.
+
+
+First, pick an image you want to clone you know what I mean. (copying is better than creating from scratch for ai)
+
+
+Now we will use this prompt:
+Clone prompt chatgpt/gemini
+
+
+Here's the step-by-step workflow:
+
+
+* 1. Open Gemini
+* 2. Upload image you want to clone
+* 3. Use the nano banana pro prompt for cloning
+* 4. Use that prompt to generate an image with nano banana pro 
+
+
+Generate the video with VEO 3.1 Frames To Video
+
+
+There’s no need for a complex prompt.
+
+
+Im using this prompt:
+
+kidney character says: "I'm your liver and i'm the reason you can not button your jeans anymore"
+
+
+This was a 4 second video, but for 8 seconds try to keep the words length around 20-25 words
+
+  
+
+
+
+
+
+Generate the character in different scenes:
+
+
+You will use the first image as a character reference for nano banana pro, and you will generate the same kidney in multiple scenes.
+
+Give this prompt to chatgpt or gemini and describe what scene you want to add the character at, i did this:
+
+
+make the same form kidney character and make it healthier in a garden and write the prompt that shows it in the garden using my template:
+
+A high-quality 3D animated scene featuring the anthropomorphic kidney character from @img1. The same @img1  with the same form kidney is now healthier, stands on a sunlit garden path made of flagstones. Its hands are clasped together happy gesture. It is surrounded by lush green foliage, colorful blooming flowers like roses and hydrangeas, and small butterflies. In the background, there is a wooden garden bench, a ceramic pot, and soft sunlight filtering through trees. The ground is rich soil and grass.
+
+
+
+
+  
+
+
+
+This is what i got, use the same veo 3.1 prompt to continue the script:

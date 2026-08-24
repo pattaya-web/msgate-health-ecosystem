@@ -1,0 +1,619 @@
+# Animation + Claymation Example
+
+https://docs.google.com/document/d/1WA47D9T71FRFpvlIqaEaytsGdlZQAHdVVS7kITO7YHQ/
+
+Animation + Claymation Example
+Manual Claymation/Animated Ad Workflow
+Thanks to Joseph for making this guide, he’s one of the best AI Creator i’ve seen.
+
+
+What you'll need
+
+
+Tool
+	Purpose
+	Nano Banana Pro (via kie.ai)
+	All image generation, character + scenes
+	kie.ai platform
+	Submit Kling 3 / veo video 
+	ElevenLabs
+	Voiceover production
+	CapCut
+	Final edit + captions
+	Captions app
+	Caption styling (optional but recommended)
+	
+
+That's the only stack you need.
+
+
+
+
+Stage 1 — Script to visual beats
+
+
+Take your script. 
+
+
+For every line, write WHAT THE VIEWER SEES. 
+
+
+Don't show the script being read aloud, show the meaning.
+
+
+Example:
+
+
+Script: "Your blood sugar spikes after every meal and your brain pays the price."
+
+
+❌ Lazy visual: a person talking about blood sugar
+
+
+✅ Strong visual: clay glucose graph spiking → cut to clay brain shrinking → cut to clay woman holding her head
+
+
+Each visual = one clip. 
+
+
+Aim for 4-8 seconds per clip. 
+
+
+A 60-second ad = 12-15 clips.
+
+
+Write it out one clip per row, you can plug this into claude and ask it to give you a visual description based on the script. 
+
+
+#
+	Script chunk
+	Visual
+	1
+	"Your blood sugar spikes after every meal"
+	Clay glucose graph rapidly climbing on a chalkboard
+	2
+	"and your brain pays the price"
+	Clay brain shrinking and dimming inside a clay skull cutaway
+	3
+	...
+	...
+	
+
+
+
+Stage 2 — Build your master character
+
+
+This is the foundation. 
+
+
+Tool: Nano Banana Pro (via kie.ai's image playground)
+
+
+Set kie.ai aspect ratio to 9:16 once. Applies to every gen. 2K is fine. 
+
+
+Master character prompt:
+
+
+Claymation character reference. [DESCRIPTION: age, hair, body type,
+ethnicity, distinguishing features]. Wearing [SPECIFIC OUTFIT].
+Aardman-style stop-motion clay animation aesthetic, visible
+fingerprint texture on the clay, slightly imperfect surfaces, matte
+lighting, no CGI gloss. Front-facing, neutral warm expression, plain
+grey backdrop. Vertical 9:16 framing. Hand-sculpted clay model
+photographed for stop-motion animation, not a CGI render.
+
+
+Concrete example:
+
+
+Claymation character reference. A woman in her late 30s with
+shoulder-length wavy blonde hair, fair skin, light freckles.
+Wearing a black blazer over a white shirt and dark jeans, no
+jewelry. Aardman-style stop-motion clay animation aesthetic, visible fingerprint texture on the clay, slightly imperfect surfaces, matte lighting, no CGI gloss. Front-facing, neutral
+warm expression, plain grey backdrop. Vertical 9:16 framing. Hand-sculpted clay model photographed for stop-motion animation, not a CGI render.
+
+Optional add on at the end: 
+
+Negative Prompt: amateur clay sculpture, messy fingerprints, uneven childish proportions, crude modeling, real-world materials, realistic transparency, photorealistic textures, flat lighting, stock photo look, CGI hyperrealism, 2D illustration, anime style, harsh shadows, overly glossy plastic, real drain, real hair, real supplement packaging, aggressive sales graphics, miracle cure claims, medical treatment claims, scary body imagery, messy composition
+
+  
+
+
+Generate 3-5 variations. 
+
+
+Pick the ONE that nails your character. 
+
+
+Save it as master_character.jpg. 
+
+Here the thing you will change is the animation style, throw into claude gpt or gemini and ask it to give you prompt for felt stop motion animation, or lego, or pixar, or barbie doll, etc… 
+
+List of styles to pick from:
+
+felt stop motion 
+plush/toy animation
+puppet / marionette animation
+animatronic style
+plastic doll style
+action figure style
+vinyl toy style
+wooden doll style
+paper cut-out style
+cardboard craft style
+lego / brick-built animation
+miniature model style
+diorama style
+wax figure style
+porcelain doll style
+balloon / inflatable character style
+gel / translucent plastic style
+metallic robot style
+glass / crystal character style
+
+
+There are hundreds. 
+
+Material animations are engaging for specific audiences, pick the one they’ll enjoy the most. 
+
+The only thing you need to change in prompts is style. If you have a reference image then upload it into file 1 with your prompt as ref.
+
+
+
+Stage 3 — Generate every scene's frame from the master
+
+
+For each clip, you generate the start frame.
+
+
+The character consistency trick:
+
+
+In Nano Banana Pro, drop your master_character.jpg into the reference slot. 
+
+
+Then write your scene prompt with this lock language at the end:
+
+
+"Same character as reference image, keep face / hair / clothing identical, no character redesign, no facial feature changes."
+
+
+Nano Banana Pro is the only image gen that locks identity reliably across many scenes.
+
+The key with generating a consistent animation ad is to lock the master character image as file 1, then with each new scene, lock in the last 4 you generated. 
+
+The reason this works is for seamless transitions to actually be seamless, and also for colour grading consistency and character consistency.
+
+Place them in an environment now.
+
+Ex:
+
+
+  
+
+
+
+Ex:
+
+  
+
+
+Prompt:
+
+Same claymation character from reference image, now standing in a sunlit kitchen holding a tall glass of bright green juice with both hands. Wooden counter with chopped vegetables and a juicer in the background. Soft window light from camera-left, warm\nafternoon glow. Same face, same hair, same outfit, same art style as reference. Aardman-style stop-motion clay animation, fingerprint texture visible on clay, non-CGI matte finish. Vertical 9:16. Same character as reference image, keep face / hair / clothing\nidentical, no character redesign, no facial feature changes.
+
+
+Iterate 3-5 times per scene until you get a frame that matches your story board.
+For seamless transitions (optional but powerful)
+
+If you want clip 3 to flow continuously into clip 4 with no visible cut, you also need an end frame for clip 3 that's identical to the start frame of clip 4. 
+
+Same prompt approach, just describe the next pose.
+
+“Subject is from File 1. Match the lighting and color grade of File 2.
+
+
+Extreme close-up on her lips and the rim of the green juice glass as she takes a slow satisfied sip, eyes softly closed, a tiny droplet on her lower lip.
+
+
+Same Aardman stop-motion claymation style.”
+
+
+  
+
+
+
+Continue until you get the story you need.
+
+This wasn’t what I wanted for the next clip, but it’s good to show the start of the mechanism, how the product works, so I downloaded it and kept it. Can use later.
+
+
+  
+
+
+You can go here, or you can get more granular with it, ie, the juice goes into the mouth and down the throat, depending on what you want. 
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+Your images might change over time, it’s a creative flow, let yourself get creative with it as you go, for style consistency, always add the previous 3-5 images and mention “keep colour grade and colours consistent, same [claymation] animation style” 
+
+
+  
+
+
+
+  
+
+
+
+The more images you make, the more clips and variations you have to animate and work with, so if your script is 1min-2min+ you can switch it up as you go.
+
+  
+
+
+
+Prompt for above:
+
+Match the clay aesthetic and warm tone of File 1.
+
+
+Cutaway view, medium shot inside a clean smooth pink clay intestine. Gentle green glow on the walls, a few small smiling green bacteria patrolling peacefully. Bright warm calm lighting.
+
+
+Same Aardman stop-motion claymation style.
+
+-----------
+
+
+Notice how I haven't given you a script yet, but you understand that this green juice clears and fights bad bacteria in the gut. 
+
+This is what the power of good animation can do that UGC can’t. Use it well, add words to the screen and visuals that support the message you’re trying to get across.
+
+
+  
+
+
+
+Now you’re out of the mechanism of the solution, you shift to the outcome. 
+
+
+  
+
+
+^ Prompt:
+
+
+Subject is from File 2. Match the warm afternoon color grade and clay aesthetic of File 2.
+
+
+Wide shot from the side. She runs confidently on a clay treadmill in a bright sunny home gym, ponytail bouncing mid-stride, same outfit, cheerful energetic expression. Window light from the side. she is in a fitness outfit, leggings and a t shirt. 
+
+
+Same Aardman stop-motion claymation style.
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+^ PROMPT:
+
+Subject is from File 1. Match the lighting and color grade of File 2.
+
+
+Medium close-up. She stands in the sunlit kitchen holding the green product container labeled "KIWI N-RGY" forward toward the camera at chest level, big proud smile. Container fills the lower-front of the frame, glossy finish. Same outfit. SAME CLAYMATION STYLE INCLUDING PRODUCT
+
+
+Same Aardman stop-motion claymation style.
+
+
+
+
+Once happy with your images save them in a folder and label them 1-XX.
+
+
+
+
+Stage 4 — Animation prompts (the important part)
+
+Use whichever fits your ad. 
+
+
+95% of the time, use silent clip with sfx (voiceover overlay later)
+
+
+This is the standard claymation ad workflow. 
+
+
+The character moves but doesn't speak. 
+
+
+You'll overlay your ElevenLabs voiceover in CapCut after.
+
+
+
+
+
+
+Use this prompt template:
+
+
+
+
+
+
+Single frame:
+
+Keep character facial consistency, no character redesign, no facial feature changes.
+
+
+[CAMERA MOVEMENT]. [WHAT HAPPENS — 1 sentence].
+
+
+Sound effects: [SFX]. No music. No dialogue. No talking.
+
+
+Handmade stop-motion clay animation throughout, non-CGI, non-cinematic.
+
+
+
+Seamless start frame + last frame:
+
+Smooth seamless transition between the first frame and the last frame. [WHAT THE MOTION LOOKS LIKE].
+
+
+Sound effects: [SFX]. No music. No dialogue. No talking.
+
+
+Handmade stop-motion clay animation throughout, non-CGI, non-cinematic.
+
+
+
+
+Final clips + prompts here >>>
+
+Seamless: 
+
+  
+
+
+
+Single frame:
+
+
+  
+
+
+
+
+That's it for silent clips. 
+
+
+Don't overthink it. 
+
+
+
+
+Stage 5 — Edit in CapCut
+
+
+If you've done everything right, then you can just drag and drop onto the timeline. Edit like you normally would.
+
+Speed map 1.5-3x. 
+
+Add transitions. 
+
+Add sound fx. 
+
+Add music.
+
+Add voice over from your script.
+
+Done. 
+
+  
+
+
+
+Add your layers:
+
+
+  
+
+
+Add captions: 
+
+
+  
+
+
+
+Finished ad Captions_2A6156.MP4
+
+
+
+
+
+
+Bonus: Camera movement phrases
+Bonus: Camera movement phrases
+
+
+Drop any of these into the [CAMERA MOVEMENT] slot of your animation prompt. Mix and match. Default to static for most clips, overusing movement makes ads feel cheap. 
+Use motion deliberately for emphasis beats.
+
+
+Static (use most of the time)
+
+
+Phrase
+	When
+	(static camera)
+	Default. Subject does the moving, camera doesn't.
+	Locked-off tripod, completely still
+	Reinforces the static intent if Kling tries to drift
+	Push / Pull (in or out)
+
+
+Phrase
+	When
+	Slow push in
+	Building intimacy, drawing attention to detail (a sip, an expression, a product)
+	Slow pull out
+	Revealing scope, releasing tension, "zoom out from her body to reveal her standing in the kitchen"
+	Quick push in
+	Hook moments, dramatic reveal
+	Pans (horizontal sweep)
+
+
+Phrase
+	When
+	Slow pan left
+	Revealing what's beside the subject, environmental scale
+	Slow pan right
+	Same, opposite direction
+	Pan following the subject
+	Subject walks, camera tracks them sideways
+	Tilts (vertical sweep)
+
+
+Phrase
+	When
+	Slow tilt up
+	Hero reveal, looking up at something tall
+	Slow tilt down
+	Looking down at hands, product on counter, kids playing
+	Tracking (camera physically moves)
+
+
+Phrase
+	When
+	Camera tracks backward as she walks toward it
+	Walking shots, host approaching
+	Camera tracks forward following her
+	Subject leads, we follow
+	Camera circles slowly around the subject
+	Hero / product showcase
+	Handheld / Kinetic
+
+
+Phrase
+	When
+	Subtle handheld sway
+	Energetic moments — running, action, kinetic energy
+	Natural handheld bob
+	Walking POV, casual movement
+	Heavy handheld shake
+	Excitement, drama, paparazzi feel
+	Quick / Punchy
+
+
+Phrase
+	When
+	Quick whip-pan to the right
+	Cutting to a different subject mid-clip, energy spike
+	Sharp cut to a tight close-up
+	Hard reveal moments
+	Snap zoom in
+	Comedy / TikTok energy
+	
+
+
+
+For seamless transitions (clip → clip)
+
+
+Use these in the seamless prompt's [WHAT THE MOTION LOOKS LIKE] slot to make the cut between two clips feel intentional:
+
+
+Phrase
+	Pairs with
+	Camera continues its push-in from the previous frame
+	When clip 1 ended pushing in and clip 2 keeps going
+	Smooth match-cut between the two frames
+	Same subject, slightly different pose — cleanest invisible cut
+	Camera follows the [juice/character/object] as it moves
+	Tracking a specific element across clips
+	Whip-pan transition between scenes
+	Energy break, scene change with motion blur
+	Camera pulls back to reveal
+	Going from tight detail (clip 1) to wider context (clip 2)
+	Camera dives into the scene
+	Going from external (clip 1) to internal/anatomical (clip 2)
+	Slow drift between poses
+	Calm/intimate transitions like the partner kiss
+	
+
+Bonus: Build it yourself in Claude Code
+Bonus: Build it yourself in Claude Code
+Want a local automation tool? Open Claude Code, paste the prompt below, and it builds it for you. Edit it however you want after — it's all your code.
+Setup
+
+
+Install Claude Code: claude.com/claude-code 
+In a terminal:
+
+mkdir my-pipeline && cd my-pipeline
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+echo "KIE_API_KEY=..." >> .env
+echo "OPENAI_API_KEY=sk-..." >> .env
+claude
+
+
+
+Paste this prompt as your first message:
+
+
+
+
+
+Build me a local Python automation tool for animated video ads.
+I drop a script + character image + style note into inputs/. The tool:
+1. Segments my script into 4-8s visual beats using Anthropic Claude
+2. Writes a Nano Banana Pro image prompt per beat
+3. Writes a Kling animation prompt per beat
+4. Saves all prompts into outputs/clips/01/, 02/, etc folders
+5. Waits while I generate images on kie.ai and drop them as frame.jpg
+  into each clip folder
+6. When I run the next command, it fires every frame + animation
+  prompt to Kling on kie.ai, polls, downloads MP4s into each folder
+7. Tier is configurable via KLING_TIER env var, default standard-720p
+8. (Optional) If inputs/voiceover.mp3 exists, transcribe with OpenAI
+  Whisper to time clips against real VO
+9. Skips and continues on errors. Resumable.
+10. Final summary shows what worked + path to MP4s for CapCut
+Use httpx, python-dotenv. Clear functions per stage so I can edit later.
+Include a README with usage. Build it, show me the file tree, tell me
+what to drop in inputs/ to test.
+
+
+
+What it does
+
+
+* I paste in a script
+* It writes all the image + animation prompts for me
+* I generate the images on Nano Banana Pro, drop them into the clip folders
+* It fires every clip through Kling, downloads finished MP4s
+* I drag the MP4s into CapCut and edit
