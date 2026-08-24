@@ -288,3 +288,48 @@ table {
     animation: none;
   }
 }
+
+/* Facturation : a l impression, seule la feuille A4 sort, sans le cockpit autour. */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #invoice-print,
+  #invoice-print * {
+    visibility: visible !important;
+  }
+
+  #invoice-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0;
+    box-shadow: none !important;
+  }
+
+  .invoice-preview,
+  .invoice-preview > div {
+    background: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+  }
+
+  /* Le zoom ne sert qu'a l'apercu : la feuille sort toujours en A4 pleine taille. */
+  .invoice-zoom {
+    zoom: 1 !important;
+  }
+}

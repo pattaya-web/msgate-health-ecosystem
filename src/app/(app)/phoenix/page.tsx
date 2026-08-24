@@ -32,7 +32,6 @@ import { DateRangePicker } from "@/components/phoenix/date-range-picker";
 import { LifetimePanel } from "@/components/phoenix/lifetime-panel";
 import { MultiSelect } from "@/components/phoenix/multi-select";
 import { PhoenixRefundPanel } from "@/components/phoenix/refund-panel";
-import { ProfitCalculator } from "@/components/phoenix/profit-calculator";
 import { BreakEvenCalculator } from "@/components/phoenix/break-even-calculator";
 import { SourceClocks, TzBadge, type TzSource } from "@/components/phoenix/source-clocks";
 import {
@@ -47,7 +46,7 @@ import { Card } from "@/components/ui/card";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS } from "@/lib/meta/buckets";
 import type { RoasDaily } from "@/lib/metrics/roas-daily";
 
-type TabId = "overview" | "profit" | "breakeven" | "checkout" | "refunds";
+type TabId = "overview" | "breakeven" | "checkout" | "refunds";
 
 const CATEGORIES: Array<{ key: OrderCategory; label: string; color: string }> = [
   { key: "direct", label: "Direct Sale", color: "#6366f1" },
@@ -413,7 +412,6 @@ export default function PhoenixPage() {
             onChange={(next) => setTab(next)}
             options={[
               { value: "overview" as TabId, label: "Vue d'ensemble" },
-              { value: "profit" as TabId, label: "Profit" },
               { value: "breakeven" as TabId, label: "Break-even" },
               { value: "checkout" as TabId, label: "Checkout" },
               { value: "refunds" as TabId, label: "Remboursements" },
@@ -426,7 +424,7 @@ export default function PhoenixPage() {
       <div
         className={cn(
           "flex flex-wrap items-center gap-2 rounded-2xl bg-white px-2.5 py-2 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-white/[0.06]",
-          (tab === "profit" || tab === "breakeven") && "hidden"
+          tab === "breakeven" && "hidden"
         )}
       >
         <DateRangePicker
@@ -517,7 +515,6 @@ export default function PhoenixPage() {
 
       {tab === "overview" ? <RoasBlock data={roas} loading={roasLoading} /> : null}
 
-      {tab === "profit" ? <ProfitCalculator /> : null}
 
       {tab === "breakeven" ? <BreakEvenCalculator /> : null}
 

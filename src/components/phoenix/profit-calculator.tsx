@@ -49,17 +49,17 @@ type FieldId =
 
 type Fields = Record<FieldId, string>;
 
-/** Typed once by the operator and remembered; everything else comes from the API. */
+/**
+ * Typed once by the operator and remembered; everything else comes from the API.
+ * Only the alert *prices* stay manual — their volumes come from Disputifier.
+ */
 const MANUAL_FIELDS: FieldId[] = [
   "processingRate",
   "fixedProcessingFee",
   "crmRate",
   "chargebackFee",
-  "rdrCount",
   "rdrFee",
-  "ethocaCount",
   "ethocaFee",
-  "cdrnCount",
   "cdrnFee",
   "cogs",
   "otherCosts",
@@ -211,20 +211,45 @@ export function ProfitCalculator() {
     (async () => {
       try {
         const params = new URLSearchParams({ start: range.start, end: range.end });
-        const res = await fetch(`/api/profit/inputs?${params}`, { cache: "no-store" });
-        const body = await res.json();
-        if (cancelled || !res.ok) return;
 
-        const data = body as ProfitInputs;
-        setInputs(data);
+        // Disputifier is a separate source: its outage must not blank the rest.
+        const [inputsRes, alertsRes] = await Promise.allSettled([
+          fetch(`/api/profit/inputs?${params}`, { cache: "no-store" }).then(async (res) =>
+            res.ok ? ((await res.json()) as ProfitInputs) : null
+          ),
+          fetch(
+            `/api/disputifier/alerts?start=${range.start}&end=${range.end}&merchant=all&mid=all&type=all&infer=0`,
+            { cache: "no-store" }
+          ).then(async (res) => (res.ok ? await res.json() : null)),
+        ]);
+
+        if (cancelled) return;
+
+        const data = inputsRes.status === "fulfilled" ? inputsRes.value : null;
+        const byType =
+          alertsRes.status === "fulfilled" ? alertsRes.value?.totals?.byType : undefined;
+
+        if (data) setInputs(data);
+
         setFields((current) => ({
           ...current,
-          revenue: String(data.revenue),
-          refunds: String(data.refunds),
-          transactions: String(data.transactions),
-          chargebacks: String(data.chargebacks),
-          chargebackValue: String(data.chargebackValue),
-          ads: String(data.ads),
+          ...(data
+            ? {
+                revenue: String(data.revenue),
+                refunds: String(data.refunds),
+                transactions: String(data.transactions),
+                chargebacks: String(data.chargebacks),
+                chargebackValue: String(data.chargebackValue),
+                ads: String(data.ads),
+              }
+            : {}),
+          ...(byType
+            ? {
+                ethocaCount: String(byType.ethoca?.count ?? 0),
+                cdrnCount: String(byType.cdrn?.count ?? 0),
+                rdrCount: String(byType.rdr?.count ?? 0),
+              }
+            : {}),
         }));
       } catch {
         // keep whatever is on screen
