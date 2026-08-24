@@ -58,6 +58,7 @@ export default function UgcPage() {
   const [casting, setCasting] = useState<Casting>(DEFAULT_CASTING);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const backoff = useRef(POLL_MS);
 
   const selected = useMemo(() => ANGLES.filter((angle) => angles.has(angle.id)), [angles]);
@@ -198,6 +199,7 @@ export default function UgcPage() {
         const hit = state.results?.[0];
         if (hit?.state === "success" && hit.urls?.[0]) {
           setAvatarUrl(hit.urls[0]);
+          setAvatarOpen(true);
           toast.success("Avatar prêt — il sera identique sur tous les clips");
           return;
         }
@@ -474,14 +476,29 @@ export default function UgcPage() {
                 </Button>
               </div>
 
+              {avatarBusy && !avatarUrl ? (
+                <div
+                  className="flex shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800"
+                  style={{ width: 84, height: 112 }}
+                >
+                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                </div>
+              ) : null}
+
               {avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={avatarUrl}
-                  alt=""
-                  className="h-28 w-21 rounded-lg object-cover ring-2 ring-emerald-400"
-                  style={{ width: 84 }}
-                />
+                <button
+                  type="button"
+                  onClick={() => setAvatarOpen(true)}
+                  title="Agrandir — vérifie le visage avant de lancer"
+                  className="group relative shrink-0 overflow-hidden rounded-lg ring-2 ring-emerald-400 transition-opacity hover:opacity-90"
+                  style={{ width: 84, height: 112 }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                  <span className="absolute inset-x-0 bottom-0 bg-slate-950/60 py-0.5 text-center text-[9px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+                    Agrandir
+                  </span>
+                </button>
               ) : null}
             </div>
 
@@ -657,6 +674,39 @@ export default function UgcPage() {
           )}
         </aside>
       </div>
+
+      {avatarOpen && avatarUrl ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+          onClick={() => setAvatarOpen(false)}
+        >
+          <div
+            className="flex max-h-full flex-col items-center gap-3"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={avatarUrl}
+              alt=""
+              className="max-h-[75vh] w-auto max-w-full rounded-xl object-contain shadow-2xl"
+            />
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => void makeAvatar()} disabled={avatarBusy}>
+                {avatarBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserRound className="h-3.5 w-3.5" />}
+                Un autre visage
+              </Button>
+              <Button size="sm" onClick={() => setAvatarOpen(false)}>
+                <Check className="h-3.5 w-3.5" />
+                Je garde celui-là
+              </Button>
+            </div>
+            <p className="max-w-md text-center text-[11px] text-slate-300">
+              Ce visage sera identique sur les {scenes.length || "…"} clips du lot. Regarde-le bien
+              maintenant : le regénérer après coup obligerait à relancer toute la génération.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {preview !== null ? (
         <div
