@@ -2,20 +2,28 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Coins, ExternalLink, Loader2, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 type Balance = { credits: number; usd: number | null };
 
 /** Le solde baisse à chaque rendu : on le rafraîchit sans attendre un rechargement. */
 const REFRESH_MS = 5 * 60 * 1000;
 
-function format(balance: Balance) {
-  const credits = balance.credits.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-  if (balance.usd === null) return `${credits} cr`;
-  return `${credits} cr · ${balance.usd.toLocaleString("fr-FR", {
-    minimumFractionDigits: 2,
+/**
+ * Deux lignes plutôt qu'une : la barre latérale fait 220 px, et « 10 503,68 cr
+ * · 52,52 $ » sur une seule ligne se faisait couper au milieu du montant — soit
+ * exactement l'information qu'on vient regarder.
+ */
+function credits(balance: Balance) {
+  return `${balance.credits.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} crédits`;
+}
+
+function dollars(balance: Balance) {
+  if (balance.usd === null) return null;
+  return balance.usd.toLocaleString("fr-FR", {
+    style: "currency",
+    currency: "USD",
     maximumFractionDigits: 2,
-  })} $`;
+  });
 }
 
 export function KieCredit() {
@@ -61,38 +69,56 @@ export function KieCredit() {
       target="_blank"
       rel="noreferrer"
       title={error || "Solde Kie AI — clique pour recharger sur kie.ai"}
-      className="mb-2 flex w-full items-center gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-2.5 py-2 text-left transition-colors hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/60 dark:hover:bg-slate-900"
+      className="mb-2 flex w-full items-start gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-2.5 py-2 text-left transition-colors hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/60 dark:hover:bg-slate-900"
     >
-      <Coins className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+      <Coins className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-          Crédits Kie AI
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            Crédits Kie AI
+          </span>
+          {loading ? <Loader2 className="h-2.5 w-2.5 animate-spin text-slate-400" /> : null}
         </div>
-        <div
-          className={cn(
-            "truncate text-[12px] font-semibold",
-            error ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"
-          )}
-        >
-          {error ? "Indisponible" : balance ? format(balance) : "…"}
+
+        {error ? (
+          <div className="text-[12px] font-semibold text-rose-600 dark:text-rose-400">
+            Indisponible
+          </div>
+        ) : balance ? (
+          <>
+            {dollars(balance) ? (
+              <div className="text-[15px] font-semibold leading-tight text-slate-900 tabular-nums dark:text-slate-100">
+                {dollars(balance)}
+              </div>
+            ) : null}
+            <div className="text-[11px] leading-tight text-slate-500 tabular-nums">
+              {credits(balance)}
+            </div>
+          </>
+        ) : (
+          <div className="text-[12px] font-semibold text-slate-400">…</div>
+        )}
+
+        <div className="mt-1 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <ExternalLink className="h-2.5 w-2.5" />
+            Recharger
+          </span>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              refresh();
+            }}
+            title="Rafraîchir le solde"
+            className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          >
+            <RefreshCw className="h-2.5 w-2.5" />
+            Rafraîchir
+          </button>
         </div>
       </div>
-      {loading ? (
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-slate-400" />
-      ) : (
-        <ExternalLink className="h-3 w-3 shrink-0 text-slate-300 dark:text-slate-600" />
-      )}
-      <button
-        type="button"
-        onClick={(event) => {
-          event.preventDefault();
-          refresh();
-        }}
-        title="Rafraîchir le solde"
-        className="shrink-0 rounded p-0.5 text-slate-300 hover:text-slate-600 dark:text-slate-600 dark:hover:text-slate-300"
-      >
-        <RefreshCw className="h-3 w-3" />
-      </button>
     </a>
   );
 }
