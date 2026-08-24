@@ -19,12 +19,14 @@ import {
   ShoppingBag,
   Sparkles,
   Upload,
+  Video,
   Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { Badge } from "@/components/ui/badge";
 import { BrandLogo } from "@/components/layout/brand-logo";
+import { KieCredit } from "@/components/layout/kie-credit";
 
 const nav = [
   { href: "/phoenix", label: "Stats", icon: BarChart3 },
@@ -32,6 +34,7 @@ const nav = [
   { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
   { href: "/download-tiktok", label: "Download Tiktok", icon: Download },
   { href: "/studio", label: "Creatives", icon: Sparkles },
+  { href: "/ugc", label: "UGC Creative", icon: Video },
   { href: "/bank-pages", label: "Bank pages", icon: Landmark },
   { href: "/invoices", label: "Facturation", icon: ReceiptText },
   { href: "/alerts-rdr", label: "Alertes RDR · Ethoca", icon: ShieldAlert },
@@ -117,6 +120,8 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-slate-100 p-3 dark:border-slate-800">
+        <KieCredit />
+
         <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 p-2.5 dark:border-slate-800 dark:bg-slate-900/60">
           <div className="truncate text-[13px] font-medium text-slate-900 dark:text-slate-100">
             {user?.full_name ?? "Guest"}

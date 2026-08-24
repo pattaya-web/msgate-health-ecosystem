@@ -29,6 +29,13 @@ async function kie<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+/** Solde du compte, en crédits Kie : l'endpoint renvoie le nombre brut dans `data`. */
+export async function getKieCredit(): Promise<number> {
+  const body = await kie<{ data?: number }>("/chat/credit");
+  if (typeof body.data !== "number") throw new Error("Kie n’a pas renvoyé de solde");
+  return body.data;
+}
+
 export type KieTask = {
   taskId: string;
   state?: string;

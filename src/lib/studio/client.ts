@@ -1,3 +1,5 @@
+import type { Ratio } from "@/lib/studio/ratios";
+
 export type StudioTask = {
   taskId: string;
   state?: string;
@@ -27,7 +29,7 @@ export function libraryFileUrl(id: string, file: string) {
 export async function saveStaticCreative(body: {
   brief?: string;
   prompt: string;
-  ratio: "1:1" | "9:16" | "3:4";
+  ratio: Ratio;
   resolution: "1K" | "2K";
   resultUrls: string[];
   referenceUrls?: string[];

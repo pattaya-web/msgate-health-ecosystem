@@ -1,9 +1,11 @@
+import type { Ratio } from "@/lib/studio/ratios";
+
 export type StaticCreative = {
   id: string;
   createdAt: string;
   brief: string;
   prompt: string;
-  ratio: "1:1" | "9:16" | "3:4";
+  ratio: Ratio;
   resolution: "1K" | "2K";
   resultFiles: string[];
   refFiles: string[];

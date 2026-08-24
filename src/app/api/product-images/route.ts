@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
-import { buildPrompt, type ShotId } from "@/lib/product-images/shots";
+import { buildPrompt, type AgeBand, type ShotId } from "@/lib/product-images/shots";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -20,7 +20,7 @@ type Body = {
   action?: "prompts" | "logo" | "generate" | "status";
   products?: GenerateProduct[];
   shots?: ShotId[];
-  brand?: string;
+  age?: AgeBand;
   logoUrl?: string;
   logoDataUrl?: string;
   taskIds?: string[];
@@ -30,7 +30,7 @@ type Body = {
 /** Les visuels produit sortent toujours en portrait 3:4 : non négociable côté client. */
 const ASPECT_RATIO = "3:4";
 
-/** Kie accepte 8 images d'entrée ; on en garde une pour le logo sur le plan packaging. */
+/** Kie accepte 8 images d'entrée ; on en garde une pour le logo du plan unboxing. */
 const MAX_PRODUCT_REFS = 6;
 
 /** Kie limite la cadence : un lot trop large déclenche « call frequency is too high ». */
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
         shots.map((shot) => ({
           handle: product.handle,
           shot,
-          prompt: buildPrompt(shot, product, body.brand),
+          prompt: buildPrompt(shot, product, body.age),
         }))
       );
       return NextResponse.json({ prompts });
@@ -117,11 +117,12 @@ export async function POST(request: Request) {
       const jobs = await runQueue(
         entries,
         async ({ product, shot }) => {
-          const prompt = buildPrompt(shot, product, body.brand);
+          const prompt = buildPrompt(shot, product, body.age);
           const productRefs = (product.referenceUrls ?? []).slice(0, MAX_PRODUCT_REFS);
 
-          // Le packaging met le logo en tête ; partout ailleurs ce sont les
-          // photos du produit qui font autorité sur sa forme et ses couleurs.
+          // L'unboxing montre le produit DANS la boîte : il lui faut le logo et les
+          // photos produit. Le logo passe en premier, le prompt s'appuie sur cet
+          // ordre pour distinguer ce qui va sur le couvercle de ce qui va dedans.
           const references = (
             shot === "packaging" ? [body.logoUrl, ...productRefs] : productRefs
           ).filter((url): url is string => Boolean(url && /^https:\/\//i.test(url)));

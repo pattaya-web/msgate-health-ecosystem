@@ -13,7 +13,14 @@ import {
   type CsvProduct,
   type CsvTable,
 } from "@/lib/product-images/csv";
-import { SHOTS, shotLabel, type ShotId } from "@/lib/product-images/shots";
+import {
+  AGE_BANDS,
+  SHOTS,
+  orderShots,
+  shotLabel,
+  type AgeBand,
+  type ShotId,
+} from "@/lib/product-images/shots";
 import { cn } from "@/lib/utils";
 
 type Job = {
@@ -37,13 +44,13 @@ export default function ProductImagesPage() {
   const [products, setProducts] = useState<CsvProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [shots, setShots] = useState<Set<ShotId>>(new Set(["flatlay", "model_front", "packaging"]));
-  const [brand, setBrand] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [logoPreview, setLogoPreview] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [approved, setApproved] = useState<Map<string, string[]>>(new Map());
   const [busy, setBusy] = useState(false);
   const [resolution, setResolution] = useState<"1K" | "2K">("2K");
+  const [age, setAge] = useState<AgeBand>("any");
   const [throttled, setThrottled] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
   const dropRef = useRef<HTMLLabelElement>(null);
@@ -172,10 +179,10 @@ export default function ProductImagesPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action: "generate",
-              brand,
               logoUrl,
               resolution,
-              shots: [...shots],
+              shots: orderShots(shots),
+              age,
               products: slice.map((product) => ({
                 handle: product.handle,
                 title: product.title,
@@ -202,7 +209,7 @@ export default function ProductImagesPage() {
         setBusy(false);
       }
     },
-    [brand, logoUrl, resolution, shots]
+    [age, logoUrl, resolution, shots]
   );
 
   function generate() {
@@ -220,6 +227,17 @@ export default function ProductImagesPage() {
     if (!batch.length) return;
     setJobs((current) => current.filter((job) => !handles.has(job.handle) || job.state === "done"));
     void submit(batch, false);
+  }
+
+  /** Tous les rendus aboutis d'un coup : le tri fin reste possible ensuite. */
+  function approveAll() {
+    const next = new Map<string, string[]>();
+    for (const job of jobs) {
+      if (job.state !== "done" || !job.urls[0]) continue;
+      next.set(job.handle, [...(next.get(job.handle) ?? []), job.urls[0]]);
+    }
+    if (!next.size) return toast.error("Aucun rendu abouti à valider");
+    setApproved(next);
   }
 
   function toggleApproval(handle: string, url: string) {
@@ -283,13 +301,19 @@ export default function ProductImagesPage() {
     <div>
       <PageHeader
         title="Image Product"
-        description="Dépose un CSV Shopify, génère les visuels produit en 3:4 avec ton packaging brandé, valide, puis réimporte le même fichier."
+        description="Dépose un CSV Shopify, génère les visuels produit en 3:4, valide, puis retélécharge le CSV avec les nouvelles images pour le réimporter dans Shopify."
         actions={
-          approved.size ? (
-            <Button size="sm" onClick={exportCsv}>
-              <Download className="h-3.5 w-3.5" />
-              CSV ({approved.size} produits)
-            </Button>
+          gallery.length ? (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={approveAll}>
+                <Check className="h-3.5 w-3.5" />
+                Tout valider ({gallery.length})
+              </Button>
+              <Button size="sm" onClick={exportCsv} disabled={!approved.size}>
+                <Download className="h-3.5 w-3.5" />
+                CSV ({approved.size} produits)
+              </Button>
+            </div>
           ) : null
         }
       />
@@ -325,14 +349,11 @@ export default function ProductImagesPage() {
 
         <div className="space-y-2 rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-slate-100/[0.06]">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            Ta marque
+            Ton logo
           </div>
-          <input
-            className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-[12px] dark:border-slate-700 dark:bg-slate-950"
-            placeholder="Nom de marque"
-            value={brand}
-            onChange={(e) => setBrand(e.target.value)}
-          />
+          <p className="text-[11px] leading-snug text-slate-500">
+            Imprimé sur une boîte blanche nue pour le plan packaging.
+          </p>
           <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 p-2 text-[12px] dark:border-slate-700">
             <input
               type="file"
@@ -379,6 +400,19 @@ export default function ProductImagesPage() {
           ))}
 
           <div className="ml-auto flex items-center gap-2 text-[12px] text-slate-500">
+            <select
+              value={age}
+              onChange={(event) => setAge(event.target.value as AgeBand)}
+              title="Âge du mannequin sur les plans avec modèle"
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+            >
+              {AGE_BANDS.map((band) => (
+                <option key={band.id} value={band.id}>
+                  {band.label}
+                </option>
+              ))}
+            </select>
+
             <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
               {(["1K", "2K"] as const).map((value) => (
                 <button

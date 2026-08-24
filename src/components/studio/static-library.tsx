@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { libraryFileUrl } from "@/lib/studio/client";
 import { STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-types";
+import { ratioAspect } from "@/lib/studio/ratios";
 import { cn } from "@/lib/utils";
 
 export function StaticLibrary() {
@@ -79,7 +80,7 @@ export function StaticLibrary() {
               <div
                 className={cn(
                   "bg-slate-100 dark:bg-slate-800",
-                  item.ratio === "1:1" ? "aspect-square" : item.ratio === "9:16" ? "aspect-[9/16]" : "aspect-[3/4]"
+                  ratioAspect(item.ratio)
                 )}
               >
                 {item.resultFiles[0] ? (

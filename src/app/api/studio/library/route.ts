@@ -1,3 +1,4 @@
+import type { Ratio } from "@/lib/studio/ratios";
 import { NextResponse } from "next/server";
 import { listStaticCreatives, saveStaticCreative } from "@/lib/studio/library";
 
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       brief?: string;
       prompt?: string;
-      ratio?: "1:1" | "9:16" | "3:4";
+      ratio?: Ratio;
       resolution?: "1K" | "2K";
       resultUrls?: string[];
       referenceUrls?: string[];

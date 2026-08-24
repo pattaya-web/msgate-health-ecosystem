@@ -7,12 +7,8 @@ import JSZip from "jszip";
 import { cn } from "@/lib/utils";
 import { assetProxy, pollStudioTask, saveStaticCreative, studioPost } from "@/lib/studio/client";
 import { STUDIO_REUSE_KEY } from "@/lib/studio/library-types";
+import { DEFAULT_RATIO, RATIOS, isWideRatio, ratioAspect } from "@/lib/studio/ratios";
 
-const RATIOS = [
-  { id: "3:4", hint: "Feed" },
-  { id: "1:1", hint: "Carré" },
-  { id: "9:16", hint: "Story" },
-] as const;
 const COUNTS = [1, 2, 4, 6, 8];
 
 type Job = {
@@ -30,7 +26,7 @@ export function StaticStudio() {
   const [prompts, setPrompts] = useState<string[]>([]);
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [promptsOpen, setPromptsOpen] = useState(true);
-  const [ratio, setRatio] = useState<(typeof RATIOS)[number]["id"]>("3:4");
+  const [ratio, setRatio] = useState<(typeof RATIOS)[number]["id"]>(DEFAULT_RATIO);
   const [resolution, setResolution] = useState<"1K" | "2K">("1K");
   const [count, setCount] = useState(1);
   const [busy, setBusy] = useState<"expand" | "gen" | null>(null);
@@ -413,7 +409,7 @@ export function StaticStudio() {
           <div
             className={cn(
               "grid gap-2",
-              ratio === "1:1" ? "grid-cols-2 md:grid-cols-3" : "grid-cols-2 md:grid-cols-4"
+              isWideRatio(ratio) || ratio === "1:1" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-2 md:grid-cols-4"
             )}
           >
             {jobs.map((job, i) => (
@@ -421,7 +417,7 @@ export function StaticStudio() {
                 <div
                   className={cn(
                     "relative bg-slate-100 dark:bg-slate-800",
-                    ratio === "1:1" ? "aspect-square" : ratio === "3:4" ? "aspect-[3/4]" : "aspect-[9/16]"
+                    ratioAspect(ratio)
                   )}
                 >
                   {job.urls[0] ? (

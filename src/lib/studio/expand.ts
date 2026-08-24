@@ -1,10 +1,11 @@
 import { scrapeProduct, type ScrapedProduct } from "@/lib/meta/ad-copy";
 import { kieClaude, uploadFromUrl } from "@/lib/studio/kie";
+import type { Ratio } from "@/lib/studio/ratios";
 
 export type ExpandInput = {
   brief: string;
   count: number;
-  ratio: "1:1" | "9:16" | "3:4";
+  ratio: Ratio;
 };
 
 export type ExpandResult = {

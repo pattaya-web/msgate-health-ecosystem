@@ -48,3 +48,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Cours Whop récupérés localement : contenu payant, jamais commité
+whop-export/
+curl.txt
+lesson*.html

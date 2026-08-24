@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { expandBrief } from "@/lib/studio/expand";
 import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
+import type { Ratio } from "@/lib/studio/ratios";
 import { expandVoiceScripts } from "@/lib/studio/vo-scripts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-type Ratio = "1:1" | "9:16" | "3:4";
 type Resolution = "1K" | "2K";
 
 export async function GET(request: Request) {
