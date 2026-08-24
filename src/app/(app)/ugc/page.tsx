@@ -64,6 +64,7 @@ export default function UgcPage() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [avatarUploaded, setAvatarUploaded] = useState(false);
   const backoff = useRef(POLL_MS);
 
   const selected = useMemo(() => ANGLES.filter((angle) => angles.has(angle.id)), [angles]);
@@ -195,8 +196,9 @@ export default function UgcPage() {
         const body = await res.json();
         if (!res.ok) throw new Error(body.error);
         setAvatarUrl(body.url);
+        setAvatarUploaded(true);
         setAvatarOpen(true);
-        toast.success("Avatar chargé");
+        toast.success("Avatar chargé — c'est lui qui fait foi, le casting est ignoré");
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Upload impossible");
       } finally {
@@ -230,6 +232,7 @@ export default function UgcPage() {
         const hit = state.results?.[0];
         if (hit?.state === "success" && hit.urls?.[0]) {
           setAvatarUrl(hit.urls[0]);
+          setAvatarUploaded(false);
           setAvatarOpen(true);
           toast.success("Avatar prêt — il sera identique sur tous les clips");
           return;
@@ -267,6 +270,7 @@ export default function UgcPage() {
           angleIds: [...angles],
           casting,
           avatarUrl,
+          avatarUploaded,
           product: { ...product, keyPoints: product.keyPoints.filter(Boolean) },
         }),
       });
@@ -464,46 +468,68 @@ export default function UgcPage() {
 
             <div className="flex flex-wrap items-start gap-3">
               <div className="flex-1 space-y-2">
-                <div className="flex flex-wrap gap-1.5">
-                  {GENDERS.map((item) => (
+                <div className={cn("space-y-2", avatarUploaded && "opacity-40")}>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GENDERS.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        disabled={avatarUploaded}
+                        onClick={() => {
+                          setCasting((current) => ({ ...current, gender: item.id }));
+                          // Seul un avatar généré devient caduc : celui que tu as
+                          // chargé reste le tien, quel que soit ce réglage.
+                          setAvatarUrl("");
+                        }}
+                        className={cn(
+                          "rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed",
+                          casting.gender === item.id
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                        )}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {AGE_BANDS.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        disabled={avatarUploaded}
+                        onClick={() => {
+                          setCasting((current) => ({ ...current, age: item.id }));
+                          setAvatarUrl("");
+                        }}
+                        className={cn(
+                          "rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed",
+                          casting.age === item.id
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                        )}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {avatarUploaded ? (
+                  <p className="text-[10px] leading-snug text-slate-500">
+                    Casting désactivé : ta photo fait foi sur le genre et l&apos;âge.{" "}
                     <button
-                      key={item.id}
                       type="button"
                       onClick={() => {
-                        setCasting((current) => ({ ...current, gender: item.id }));
                         setAvatarUrl("");
+                        setAvatarUploaded(false);
                       }}
-                      className={cn(
-                        "rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors",
-                        casting.gender === item.id
-                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                      )}
+                      className="font-medium text-emerald-600 hover:underline dark:text-emerald-400"
                     >
-                      {item.label}
+                      Retirer la photo
                     </button>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {AGE_BANDS.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setCasting((current) => ({ ...current, age: item.id }));
-                        setAvatarUrl("");
-                      }}
-                      className={cn(
-                        "rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors",
-                        casting.age === item.id
-                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
-                      )}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="outline" onClick={() => void makeAvatar()} disabled={avatarBusy}>
                     {avatarBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserRound className="h-3.5 w-3.5" />}

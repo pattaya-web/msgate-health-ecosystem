@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
+import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from "@/lib/studio/kie";
 import { ANGLES, composeScenePrompt } from "@/lib/ugc/angles";
 import { DEFAULT_CASTING, avatarPrompt, type Casting } from "@/lib/ugc/casting";
 import { fetchProductFromUrl } from "@/lib/ugc/fetch-product";
@@ -38,6 +38,8 @@ type Body = {
   casting?: Casting;
   avatarUrl?: string;
   avatarDataUrl?: string;
+  /** Un avatar chargé décrit lui-même la personne : le casting ne l'écrase pas. */
+  avatarUploaded?: boolean;
   taskIds?: string[];
   batchId?: string;
   angleId?: string;
@@ -70,7 +72,12 @@ async function runQueue<T, R>(items: T[], worker: (item: T) => Promise<R>): Prom
   return out;
 }
 
-function buildScenes(product: ProductInput, angleIds: string[], casting: Casting) {
+function buildScenes(
+  product: ProductInput,
+  angleIds: string[],
+  casting: Casting,
+  describeCasting: boolean
+) {
   const wanted = new Set(angleIds);
   return ANGLES.filter((angle) => wanted.has(angle.id)).flatMap((angle) =>
     angle.scenes.map((scene) => ({
@@ -78,7 +85,7 @@ function buildScenes(product: ProductInput, angleIds: string[], casting: Casting
       angleName: angle.name,
       sceneLabel: scene.label,
       duration: scene.duration,
-      prompt: composeScenePrompt(scene.prompt, product, casting, product.kind),
+      prompt: composeScenePrompt(scene.prompt, product, casting, product.kind, describeCasting),
     }))
   );
 }
@@ -149,7 +156,18 @@ export async function POST(request: Request) {
           chunk.map(async (taskId) => {
             try {
               const task = await getKieTask(taskId);
-              return { taskId, state: task.state, urls: task.urls, failMsg: task.failMsg ?? null };
+              /**
+               * Kie annonce la réussite sous trois libellés — success, completed
+               * ou finished — et l'échec sous trois autres. Comparer à « success »
+               * seul laissait un clip terminé tourner en chargement pour toujours.
+               * On normalise ici, une fois, pour tous ceux qui lisent ce statut.
+               */
+              const state = isKieDone(task.state)
+                ? "success"
+                : isKieFailed(task.state)
+                  ? "fail"
+                  : "pending";
+              return { taskId, state, urls: task.urls, failMsg: task.failMsg ?? null };
             } catch (error) {
               const message = error instanceof Error ? error.message : "Statut illisible";
               // Une limite de cadence n'est pas un échec : on repollera.
@@ -180,7 +198,7 @@ export async function POST(request: Request) {
     }
 
     const casting = body.casting ?? DEFAULT_CASTING;
-    const scenes = buildScenes(product, angleIds, casting);
+    const scenes = buildScenes(product, angleIds, casting, !body.avatarUploaded);
 
     // Prévisualisation : on montre les prompts finaux sans rien dépenser.
     if (body.action === "preview") {

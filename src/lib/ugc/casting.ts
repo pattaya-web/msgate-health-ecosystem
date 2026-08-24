@@ -56,9 +56,11 @@ export function avatarPrompt(casting: Casting) {
  * fait autorité sur la personne, les suivantes sur le produit — l'ordre compte,
  * et le prompt doit l'énoncer sinon le modèle mélange les deux.
  */
-export function characterLock(casting: Casting) {
-  const who = personEnglish(casting);
-  const they = casting.gender === "femme" ? "her" : "him";
+export function characterLock(casting: Casting, describe = true) {
+  // Un avatar chargé fait foi sur le genre et l'âge : le décrire en plus ne peut
+  // que contredire la photo, alors on se contente de pointer la référence.
+  const who = describe ? personEnglish(casting) : "person";
+  const they = describe ? (casting.gender === "femme" ? "her" : "him") : "them";
   return [
     "ABSOLUTE CHARACTER CONSISTENCY — the protagonist is EXACTLY the ",
     who,

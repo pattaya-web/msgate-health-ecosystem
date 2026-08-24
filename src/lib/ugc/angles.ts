@@ -35,7 +35,10 @@ export const PRODUCT_LOCK = [
   "identical print, pattern, label, seams, buttons, straps and hardware. ",
   "Do NOT substitute it with a similar product. Do NOT redesign, restyle, recolour or simplify it. ",
   "Do NOT invent branding or text on it. It is the same single object in every clip of this set. ",
-  "It stays fully visible in frame, never cropped out, never hidden by hands.",
+  "It stays fully visible in frame, never cropped out, never hidden by hands. ",
+  "IGNORE any person, model, hand or face appearing in those product reference images: ",
+  "they are packshots, not the protagonist. Take ONLY the object from them. ",
+  "The person in the video comes from the first reference image and from nowhere else.",
 ].join("");
 
 /** Jetons remplacés à la volée — mêmes noms que dans l'outil de référence. */
@@ -69,10 +72,11 @@ export function composeScenePrompt(
   scene: string,
   product: ProductInput,
   casting: Casting,
-  kind: ProductKind
+  kind: ProductKind,
+  describeCasting = true
 ) {
   return [
-    characterLock(casting),
+    characterLock(casting, describeCasting),
     PRODUCT_LOCK,
     handlingFor(kind),
     PREAMBLE,
