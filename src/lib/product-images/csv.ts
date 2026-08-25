@@ -12,6 +12,11 @@ export type CsvProduct = {
   vendor: string;
   /** Images d'origine, dans l'ordre des positions. */
   images: string[];
+  /** Texte alternatif de chaque image, aligné sur `images`. Sert à reconnaître
+   *  quelle photo montre quel article quand une fiche en mélange plusieurs. */
+  imageAlts: string[];
+  /** Une entrée par couleur déclinée, avec la photo de cette couleur. */
+  colors: Array<{ name: string; image: string }>;
   /** Index des lignes du tableau qui appartiennent à ce produit. */
   rowIndexes: number[];
 };
@@ -86,6 +91,12 @@ export function groupProducts(table: CsvTable): CsvProduct[] {
   const typeAt = column(table, "Type");
   const vendorAt = column(table, "Vendor");
   const imageAt = column(table, "Image Src");
+  const altAt = column(table, "Image Alt Text");
+  const variantImageAt = column(table, "Variant Image");
+  // Shopify n'impose pas l'ordre des options : la couleur peut être en 1, 2 ou 3.
+  const optionCols = [1, 2, 3]
+    .map((n) => ({ name: column(table, `Option${n} Name`), value: column(table, `Option${n} Value`) }))
+    .filter((pair) => pair.name >= 0 && pair.value >= 0);
 
   if (handleAt < 0) return [];
 
@@ -97,7 +108,7 @@ export function groupProducts(table: CsvTable): CsvProduct[] {
 
     let product = byHandle.get(handle);
     if (!product) {
-      product = { handle, title: "", type: "", vendor: "", images: [], rowIndexes: [] };
+      product = { handle, title: "", type: "", vendor: "", images: [], imageAlts: [], colors: [], rowIndexes: [] };
       byHandle.set(handle, product);
     }
 
@@ -107,7 +118,22 @@ export function groupProducts(table: CsvTable): CsvProduct[] {
     if (vendorAt >= 0 && row[vendorAt]?.trim() && !product.vendor) product.vendor = row[vendorAt].trim();
 
     const image = imageAt >= 0 ? (row[imageAt] ?? "").trim() : "";
-    if (image && !product.images.includes(image)) product.images.push(image);
+    if (image && !product.images.includes(image)) {
+      product.images.push(image);
+      product.imageAlts.push(altAt >= 0 ? (row[altAt] ?? "").trim() : "");
+    }
+
+    // Une couleur n'est retenue que si elle a sa propre photo : sans image de
+    // référence, la décliner ne produirait qu'une invention de plus.
+    const colorCol = optionCols.find((pair) => /colou?r|couleur/i.test(row[pair.name] ?? ""));
+    if (colorCol) {
+      const name = (row[colorCol.value] ?? "").trim();
+      const variantImage = variantImageAt >= 0 ? (row[variantImageAt] ?? "").trim() : "";
+      const shot = variantImage || image;
+      if (name && shot && !product.colors.some((entry) => entry.name === name)) {
+        product.colors.push({ name, image: shot });
+      }
+    }
   });
 
   return [...byHandle.values()];

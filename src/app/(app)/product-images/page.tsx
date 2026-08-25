@@ -21,6 +21,7 @@ import {
   type AgeBand,
   type ShotId,
 } from "@/lib/product-images/shots";
+import { autoReferences, scoreImages } from "@/lib/product-images/references";
 import { cn } from "@/lib/utils";
 
 type Job = {
@@ -38,6 +39,10 @@ const POLL_MAX_MS = 45000;
 /** Nombre de produits par requête de génération. */
 const SUBMIT_CHUNK = 3;
 
+/** « handle::Rouge » désigne une couleur du produit « handle ». */
+const baseHandle = (handle: string) => handle.split("::")[0];
+const colorOf = (handle: string) => handle.split("::")[1] ?? "";
+
 export default function ProductImagesPage() {
   const [table, setTable] = useState<CsvTable | null>(null);
   const [fileName, setFileName] = useState("");
@@ -52,6 +57,7 @@ export default function ProductImagesPage() {
   const [resolution, setResolution] = useState<"1K" | "2K">("2K");
   const [age, setAge] = useState<AgeBand>("any");
   const [refs, setRefs] = useState<Map<string, string[]>>(new Map());
+  const [perColor, setPerColor] = useState(true);
   const [throttled, setThrottled] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
   const dropRef = useRef<HTMLLabelElement>(null);
@@ -168,14 +174,14 @@ export default function ProductImagesPage() {
    * fusionne les deux vêtements en inventant des bandes qui n'existent pas.
    */
   const refsOf = useCallback(
-    (product: CsvProduct) => refs.get(product.handle) ?? product.images.slice(0, 1),
+    (product: CsvProduct) => refs.get(product.handle) ?? autoReferences(product),
     [refs]
   );
 
   function toggleRef(product: CsvProduct, image: string) {
     setRefs((current) => {
       const next = new Map(current);
-      const list = next.get(product.handle) ?? product.images.slice(0, 1);
+      const list = next.get(product.handle) ?? autoReferences(product);
       // On garde l'ordre d'origine : la première photo reste la principale.
       const wanted = new Set(list.includes(image) ? list.filter((item) => item !== image) : [...list, image]);
       next.set(product.handle, product.images.filter((item) => wanted.has(item)));
@@ -205,12 +211,23 @@ export default function ProductImagesPage() {
               resolution,
               shots: orderShots(shots),
               age,
-              products: slice.map((product) => ({
-                handle: product.handle,
-                title: product.title,
-                type: product.type,
-                referenceUrls: refsOf(product),
-              })),
+              products: slice.flatMap((product) =>
+                perColor && product.colors.length > 1
+                  ? product.colors.map((color) => ({
+                      handle: `${product.handle}::${color.name}`,
+                      title: `${product.title} — ${color.name}`,
+                      type: product.type,
+                      referenceUrls: [color.image],
+                    }))
+                  : [
+                      {
+                        handle: product.handle,
+                        title: product.title,
+                        type: product.type,
+                        referenceUrls: refsOf(product),
+                      },
+                    ]
+              ),
             }),
           });
           const body = await res.json();
@@ -231,7 +248,7 @@ export default function ProductImagesPage() {
         setBusy(false);
       }
     },
-    [age, logoUrl, refsOf, resolution, shots]
+    [age, logoUrl, perColor, refsOf, resolution, shots]
   );
 
   function generate() {
@@ -274,7 +291,13 @@ export default function ProductImagesPage() {
 
   function exportCsv() {
     if (!table || !approved.size) return toast.error("Valide au moins une image");
-    const rebuilt = applyGeneratedImages(table, approved);
+    // Les couleurs d'un même produit se rejoignent sur sa fiche CSV.
+    const merged = new Map<string, string[]>();
+    for (const [handle, urls] of approved) {
+      const key = baseHandle(handle);
+      merged.set(key, [...(merged.get(key) ?? []), ...urls]);
+    }
+    const rebuilt = applyGeneratedImages(table, merged);
     const blob = new Blob([serializeCsv(rebuilt)], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -282,12 +305,25 @@ export default function ProductImagesPage() {
     link.download = fileName.replace(/\.csv$/i, "") + "_images.csv";
     link.click();
     URL.revokeObjectURL(url);
-    toast.success(`${approved.size} produits réécrits`);
+    toast.success(`${merged.size} produits réécrits`);
   }
+
+  /** Un lot décliné par couleur pèse bien plus lourd : on l'annonce avant. */
+  const renderCount = useMemo(() => {
+    const chosen = products.filter((product) => selected.has(product.handle));
+    const subjects = chosen.reduce(
+      (total, product) => total + (perColor && product.colors.length > 1 ? product.colors.length : 1),
+      0
+    );
+    return subjects * shots.size;
+  }, [products, selected, perColor, shots]);
 
   const byProduct = useMemo(() => {
     const map = new Map<string, Job[]>();
-    for (const job of jobs) map.set(job.handle, [...(map.get(job.handle) ?? []), job]);
+    for (const job of jobs) {
+      const key = baseHandle(job.handle);
+      map.set(key, [...(map.get(key) ?? []), job]);
+    }
     return map;
   }, [jobs]);
 
@@ -453,8 +489,17 @@ export default function ProductImagesPage() {
                 </button>
               ))}
             </div>
+            <label className="flex cursor-pointer items-center gap-1.5" title="Une série de photos par couleur déclinée">
+              <input
+                type="checkbox"
+                checked={perColor}
+                onChange={() => setPerColor((value) => !value)}
+                className="h-3.5 w-3.5 accent-emerald-600"
+              />
+              Par couleur
+            </label>
             <span>
-              {selected.size} / {products.length} produits · {selected.size * shots.size} rendus
+              {selected.size} / {products.length} produits · {renderCount} rendus
             </span>
             <Button size="sm" onClick={generate} disabled={busy}>
               {busy ? (
@@ -541,32 +586,43 @@ export default function ProductImagesPage() {
                 {selected.has(product.handle) && product.images.length ? (
                   <div className="mt-2.5">
                     <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">
-                      Photos envoyées en référence — décoche celles d&apos;un autre article
+                      Photos de référence — triées automatiquement, corrige au clic
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {product.images.map((image) => {
-                        const on = refsOf(product).includes(image);
+                      {scoreImages(product).map((scored) => {
+                        const on = refsOf(product).includes(scored.url);
                         return (
                           <button
-                            key={image}
+                            key={scored.url}
                             type="button"
-                            onClick={() => toggleRef(product, image)}
+                            onClick={() => toggleRef(product, scored.url)}
+                            title={`${scored.reason}${scored.alt ? ` — « ${scored.alt} »` : ""}`}
                             className={cn(
                               "relative h-14 w-14 overflow-hidden rounded-md ring-2 transition-opacity",
                               on ? "ring-emerald-500" : "opacity-40 ring-transparent hover:opacity-70"
                             )}
                           >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={image} alt="" className="h-full w-full object-cover" />
+                            <img src={scored.url} alt="" className="h-full w-full object-cover" />
                             {on ? (
                               <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-600 p-0.5">
                                 <Check className="h-2 w-2 text-white" />
                               </span>
-                            ) : null}
+                            ) : (
+                              <span className="absolute inset-x-0 bottom-0 bg-slate-950/70 py-0.5 text-center text-[8px] leading-tight text-white">
+                                écartée
+                              </span>
+                            )}
                           </button>
                         );
                       })}
                     </div>
+                    {product.colors.length > 1 ? (
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        {product.colors.length} couleurs détectées
+                        {perColor ? " — une série de photos sera générée pour chacune." : "."}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -616,6 +672,7 @@ export default function ProductImagesPage() {
                           )}
                         </div>
                         <div className="mt-1 truncate text-[10px] text-slate-500">
+                          {colorOf(job.handle) ? `${colorOf(job.handle)} · ` : ""}
                           {shotLabel(job.shot)}
                         </div>
                       </div>
