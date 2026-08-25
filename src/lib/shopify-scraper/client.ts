@@ -83,7 +83,12 @@ export async function fetchCollections(shop: string): Promise<ShopifyCollection[
       products_count: Number(row.products_count ?? 0),
     }))
     .filter((row: ShopifyCollection) => row.handle)
-    .sort((a: ShopifyCollection, b: ShopifyCollection) => b.products_count - a.products_count);
+    // Alphabétique : on cherche une collection par son nom, pas par sa taille.
+    // `numeric` garde « Été 2 » avant « Été 10 », et la comparaison française
+    // range les accents là où on les attend.
+    .sort((a: ShopifyCollection, b: ShopifyCollection) =>
+      a.title.localeCompare(b.title, "fr", { sensitivity: "base", numeric: true })
+    );
 }
 
 /** `/products.json` pagine par `page`, sans métadonnée de fin : on s'arrête sur une page courte. */

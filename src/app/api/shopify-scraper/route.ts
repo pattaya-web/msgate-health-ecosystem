@@ -48,6 +48,12 @@ export async function GET(request: Request) {
       };
     });
 
+    // Ordre alphabétique : Shopify renvoie ses produits par date de création,
+    // ce qui rend une liste de 200 articles impossible à parcourir de l'œil.
+    summaries.sort((a, b) =>
+      a.title.localeCompare(b.title, "fr", { sensitivity: "base", numeric: true })
+    );
+
     return NextResponse.json({
       shop,
       products: summaries,

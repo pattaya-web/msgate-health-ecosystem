@@ -45,13 +45,38 @@ export default function ShopifyScraperPage() {
   const [loading, setLoading] = useState(false);
   const [loadingCollections, setLoadingCollections] = useState(false);
 
+  /**
+   * Le champ accepte un titre (« Nouveautés été »), un handle, ou un nom qui
+   * n'est pas encore dans la liste chargée. On résout d'abord contre les
+   * collections connues, sinon on transmet la saisie en handle — une boutique
+   * peut avoir une collection non listée dans `/collections.json`.
+   */
+  const resolvedCollection = useMemo(() => {
+    const typed = collection.trim();
+    if (!typed) return "";
+
+    const norm = (value: string) =>
+      value
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+    const target = norm(typed);
+
+    const hit =
+      collections.find((item) => norm(item.handle) === target) ??
+      collections.find((item) => norm(item.title) === target) ??
+      collections.find((item) => norm(item.title).startsWith(target));
+
+    return hit ? hit.handle : typed.replace(/\s+/g, "-").toLowerCase();
+  }, [collection, collections]);
+
   const params = useMemo(() => {
     const search = new URLSearchParams({ shop });
-    if (collection) search.set("collection", collection);
+    if (resolvedCollection) search.set("collection", resolvedCollection);
     if (min.trim()) search.set("min", min.trim());
     if (max.trim()) search.set("max", max.trim());
     return search;
-  }, [shop, collection, min, max]);
+  }, [shop, resolvedCollection, min, max]);
 
   const loadCollections = useCallback(async () => {
     if (!shop.trim()) {
@@ -132,18 +157,27 @@ export default function ShopifyScraperPage() {
             Collections
           </Button>
 
-          <select
-            className={cn(inputClass, "max-w-[260px]")}
-            value={collection}
-            onChange={(e) => setCollection(e.target.value)}
-          >
-            <option value="">Toute la boutique</option>
-            {collections.map((item) => (
-              <option key={item.handle} value={item.handle}>
-                {item.title} ({item.products_count})
-              </option>
-            ))}
-          </select>
+          <div className="min-w-[240px]">
+            <input
+              list="shopify-collections"
+              className={cn(inputClass, "w-full")}
+              placeholder="Toute la boutique — ou tape une collection"
+              value={collection}
+              onChange={(event) => setCollection(event.target.value)}
+            />
+            <datalist id="shopify-collections">
+              {collections.map((item) => (
+                <option key={item.handle} value={item.title}>
+                  {item.products_count} produits
+                </option>
+              ))}
+            </datalist>
+            {collection.trim() ? (
+              <p className="mt-1 text-[10px] text-slate-500">
+                Collection ciblée : <code>{resolvedCollection}</code>
+              </p>
+            ) : null}
+          </div>
 
           <input
             type="number"

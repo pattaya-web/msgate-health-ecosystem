@@ -27,6 +27,10 @@ export async function GET(request: Request) {
       num(url.searchParams.get("max"))
     );
 
+    // Même ordre qu'à l'écran : un CSV rangé autrement que l'aperçu qu'on vient
+    // de valider donne l'impression de ne pas avoir exporté la même chose.
+    filtered.sort((a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base", numeric: true }));
+
     // BOM UTF-8 : sans lui Excel casse les accents et les caractères des titres.
     const csv = `﻿${buildShopifyCsv(filtered)}`;
 
