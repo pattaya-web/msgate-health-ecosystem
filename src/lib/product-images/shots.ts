@@ -31,7 +31,12 @@ const FIDELITY =
   "Do NOT change the shade, saturation or finish. Do NOT smooth, stylise or idealise the material. " +
   "Do NOT re-tailor the fit or alter how the item drapes. " +
   "If a part of the product is not visible in the reference images, keep it out of frame rather than " +
-  "inventing it. Treat the reference as the ground truth for the product and the prompt as the scene only.";
+  "inventing it. Treat the reference as the ground truth for the product and the prompt as the scene only. " +
+  "ONE SINGLE ARTICLE. If the reference images show several different garments or objects — a matching " +
+  "top, a co-ord set, an accessory, a second colourway — reproduce ONLY the one named in the title and " +
+  "leave every other article out of the frame entirely. Never merge details between them. " +
+  "Specifically: do NOT add stripes, bands, contrast panels, piping, side tape, graphics, text or logos " +
+  "that are not already on the item. A plain garment stays plain.";
 
 /**
  * Le plan unboxing reçoit le logo EN PREMIÈRE référence, puis les photos du
@@ -69,6 +74,24 @@ const PACKAGING_PHOTOGRAPHY =
   "natural shadow, matte cardboard texture, crisp print on the lid, real material texture on the " +
   "product, true-to-life colours, sharp focus, photorealistic, luxury brand catalogue quality, " +
   "8K detail.";
+
+/**
+ * La boîte est décrite au détail près, et toujours par les mêmes mots. Sans
+ * cette spécification chaque rendu en réinvente une : format, teinte et papier
+ * changeaient d'un produit à l'autre, ce qui ruine l'idée d'un packaging de
+ * marque reconnaissable d'une fiche à la suivante.
+ */
+const BOX = [
+  "THE BOX IS ALWAYS THE SAME, in this exact and unchanging specification: ",
+  "a rigid rectangular gift box in plain matte white card, clean square corners, no gloss, no texture, ",
+  "no ribbon, no magnetic flap, no window, no printed pattern. Proportions roughly 3:2, ",
+  "photographed square to the camera from directly above. ",
+  "The supplied logo is printed once, centered, on the separate lid, in a single flat colour. ",
+  "The lid rests flat beside the box, fully in frame, so that logo reads clearly. ",
+  "Inside, plain white tissue paper, matte, lightly creased, no colour and no pattern. ",
+  "The whole set sits on a textured natural surface — raw linen or pale stone. ",
+  "Soft daylight from one side, gentle natural shadows, warm neutral palette. ",
+].join("");
 
 const UNBOXING_REMINDER =
   "Reminder: both the product and the logo must stay pixel-faithful to the reference images.";
@@ -213,10 +236,8 @@ export function buildPrompt(
       return (
         `${FIDELITY}\n\n` +
         `${LOGO_IN_SCENE}\n\n` +
-        `SCENE: Top-down unboxing photograph. ${subject}${category} lies inside an open premium ` +
-        `matte box, nested in tone-on-tone tissue paper, on a textured natural surface — raw linen ` +
-        `or pale stone. The lid rests beside the box, angled just enough that the logo printed on it ` +
-        `reads clearly. Soft daylight from one side, gentle natural shadows, warm neutral palette.` +
+        `SCENE: Top-down unboxing photograph. ${subject}${category} lies inside an open box. ` +
+        `${BOX}` +
         `\n\nNothing else is in frame: no white studio sweep, no second box, no ribbon, no bag, ` +
         `no confetti, no hands, no text and no barcode.\n\n` +
         `${PACKAGING_PHOTOGRAPHY}\n\n${FRAMING} ${UNBOXING_REMINDER}`

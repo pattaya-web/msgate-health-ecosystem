@@ -51,6 +51,7 @@ export default function ProductImagesPage() {
   const [busy, setBusy] = useState(false);
   const [resolution, setResolution] = useState<"1K" | "2K">("2K");
   const [age, setAge] = useState<AgeBand>("any");
+  const [refs, setRefs] = useState<Map<string, string[]>>(new Map());
   const [throttled, setThrottled] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
   const dropRef = useRef<HTMLLabelElement>(null);
@@ -162,6 +163,27 @@ export default function ProductImagesPage() {
   }
 
   /**
+   * Photos envoyées au modèle. Par défaut la première seulement : sur un
+   * ensemble coordonné, les suivantes montrent le haut assorti, et le modèle
+   * fusionne les deux vêtements en inventant des bandes qui n'existent pas.
+   */
+  const refsOf = useCallback(
+    (product: CsvProduct) => refs.get(product.handle) ?? product.images.slice(0, 1),
+    [refs]
+  );
+
+  function toggleRef(product: CsvProduct, image: string) {
+    setRefs((current) => {
+      const next = new Map(current);
+      const list = next.get(product.handle) ?? product.images.slice(0, 1);
+      // On garde l'ordre d'origine : la première photo reste la principale.
+      const wanted = new Set(list.includes(image) ? list.filter((item) => item !== image) : [...list, image]);
+      next.set(product.handle, product.images.filter((item) => wanted.has(item)));
+      return next;
+    });
+  }
+
+  /**
    * Envoi par petits lots : une seule requête pour cent rendus dépasserait la
    * durée max de la route, et les tuiles n'apparaîtraient qu'à la toute fin.
    */
@@ -187,7 +209,7 @@ export default function ProductImagesPage() {
                 handle: product.handle,
                 title: product.title,
                 type: product.type,
-                referenceUrls: product.images,
+                referenceUrls: refsOf(product),
               })),
             }),
           });
@@ -209,7 +231,7 @@ export default function ProductImagesPage() {
         setBusy(false);
       }
     },
-    [age, logoUrl, resolution, shots]
+    [age, logoUrl, refsOf, resolution, shots]
   );
 
   function generate() {
@@ -515,6 +537,38 @@ export default function ProductImagesPage() {
                     </div>
                   </div>
                 </div>
+
+                {selected.has(product.handle) && product.images.length ? (
+                  <div className="mt-2.5">
+                    <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                      Photos envoyées en référence — décoche celles d&apos;un autre article
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {product.images.map((image) => {
+                        const on = refsOf(product).includes(image);
+                        return (
+                          <button
+                            key={image}
+                            type="button"
+                            onClick={() => toggleRef(product, image)}
+                            className={cn(
+                              "relative h-14 w-14 overflow-hidden rounded-md ring-2 transition-opacity",
+                              on ? "ring-emerald-500" : "opacity-40 ring-transparent hover:opacity-70"
+                            )}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={image} alt="" className="h-full w-full object-cover" />
+                            {on ? (
+                              <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-600 p-0.5">
+                                <Check className="h-2 w-2 text-white" />
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
 
                 {productJobs.length ? (
                   <div className="mt-2.5 flex flex-wrap gap-2">
