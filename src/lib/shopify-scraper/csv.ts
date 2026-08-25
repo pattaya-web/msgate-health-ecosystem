@@ -53,8 +53,16 @@ const HEADERS = [
 
 type Row = Partial<Record<(typeof HEADERS)[number], string>>;
 
+/**
+ * Guillemets seulement quand le format l'exige. La route ajoute un BOM UTF-8 en
+ * tête, et `﻿"Handle"` fait lire à Shopify une colonne nommée `﻿"Handle"` : il ne
+ * trouve plus la colonne obligatoire et rejette tout le fichier avec « aucune
+ * donnée de produit ». Un premier champ nu évite ça chez tous les parseurs.
+ */
 function cell(value: string | undefined) {
-  return `"${(value ?? "").replace(/"/g, '""')}"`;
+  const text = value ?? "";
+  const needsQuotes = /[",\r\n]/.test(text) || text !== text.trim();
+  return needsQuotes ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function serialize(rows: Row[]) {

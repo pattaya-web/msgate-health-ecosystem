@@ -68,8 +68,19 @@ export function parseCsv(text: string): CsvTable {
   return { headers, rows: rows.filter((entry) => entry.some((cell) => cell.trim() !== "")) };
 }
 
+/**
+ * On ne met des guillemets que là où le format l'exige.
+ *
+ * Tout guillemeter est pourtant du CSV valide — mais le fichier commence par un
+ * BOM, et `﻿"Handle"` fait lire à Shopify une colonne nommée `﻿"Handle"` au lieu
+ * de `Handle` : il ne trouve plus la colonne obligatoire et rejette l'import
+ * avec « aucune donnée de produit ». Un premier champ nu règle le problème
+ * quelle que soit la tolérance du parseur d'en face.
+ */
 function cell(value: string | undefined) {
-  return `"${(value ?? "").replace(/"/g, '""')}"`;
+  const text = value ?? "";
+  const needsQuotes = /[",\r\n]/.test(text) || text !== text.trim();
+  return needsQuotes ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export function serializeCsv(table: CsvTable) {
