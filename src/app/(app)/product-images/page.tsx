@@ -12,6 +12,7 @@ import {
   serializeCsv,
   type CsvProduct,
   type CsvTable,
+  type Replacement,
 } from "@/lib/product-images/csv";
 import {
   AGE_BANDS,
@@ -291,11 +292,19 @@ export default function ProductImagesPage() {
 
   function exportCsv() {
     if (!table || !approved.size) return toast.error("Valide au moins une image");
-    // Les couleurs d'un même produit se rejoignent sur sa fiche CSV.
-    const merged = new Map<string, string[]>();
+    /**
+     * Les images de toutes les couleurs alimentent la galerie du produit, et
+     * chaque couleur garde les siennes à part pour que sa variante pointe sur
+     * son propre rendu plutôt que sur une photo partagée.
+     */
+    const merged = new Map<string, Replacement>();
     for (const [handle, urls] of approved) {
       const key = baseHandle(handle);
-      merged.set(key, [...(merged.get(key) ?? []), ...urls]);
+      const color = colorOf(handle);
+      const entry = merged.get(key) ?? { images: [], byColor: {} };
+      entry.images.push(...urls);
+      if (color) entry.byColor![color] = [...(entry.byColor![color] ?? []), ...urls];
+      merged.set(key, entry);
     }
     const rebuilt = applyGeneratedImages(table, merged);
     const blob = new Blob([serializeCsv(rebuilt)], { type: "text/csv;charset=utf-8;" });

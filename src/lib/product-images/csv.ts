@@ -159,9 +159,19 @@ export function groupProducts(table: CsvTable): CsvProduct[] {
  * générés ne sont pas déclinés par variante, laisser l'ancienne URL pointerait
  * vers une photo qui ne correspond plus au produit.
  */
+/**
+ * Images validées d'un produit. `byColor` n'est renseigné que si la génération
+ * a été déclinée par couleur ; chaque variante reçoit alors la première image de
+ * SA couleur en `Variant Image`, au lieu de partager une photo unique.
+ */
+export type Replacement = {
+  images: string[];
+  byColor?: Record<string, string[]>;
+};
+
 export function applyGeneratedImages(
   table: CsvTable,
-  replacements: Map<string, string[]>
+  replacements: Map<string, Replacement>
 ): CsvTable {
   const handleAt = column(table, "Handle");
   const skuAt = column(table, "Variant SKU");
@@ -171,6 +181,17 @@ export function applyGeneratedImages(
   const variantImageAt = column(table, "Variant Image");
 
   if (handleAt < 0 || imageAt < 0) return table;
+
+  // La couleur peut occuper n'importe quel rang d'option chez Shopify.
+  const optionCols = [1, 2, 3]
+    .map((n) => ({ name: column(table, `Option${n} Name`), value: column(table, `Option${n} Value`) }))
+    .filter((pair) => pair.name >= 0 && pair.value >= 0);
+
+  /** Couleur portée par une ligne de variante, si elle en a une. */
+  const colorOfRow = (row: string[]) => {
+    const pair = optionCols.find((entry) => /colou?r|couleur/i.test(row[entry.name] ?? ""));
+    return pair ? (row[pair.value] ?? "").trim() : "";
+  };
 
   const isVariantRow = (row: string[]) =>
     skuAt >= 0 ? (row[skuAt] ?? "").trim() !== "" : false;
@@ -188,9 +209,10 @@ export function applyGeneratedImages(
 
   table.rows.forEach((row, index) => {
     const handle = (row[handleAt] ?? "").trim();
-    const urls = replacements.get(handle);
+    const replacement = replacements.get(handle);
+    const urls = replacement?.images ?? [];
 
-    if (!urls?.length) {
+    if (!urls.length) {
       out.push(row);
       return;
     }
@@ -199,7 +221,18 @@ export function applyGeneratedImages(
     if (!isVariantRow(row)) return;
 
     const next = [...row];
-    if (variantImageAt >= 0) next[variantImageAt] = "";
+
+    /**
+     * Shopify n'accepte en `Variant Image` qu'une URL déjà présente dans les
+     * images du produit. Les visuels de toutes les couleurs sont justement dans
+     * `images`, donc pointer la première photo de la couleur suffit à relier la
+     * variante à son propre rendu.
+     */
+    if (variantImageAt >= 0) {
+      const color = colorOfRow(row);
+      const forColor = color ? replacement?.byColor?.[color] : undefined;
+      next[variantImageAt] = forColor?.[0] ?? "";
+    }
 
     if (!emitted.has(handle)) {
       next[imageAt] = urls[0];
