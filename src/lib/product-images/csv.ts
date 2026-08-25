@@ -174,7 +174,7 @@ export function applyGeneratedImages(
   replacements: Map<string, Replacement>
 ): CsvTable {
   const handleAt = column(table, "Handle");
-  const skuAt = column(table, "Variant SKU");
+
   const imageAt = column(table, "Image Src");
   const positionAt = column(table, "Image Position");
   const altAt = column(table, "Image Alt Text");
@@ -193,15 +193,55 @@ export function applyGeneratedImages(
     return pair ? (row[pair.value] ?? "").trim() : "";
   };
 
-  const isVariantRow = (row: string[]) =>
-    skuAt >= 0 ? (row[skuAt] ?? "").trim() !== "" : false;
+  /**
+   * Une ligne de variante se reconnaît à n'importe quelle donnée de variante,
+   * pas au seul SKU : beaucoup de boutiques n'en renseignent aucun, et se fier
+   * au SKU faisait alors passer TOUTES les lignes pour des lignes d'image — donc
+   * les supprimait, et le CSV réexporté ne contenait plus que son en-tête.
+   */
+  const signalCols = [
+    "Variant SKU",
+    "Variant Price",
+    "Option1 Value",
+    "Variant Grams",
+    "Variant Inventory Policy",
+    "Variant Barcode",
+    "Variant Weight Unit",
+  ]
+    .map((header) => column(table, header))
+    .filter((index) => index >= 0);
+
+  const looksLikeVariant = (row: string[]) =>
+    signalCols.some((index) => (row[index] ?? "").trim() !== "");
+
+  // Lignes de variante par produit, avec un filet : si aucune ne se distingue,
+  // la première ligne du produit en tient lieu. Un produit ne doit jamais
+  // ressortir sans aucune ligne, sinon Shopify refuse tout le fichier.
+  const variantRows = new Map<string, Set<number>>();
+  const firstRow = new Map<string, number>();
+  table.rows.forEach((row, index) => {
+    const handle = (row[handleAt] ?? "").trim();
+    if (!handle) return;
+    if (!firstRow.has(handle)) firstRow.set(handle, index);
+    if (looksLikeVariant(row)) {
+      const set = variantRows.get(handle) ?? new Set<number>();
+      set.add(index);
+      variantRows.set(handle, set);
+    }
+  });
+  for (const [handle, index] of firstRow) {
+    if (!variantRows.get(handle)?.size) variantRows.set(handle, new Set([index]));
+  }
+
+  const isVariantRow = (handle: string, index: number) =>
+    variantRows.get(handle)?.has(index) ?? false;
 
   // Index de la dernière ligne de variante de chaque produit : les images
   // supplémentaires s'insèrent juste après, comme dans un export Shopify.
   const lastVariantRow = new Map<string, number>();
   table.rows.forEach((row, index) => {
     const handle = (row[handleAt] ?? "").trim();
-    if (handle && isVariantRow(row)) lastVariantRow.set(handle, index);
+    if (handle && isVariantRow(handle, index)) lastVariantRow.set(handle, index);
   });
 
   const out: string[][] = [];
@@ -218,7 +258,7 @@ export function applyGeneratedImages(
     }
 
     // Les anciennes lignes « image seule » du produit disparaissent.
-    if (!isVariantRow(row)) return;
+    if (!isVariantRow(handle, index)) return;
 
     const next = [...row];
 
