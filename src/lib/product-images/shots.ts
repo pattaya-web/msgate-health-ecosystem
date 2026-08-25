@@ -84,8 +84,18 @@ const PACKAGING_PHOTOGRAPHY =
 const BOX = [
   "THE BOX IS ALWAYS THE SAME, in this exact and unchanging specification: ",
   "a rigid rectangular gift box in plain matte white card, clean square corners, no gloss, no texture, ",
-  "no ribbon, no magnetic flap, no window, no printed pattern. Proportions roughly 3:2, ",
-  "photographed square to the camera from directly above. ",
+  "no ribbon, no magnetic flap, no window, no printed pattern. ",
+  "Photographed square to the camera from directly above. ",
+  /**
+   * La taille est la seule dimension qui suit le produit. Une boîte au gabarit
+   * fixe donne un écrin de bijou pour un pantalon, ou un carton de déménagement
+   * pour une bague : le rendu perd toute crédibilité.
+   */
+  "SCALE: the box is sized FOR THIS EXACT ITEM — just big enough to hold it with a small even margin ",
+  "around it, and no bigger. The item must plausibly fit, folded as it would really be packed, and it ",
+  "must fill most of the interior. A garment gets a wide flat apparel box, a small accessory gets a ",
+  "small shallow box. Never a box that dwarfs the item, never one the item could not physically fit in. ",
+  "Keep the real-world size relationship between the box and the product believable at a glance. ",
   "The supplied logo is printed once, centered, on the separate lid, in a single flat colour. ",
   "The lid rests flat beside the box, fully in frame, so that logo reads clearly. ",
   "Inside, plain white tissue paper, matte, lightly creased, no colour and no pattern. ",
