@@ -1,10 +1,23 @@
 import { NextResponse } from "next/server";
 import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from "@/lib/studio/kie";
 import { ANGLES, composeScenePrompt } from "@/lib/ugc/angles";
+import {
+  deleteAvatar,
+  freshAvatarUrl,
+  listAvatars,
+  renameAvatar,
+  saveAvatar,
+  setActiveAvatar,
+  toMeta,
+} from "@/lib/ugc/avatar-store";
 import { DEFAULT_CASTING, avatarPrompt, type Casting } from "@/lib/ugc/casting";
 import { fetchProductFromUrl } from "@/lib/ugc/fetch-product";
+import { OUTFIT_ANGLES, composeOutfitPrompt } from "@/lib/ugc/outfit";
 import { applyResults, createBatch, listBatches, stitchAngle } from "@/lib/ugc/store";
-import type { ProductInput, Resolution } from "@/lib/ugc/types";
+import { withDuration, type ProductInput, type Resolution } from "@/lib/ugc/types";
+
+/** `outfit` = clips muets où la tenue est portée et montrée, sans parole. */
+type UgcMode = "speaking" | "outfit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -30,7 +43,27 @@ const TRANSIENT =
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Body = {
-  action?: "fetch" | "avatar" | "upload-avatar" | "preview" | "generate" | "status" | "batches" | "stitch";
+  action?:
+    | "fetch"
+    | "avatar"
+    | "upload-avatar"
+    | "preview"
+    | "generate"
+    | "status"
+    | "batches"
+    | "stitch"
+    | "avatar-list"
+    | "avatar-save"
+    | "avatar-use"
+    | "avatar-rename"
+    | "avatar-delete"
+    | "upload-image";
+  mode?: UgcMode;
+  /** Durée par plan, en secondes. Mode outfit uniquement. */
+  clipDuration?: number;
+  /** Avatar enregistré à réutiliser — c'est lui qui garantit le même visage. */
+  avatarId?: string;
+  avatarName?: string;
   url?: string;
   product?: ProductInput;
   angleIds?: string[];
@@ -76,18 +109,28 @@ function buildScenes(
   product: ProductInput,
   angleIds: string[],
   casting: Casting,
-  describeCasting: boolean
+  describeCasting: boolean,
+  mode: UgcMode,
+  clipDuration?: number
 ) {
   const wanted = new Set(angleIds);
-  return ANGLES.filter((angle) => wanted.has(angle.id)).flatMap((angle) =>
-    angle.scenes.map((scene) => ({
-      angleId: angle.id,
-      angleName: angle.name,
-      sceneLabel: scene.label,
-      duration: scene.duration,
-      prompt: composeScenePrompt(scene.prompt, product, casting, product.kind, describeCasting),
-    }))
-  );
+  const library = mode === "outfit" ? OUTFIT_ANGLES : ANGLES;
+  return library
+    .filter((angle) => wanted.has(angle.id))
+    .flatMap((angle) =>
+      // La durée choisie ne s'applique qu'aux clips muets : en mode parlant,
+      // elle est calée sur la longueur du dialogue et l'allonger désynchronise.
+      withDuration(angle.scenes, mode === "outfit" ? clipDuration : undefined).map((scene) => ({
+        angleId: angle.id,
+        angleName: angle.name,
+        sceneLabel: scene.label,
+        duration: scene.duration,
+        prompt:
+          mode === "outfit"
+            ? composeOutfitPrompt(scene.prompt, product, casting, describeCasting)
+            : composeScenePrompt(scene.prompt, product, casting, product.kind, describeCasting),
+      }))
+    );
 }
 
 export async function POST(request: Request) {
@@ -111,10 +154,48 @@ export async function POST(request: Request) {
       return NextResponse.json({ file });
     }
 
+    /* --- Avatars enregistrés : la même personne d'un lot à l'autre --- */
+
+    if (body.action === "avatar-list") {
+      return NextResponse.json(await listAvatars());
+    }
+
+    if (body.action === "avatar-save") {
+      const source = body.avatarDataUrl || body.avatarUrl;
+      if (!source) return NextResponse.json({ error: "Aucun avatar à enregistrer" }, { status: 400 });
+      const avatar = await saveAvatar({
+        urlOrDataUrl: source,
+        casting: body.casting ?? DEFAULT_CASTING,
+        uploaded: Boolean(body.avatarUploaded),
+        name: body.avatarName,
+      });
+      return NextResponse.json({ avatar: toMeta(avatar) });
+    }
+
+    if (body.action === "avatar-use") {
+      if (!body.avatarId) return NextResponse.json({ error: "Avatar manquant" }, { status: 400 });
+      const ok = await setActiveAvatar(body.avatarId);
+      if (!ok) return NextResponse.json({ error: "Avatar introuvable" }, { status: 404 });
+      return NextResponse.json(await listAvatars());
+    }
+
+    if (body.action === "avatar-rename") {
+      if (!body.avatarId) return NextResponse.json({ error: "Avatar manquant" }, { status: 400 });
+      await renameAvatar(body.avatarId, body.avatarName || "");
+      return NextResponse.json(await listAvatars());
+    }
+
+    if (body.action === "avatar-delete") {
+      if (!body.avatarId) return NextResponse.json({ error: "Avatar manquant" }, { status: 400 });
+      await deleteAvatar(body.avatarId);
+      return NextResponse.json(await listAvatars());
+    }
+
     // Un visage trouvé ailleurs vaut une génération, et va bien plus vite.
-    if (body.action === "upload-avatar") {
+    // `upload-image` sert aussi aux photos de tenue, qui suivent le même chemin.
+    if (body.action === "upload-avatar" || body.action === "upload-image") {
       if (!body.avatarDataUrl) return NextResponse.json({ error: "Image manquante" }, { status: 400 });
-      const url = await uploadBase64(body.avatarDataUrl, `avatar-${Date.now()}.png`);
+      const url = await uploadBase64(body.avatarDataUrl, `ugc-${Date.now()}.png`);
       return NextResponse.json({ url });
     }
 
@@ -198,7 +279,15 @@ export async function POST(request: Request) {
     }
 
     const casting = body.casting ?? DEFAULT_CASTING;
-    const scenes = buildScenes(product, angleIds, casting, !body.avatarUploaded);
+    const mode: UgcMode = body.mode === "outfit" ? "outfit" : "speaking";
+    const scenes = buildScenes(
+      product,
+      angleIds,
+      casting,
+      !body.avatarUploaded,
+      mode,
+      body.clipDuration
+    );
 
     // Prévisualisation : on montre les prompts finaux sans rien dépenser.
     if (body.action === "preview") {
@@ -221,11 +310,22 @@ export async function POST(request: Request) {
       );
     }
 
-    // L'avatar passe en PREMIER : tout le verrou d'identité repose sur ce rang.
-    const references =
-      body.avatarUrl && /^https:\/\//i.test(body.avatarUrl)
-        ? [body.avatarUrl, ...productRefs]
-        : productRefs;
+    /**
+     * L'avatar passe en PREMIER : tout le verrou d'identité repose sur ce rang.
+     * Un avatar enregistré est ré-uploadé ici pour obtenir une URL fraîche —
+     * c'est ce qui permet de retrouver la même personne des semaines plus tard,
+     * alors que les URLs Kie ont expiré depuis longtemps.
+     */
+    let avatarUrl = body.avatarUrl && /^https:\/\//i.test(body.avatarUrl) ? body.avatarUrl : null;
+    if (body.avatarId) {
+      const fresh = await freshAvatarUrl(body.avatarId);
+      if (!fresh) {
+        return NextResponse.json({ error: "Avatar enregistré introuvable" }, { status: 404 });
+      }
+      avatarUrl = fresh.url;
+    }
+
+    const references = avatarUrl ? [avatarUrl, ...productRefs] : productRefs;
 
     const jobs = await runQueue(scenes, async (scene) => {
       try {

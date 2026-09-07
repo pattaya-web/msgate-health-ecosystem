@@ -7,6 +7,7 @@ import {
   Film,
   FolderClock,
   GraduationCap,
+  Clapperboard,
   Link2,
   Loader2,
   Maximize2,
@@ -19,6 +20,7 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader } from "@/components/shared/page-states";
+import { RemakeStudio } from "@/components/ugc/remake-studio";
 import { ANGLES } from "@/lib/ugc/angles";
 import { AGE_BANDS, DEFAULT_CASTING, GENDERS, type Casting } from "@/lib/ugc/casting";
 import { KINDS } from "@/lib/ugc/kinds";
@@ -58,7 +60,7 @@ export default function UgcPage() {
   const [jobs, setJobs] = useState<UgcJob[]>([]);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
-  const [tab, setTab] = useState<"generate" | "results" | "course">("generate");
+  const [tab, setTab] = useState<"generate" | "remake" | "results" | "course">("generate");
   const [batches, setBatches] = useState<UgcBatch[]>([]);
   const [casting, setCasting] = useState<Casting>(DEFAULT_CASTING);
   const [avatarUrl, setAvatarUrl] = useState("");
@@ -339,6 +341,7 @@ export default function UgcPage() {
         {(
           [
             ["generate", "Générer", Film],
+            ["remake", "Remake Creative", Clapperboard],
             ["results", `Résultats${batches.length ? ` (${batches.length})` : ""}`, FolderClock],
             ["course", "Leçons", GraduationCap],
           ] as const
@@ -360,6 +363,7 @@ export default function UgcPage() {
         ))}
       </div>
 
+      {tab === "remake" ? <RemakeStudio /> : null}
       {tab === "results" ? <Results batches={batches} onChange={loadBatches} /> : null}
       {tab === "course" ? <Course /> : null}
 

@@ -2,15 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
-import Link from "next/link";
+import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { Sidebar } from "@/components/layout/sidebar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { TimezoneClocks } from "@/components/layout/timezone-clocks";
 import { useAuth } from "@/lib/auth/auth-context";
-import { Input } from "@/components/ui/input";
-import { mockProvider } from "@/lib/providers/mock-provider";
 import { LoadingState } from "@/components/shared/page-states";
 import { cn } from "@/lib/utils";
 
@@ -34,10 +31,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(true);
   const [hydrated, setHydrated] = useState(false);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<
-    Array<{ type: string; id: string; title: string; href: string }>
-  >([]);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -63,17 +56,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [desktopOpen, hydrated]);
 
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      if (!query.trim()) {
-        setResults([]);
-        return;
-      }
-      const data = await mockProvider.search(query);
-      setResults(data);
-    }, 200);
-    return () => clearTimeout(t);
-  }, [query]);
 
   if (loading || !user) {
     return (
@@ -139,36 +121,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </button>
 
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search IBO, MID, alerts..."
-                className="h-8 pl-8 text-xs sm:text-sm"
-              />
-              {results.length > 0 ? (
-                <div className="absolute left-0 right-0 top-9 z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
-                  {results.map((r) => (
-                    <Link
-                      key={`${r.type}-${r.id}`}
-                      href={r.href}
-                      onClick={() => {
-                        setQuery("");
-                        setResults([]);
-                        setMobileOpen(false);
-                      }}
-                      className="flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
-                    >
-                      <span className="truncate text-slate-800 dark:text-slate-100">{r.title}</span>
-                      <span className="ml-2 shrink-0 text-[10px] uppercase tracking-wide text-slate-400">
-                        {r.type}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            {/* La recherche a été retirée : les horloges occupent la barre. */}
+            <div className="min-w-0 flex-1" />
 
             <div className="hidden md:block">
               <TimezoneClocks />

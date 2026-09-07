@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/studio/static", label: "Static", icon: ImageIcon },
-  { href: "/studio/basic", label: "Basic", icon: Mic },
+  { href: "/studio/basic", label: "Voix Off ElevenLabs", icon: Mic },
   { href: "/studio/library", label: "Toutes les créas", icon: FolderOpen },
   { href: "/studio/remove", label: "Remove Magic", icon: Eraser },
   { href: "/studio/video", label: "Vidéo", icon: Video },

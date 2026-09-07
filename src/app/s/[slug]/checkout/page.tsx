@@ -1,0 +1,24 @@
+import { notFound } from "next/navigation";
+import type { Metadata } from "next";
+import { CheckoutView } from "@/components/ecom-sites/cart";
+import { Storefront } from "@/components/ecom-sites/storefront";
+import { getEcomSiteBySlug } from "@/lib/ecom-sites/store";
+
+export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const site = await getEcomSiteBySlug(slug);
+  return { title: site ? `Checkout | ${site.brandName}` : "Checkout" };
+}
+
+export default async function EcomCheckoutPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const site = await getEcomSiteBySlug(slug);
+  if (!site) notFound();
+  return (
+    <Storefront site={site}>
+      <CheckoutView site={site} />
+    </Storefront>
+  );
+}

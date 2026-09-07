@@ -4,12 +4,55 @@ import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { BankPageView } from "@/components/bank-pages/bank-page-view";
+import { EcomSitesTab } from "@/components/ecom-sites/ecom-sites-tab";
 import { BANK_THEMES, defaultBankPage, type BankPage, type BankThemeId } from "@/lib/bank-pages/types";
 import { cn } from "@/lib/utils";
 
-const empty = defaultBankPage();
+const TABS = [
+  { id: "bank", label: "Bank pages" },
+  { id: "ecom", label: "Sites e-commerce" },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
 
 export default function BankPagesAdminPage() {
+  const [tab, setTab] = useState<TabId>("bank");
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">Bank pages</h1>
+        <p className="text-[12px] text-slate-500">
+          Pages agence pour les dossiers bancaires, et boutiques e-commerce pour les demandes de MID.
+        </p>
+      </div>
+
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800/60">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            className={cn(
+              "flex-1 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition",
+              tab === item.id
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-50"
+                : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-200"
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "bank" ? <BankPagesTab /> : <EcomSitesTab />}
+    </div>
+  );
+}
+
+const empty = defaultBankPage();
+
+function BankPagesTab() {
   const [pages, setPages] = useState<BankPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -65,12 +108,9 @@ export default function BankPagesAdminPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">Bank pages</h1>
-        <p className="text-[12px] text-slate-500">
-          Clones illimités de blumelmrkt.com — logo, couleurs, copy. URL publique /p/…
-        </p>
-      </div>
+      <p className="text-[12px] text-slate-500">
+        Clones illimités de blumelmrkt.com — logo, couleurs, copy. URL publique /p/…
+      </p>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="space-y-3 rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70">

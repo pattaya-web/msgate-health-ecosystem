@@ -115,11 +115,19 @@ export async function getGrantedScopes(): Promise<string[]> {
 
 type GraphQLResult = { errors?: Array<{ message: string; extensions?: { code?: string } }> };
 
+/** Carries the GraphQL error code so callers can tell a missing scope from an outage. */
+export class ShopifyError extends Error {
+  constructor(message: string, readonly code?: string) {
+    super(message);
+    this.name = "ShopifyError";
+  }
+}
+
 /**
  * The Admin API runs a cost-based leaky bucket: a query is rejected with
  * THROTTLED rather than 429, so retries key off the error code.
  */
-async function shopifyGraphql<T extends GraphQLResult>(
+export async function shopifyGraphql<T extends GraphQLResult>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
@@ -175,7 +183,10 @@ async function shopifyGraphql<T extends GraphQLResult>(
     }
 
     if (body.errors?.length) {
-      throw new Error(`Shopify: ${body.errors.map((e) => e.message).join(" | ")}`);
+      throw new ShopifyError(
+        `Shopify: ${body.errors.map((e) => e.message).join(" | ")}`,
+        body.errors.find((e) => e.extensions?.code)?.extensions?.code
+      );
     }
 
     if (!res.ok) throw new Error(`Shopify ${res.status}: ${res.statusText}`);

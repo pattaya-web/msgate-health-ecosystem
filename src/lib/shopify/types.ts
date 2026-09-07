@@ -79,3 +79,81 @@ export type ShopifyOrdersResponse = {
     };
   };
 };
+
+/* ------------------------------------------------------------------ *
+ * Catalog
+ * ------------------------------------------------------------------ */
+
+export type ShopifyCatalogVariant = {
+  id: string;
+  title: string;
+  sku: string | null;
+  price: number;
+  compareAtPrice: number | null;
+  available: boolean;
+  /** Null when the variant is not stock-tracked, or on the public catalog. */
+  inventory: number | null;
+};
+
+export type ShopifyCatalogProduct = {
+  id: string;
+  title: string;
+  handle: string;
+  status: "ACTIVE" | "DRAFT" | "ARCHIVED";
+  vendor: string;
+  productType: string;
+  tags: string[];
+  createdAt: string | null;
+  publishedAt: string | null;
+  /** Storefront link — the primary domain when Shopify exposes it. */
+  url: string;
+  image: string | null;
+  images: string[];
+  variants: ShopifyCatalogVariant[];
+  priceRange: { min: number; max: number };
+};
+
+export type ShopifyCatalog = {
+  shop: string;
+  /** `admin` needs read_products; `public` reads the unauthenticated /products.json. */
+  source: "admin" | "public";
+  products: ShopifyCatalogProduct[];
+  count: number;
+  /** More products exist than the requested limit returned. */
+  truncated: boolean;
+  warnings: string[];
+};
+
+export type ShopifyProductsResponse = {
+  data?: {
+    products?: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      nodes: Array<{
+        id: string;
+        title: string;
+        handle: string;
+        status: ShopifyCatalogProduct["status"];
+        vendor: string | null;
+        productType: string | null;
+        tags: string[];
+        createdAt: string | null;
+        publishedAt: string | null;
+        onlineStoreUrl: string | null;
+        featuredImage: { url: string; altText: string | null } | null;
+        media: { nodes: Array<{ preview: { image: { url: string } | null } | null }> };
+        variants: {
+          nodes: Array<{
+            id: string;
+            title: string;
+            sku: string | null;
+            price: string;
+            compareAtPrice: string | null;
+            availableForSale: boolean;
+            inventoryQuantity: number | null;
+          }>;
+        };
+      }>;
+    };
+  };
+  errors?: Array<{ message: string; extensions?: { code?: string } }>;
+};

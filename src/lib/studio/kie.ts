@@ -177,7 +177,21 @@ export function isKieFailed(state?: string) {
   return value === "fail" || value === "failed" || value === "error";
 }
 
-export async function kieClaude(userText: string, maxTokens = 4000) {
+/**
+ * `images` : base64 JPEG bruts, joints avant le texte. Sert à faire décrire des
+ * images clés — cadrage, angle, échelle de plan — pour rejouer un montage.
+ */
+export async function kieClaude(userText: string, maxTokens = 4000, images: string[] = []) {
+  const content = images.length
+    ? [
+        ...images.filter(Boolean).map((data) => ({
+          type: "image" as const,
+          source: { type: "base64" as const, media_type: "image/jpeg" as const, data },
+        })),
+        { type: "text" as const, text: userText },
+      ]
+    : userText;
+
   const res = await fetch("https://api.kie.ai/claude/v1/messages", {
     method: "POST",
     headers: {
@@ -188,7 +202,7 @@ export async function kieClaude(userText: string, maxTokens = 4000) {
       model: "claude-sonnet-4-6",
       stream: false,
       max_tokens: maxTokens,
-      messages: [{ role: "user", content: userText }],
+      messages: [{ role: "user", content }],
     }),
     cache: "no-store",
   });

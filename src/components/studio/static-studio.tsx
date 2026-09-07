@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Download, ImagePlus, Loader2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import JSZip from "jszip";
@@ -11,13 +11,38 @@ import { DEFAULT_RATIO, RATIOS, isWideRatio, ratioAspect } from "@/lib/studio/ra
 
 const COUNTS = [1, 2, 4, 6, 8];
 
+/** Les lots en cours survivent à un rechargement : sans ça, une image générée
+ *  et facturée chez Kie n'est jamais enregistrée en bibliothèque. */
+const JOBS_KEY = "msgate.studio.jobs";
+const MAX_KEPT_JOBS = 60;
+
 type Job = {
+  /** Clé stable : le taskId n'existe pas encore à la création. */
+  id: string;
   prompt: string;
   taskId?: string;
   urls: string[];
   status: "idle" | "run" | "ok" | "err";
   error?: string;
+  /** Passé à true une fois la créa écrite en bibliothèque. */
+  saved?: boolean;
+  /** Repris tel quel après un rechargement, pour pouvoir enregistrer. */
+  brief: string;
+  ratio: (typeof RATIOS)[number]["id"];
+  resolution: "1K" | "2K";
+  referenceUrls: string[];
+  createdAt: string;
 };
+
+function loadStoredJobs(): Job[] {
+  try {
+    const raw = window.localStorage.getItem(JOBS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Job[]) : null;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 type RefImage = { id: string; preview: string; dataUrl: string; name: string };
 
@@ -31,6 +56,8 @@ export function StaticStudio() {
   const [count, setCount] = useState(1);
   const [busy, setBusy] = useState<"expand" | "gen" | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
+  /** taskId déjà surveillés, pour ne pas ouvrir deux boucles sur la même tâche. */
+  const watching = useRef<Set<string>>(new Set());
   const [refs, setRefs] = useState<RefImage[]>([]);
   const [genPaste, setGenPaste] = useState("");
   const [pageRefs, setPageRefs] = useState<string[]>([]);
@@ -40,6 +67,81 @@ export function StaticStudio() {
     () => prompts.filter((_, i) => selected[i] !== false),
     [prompts, selected]
   );
+
+  const running = useMemo(() => jobs.filter((job) => job.status === "run").length, [jobs]);
+  const savedCount = useMemo(() => jobs.filter((job) => job.saved).length, [jobs]);
+
+  /** Nombre de prompts réellement dans la zone — sert à annoncer le total avant de lancer. */
+  const genCount = useMemo(() => {
+    const fromPaste = splitGeneratePrompts(genPaste);
+    return (fromPaste.length ? fromPaste : activePrompts).length || 1;
+  }, [genPaste, activePrompts]);
+
+  // Reprend les lots laissés en plan : ceux encore « run » sont re-surveillés
+  // par l'effet plus bas, donc leurs images finissent en bibliothèque même si
+  // l'onglet a été fermé pendant la génération.
+  useEffect(() => {
+    const stored = loadStoredJobs();
+    if (stored.length) setJobs(stored);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(JOBS_KEY, JSON.stringify(jobs.slice(0, MAX_KEPT_JOBS)));
+    } catch {
+      // stockage plein ou indisponible : on garde juste l'état en mémoire
+    }
+  }, [jobs]);
+
+  const patchJob = useCallback((id: string, patch: Partial<Job>) => {
+    setJobs((current) => current.map((job) => (job.id === id ? { ...job, ...patch } : job)));
+  }, []);
+
+  /** Surveille une tâche jusqu'au bout et l'enregistre dès qu'elle sort. */
+  const watchJob = useCallback(
+    async (job: Job) => {
+      if (!job.taskId) return;
+      try {
+        const task = await pollStudioTask(job.taskId);
+        let saved = false;
+        if (task.urls.length) {
+          try {
+            await saveStaticCreative({
+              brief: job.brief,
+              prompt: job.prompt,
+              ratio: job.ratio,
+              resolution: job.resolution,
+              resultUrls: task.urls,
+              referenceUrls: job.referenceUrls,
+            });
+            saved = true;
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Sauvegarde bibliothèque impossible");
+          }
+        }
+        patchJob(job.id, { urls: task.urls, status: "ok", saved });
+      } catch (error) {
+        patchJob(job.id, {
+          status: "err",
+          error: error instanceof Error ? error.message : "Échec",
+        });
+      } finally {
+        watching.current.delete(job.taskId);
+      }
+    },
+    [patchJob]
+  );
+
+  // Chaque tâche est suivie indépendamment : une image s'affiche et part en
+  // bibliothèque dès qu'elle est prête, sans attendre le reste du lot.
+  useEffect(() => {
+    for (const job of jobs) {
+      if (job.status !== "run" || !job.taskId) continue;
+      if (watching.current.has(job.taskId)) continue;
+      watching.current.add(job.taskId);
+      void watchJob(job);
+    }
+  }, [jobs, watchJob]);
 
   useEffect(() => {
     try {
@@ -115,13 +217,19 @@ export function StaticStudio() {
 
   async function generate() {
     const fromPaste = splitGeneratePrompts(genPaste);
-    const list = fromPaste.length ? fromPaste : activePrompts.length ? activePrompts : [];
-    if (!list.length) {
+    const base = fromPaste.length ? fromPaste : activePrompts.length ? activePrompts : [];
+    if (!base.length) {
       toast.error("Colle les prompts dans la zone Générer");
       return;
     }
+    // Un seul prompt : Batch décide du nombre de variantes. Plusieurs prompts
+    // (expand, ou séparés par `---`) : une image chacun, le Batch a déjà servi
+    // à décider combien de prompts écrire.
+    const list = base.length === 1 ? Array.from({ length: Math.max(1, count) }, () => base[0]) : base;
+
+    // `busy` ne couvre que la création des tâches, pas leur exécution : dès que
+    // Kie a rendu les taskId, la main est libre pour lancer un autre lot.
     setBusy("gen");
-    setJobs(list.map((prompt) => ({ prompt, urls: [], status: "run" })));
     try {
       const referenceUrls: string[] = [];
       for (const ref of refs) {
@@ -143,45 +251,38 @@ export function StaticStudio() {
         referenceUrls,
       });
       const savedRefs = body.referenceUrls?.length ? body.referenceUrls : referenceUrls;
-      setJobs(body.jobs.map((job) => ({ ...job, urls: [], status: "run" })));
-      const done = await Promise.all(
-        body.jobs.map(async (job) => {
-          try {
-            const task = await pollStudioTask(job.taskId);
-            if (task.urls.length) {
-              try {
-                await saveStaticCreative({
-                  brief,
-                  prompt: job.prompt,
-                  ratio,
-                  resolution,
-                  resultUrls: task.urls,
-                  referenceUrls: savedRefs,
-                });
-              } catch (error) {
-                toast.error(error instanceof Error ? error.message : "Sauvegarde bibliothèque impossible");
-              }
-            }
-            return { prompt: job.prompt, taskId: job.taskId, urls: task.urls, status: "ok" as const };
-          } catch (error) {
-            return {
-              prompt: job.prompt,
-              taskId: job.taskId,
-              urls: [],
-              status: "err" as const,
-              error: error instanceof Error ? error.message : "Échec",
-            };
-          }
-        })
+      const stamp = Date.now();
+
+      // Les nouveaux passent devant, les lots précédents restent à l'écran.
+      setJobs((current) =>
+        [
+          ...body.jobs.map((job, index) => ({
+            id: `${stamp}-${index}`,
+            prompt: job.prompt,
+            taskId: job.taskId,
+            urls: [],
+            status: "run" as const,
+            saved: false,
+            brief,
+            ratio,
+            resolution,
+            referenceUrls: savedRefs,
+            createdAt: new Date().toISOString(),
+          })),
+          ...current,
+        ].slice(0, MAX_KEPT_JOBS)
       );
-      setJobs(done);
-      const ok = done.filter((j) => j.status === "ok").length;
-      toast.success(`${ok}/${done.length} créatives prêtes — sauvées dans Toutes les créas`);
+
+      toast.success(`${body.jobs.length} génération(s) lancée(s) — tu peux en relancer d'autres`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Génération impossible");
     } finally {
       setBusy(null);
     }
+  }
+
+  function clearFinished() {
+    setJobs((current) => current.filter((job) => job.status === "run"));
   }
 
   async function zipAll() {
@@ -331,9 +432,14 @@ export function StaticStudio() {
               value={genPaste}
               onChange={(e) => setGenPaste(e.target.value)}
               rows={8}
-              placeholder="Les prompts sortis du brief se collent ici — un prompt par bloc, ligne vide entre chaque. Tu peux coller / éditer, puis Générer."
+              placeholder="Ton prompt, en autant de paragraphes que tu veux. Pour en enchaîner plusieurs, sépare-les par une ligne ---"
               className="w-full resize-y rounded-xl bg-slate-50 px-2.5 py-2 text-[12px] leading-relaxed outline-none dark:bg-slate-800"
             />
+            <p className="mt-1 text-[11px] text-slate-400">
+              {genCount === 1
+                ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
+                : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt.`}
+            </p>
           </div>
 
           <div className="mt-3">
@@ -397,14 +503,33 @@ export function StaticStudio() {
         </div>
 
         <div className="min-h-[48vh] rounded-2xl bg-slate-50/80 p-2 ring-1 ring-slate-900/[0.04] dark:bg-slate-950/40">
-          <div className="mb-2 flex items-center justify-between px-1">
-            <p className="text-[11px] text-slate-400">{jobs.length ? `${jobs.length} jobs` : "Les visuels arrivent ici"}</p>
-            {jobs.some((j) => j.urls.length) ? (
-              <button type="button" onClick={() => void zipAll()} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600">
-                <Download className="h-3 w-3" />
-                ZIP batch
-              </button>
-            ) : null}
+          <div className="mb-2 flex items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-slate-400">
+              {jobs.length ? (
+                <>
+                  {running ? (
+                    <span className="font-medium text-slate-600 dark:text-slate-300">{running} en cours · </span>
+                  ) : null}
+                  {jobs.length - running} terminée(s)
+                  {savedCount ? ` · ${savedCount} en bibliothèque` : ""}
+                </>
+              ) : (
+                "Les visuels arrivent ici"
+              )}
+            </p>
+            <div className="flex items-center gap-3">
+              {jobs.length - running > 0 ? (
+                <button type="button" onClick={clearFinished} className="text-[11px] font-medium text-slate-500">
+                  Vider les terminées
+                </button>
+              ) : null}
+              {jobs.some((j) => j.urls.length) ? (
+                <button type="button" onClick={() => void zipAll()} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600">
+                  <Download className="h-3 w-3" />
+                  ZIP batch
+                </button>
+              ) : null}
+            </div>
           </div>
           <div
             className={cn(
@@ -412,8 +537,8 @@ export function StaticStudio() {
               isWideRatio(ratio) || ratio === "1:1" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-2 md:grid-cols-4"
             )}
           >
-            {jobs.map((job, i) => (
-              <article key={job.taskId || i} className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-900/[0.06] dark:bg-slate-900">
+            {jobs.map((job) => (
+              <article key={job.id} className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-900/[0.06] dark:bg-slate-900">
                 <div
                   className={cn(
                     "relative bg-slate-100 dark:bg-slate-800",
@@ -447,9 +572,15 @@ export function StaticStudio() {
   );
 }
 
+/**
+ * Un prompt écrit à la main tient souvent sur plusieurs paragraphes : découper
+ * sur les lignes vides transformait un seul prompt en autant de prompts, et
+ * donc en autant d'images. La zone vaut UN prompt, sauf séparateur `---`
+ * explicite entre deux prompts.
+ */
 function splitGeneratePrompts(raw: string) {
   return raw
-    .split(/\n\s*\n/)
+    .split(/\n\s*-{3,}\s*\n/)
     .map((item) => item.replace(/^\s*[-*]\s*/, "").replace(/^\d+[.)]\s*/, "").trim())
     .filter(Boolean);
 }
