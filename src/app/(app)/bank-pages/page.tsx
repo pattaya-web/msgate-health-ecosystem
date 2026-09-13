@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { BankPageView } from "@/components/bank-pages/bank-page-view";
+import { GoLiveGuide } from "@/components/bank-pages/go-live-guide";
 import { EcomSitesTab } from "@/components/ecom-sites/ecom-sites-tab";
 import { BANK_THEMES, bankPageText, defaultBankPage, withTextEdit, type BankPage, type BankPageDraft, type BankThemeId } from "@/lib/bank-pages/types";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,9 @@ export default function BankPagesAdminPage() {
           Pages agence pour les dossiers bancaires, et boutiques e-commerce pour les demandes de MID.
         </p>
       </div>
+
+      {/* Le parcours de mise en ligne, toujours sous la main : on ne le refait pas souvent, on l'oublie. */}
+      <GoLiveGuide />
 
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800/60">
         {TABS.map((item) => (
