@@ -47,6 +47,12 @@ tel quel. En production les deux variables sont obligatoires. En développement 
 démonstration (`admin@msgate.internal` / `demo1234`, operator, viewer) restent
 utilisables.
 
+## Hermes (lecture seule)
+
+L'agent Hermes lit le CRM par `POST /api/hermes/tools/<outil>` avec
+`Authorization: Bearer $HERMES_API_KEY`. Aucune écriture, aucun secret en
+sortie, un journal par appel. Détails et ajout d'outils : `src/hermes/README.md`.
+
 ## Variables d’environnement
 
 Voir `.env.example` :
