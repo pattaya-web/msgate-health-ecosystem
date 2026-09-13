@@ -147,6 +147,8 @@ export function EcomSitesTab() {
   const [copySeconds, setCopySeconds] = useState(0);
   /** Domaine à piller pour compléter le catalogue d'un site déjà créé. */
   const [addFrom, setAddFrom] = useState("");
+  /** Une de tes boutiques dont on reprend des produits. */
+  const [addFromSite, setAddFromSite] = useState("");
   /** Produits cochés : les actions ne portent que sur eux quand il y en a. */
   const [pickedProducts, setPickedProducts] = useState<string[]>([]);
   const [pickFilter, setPickFilter] = useState("");
@@ -652,6 +654,66 @@ export function EcomSitesTab() {
    * texte, photo — et leur photo devient le gabarit de leur futur packaging,
    * exactement comme ceux venus de la copie initiale.
    */
+  /**
+   * Les produits d'une autre de tes boutiques, ajoutés à celle-ci.
+   *
+   * Ils arrivent complets — nom, prix, description mise en page, bénéfices —
+   * mais sans leur packaging : il porte l'autre marque. La photo d'origine
+   * reste comme gabarit, « Générer les packagings » refait les visuels aux
+   * couleurs d'ici.
+   */
+  function addProductsFromSite(siteId: string) {
+    if (!draft) return;
+    const source = sites.find((site) => site.id === siteId);
+    if (!source) return;
+    const known = new Set(draft.products.map((product) => product.handle));
+    const added = source.products
+      .filter((product) => !known.has(product.handle))
+      .map((product) => ({
+        ...product,
+        category: draft.categories.some((entry) => entry.id === product.category) ? product.category : draft.categories[0]?.id || "",
+        imageUrl: "",
+        sourceImageUrl: product.sourceImageUrl || product.imageUrl || "",
+        packagingTaskId: null,
+      }));
+    if (!added.length) {
+      toast.error(`Tous les produits de ${source.brandName} sont déjà là`);
+      return;
+    }
+    patchDraft({ products: [...draft.products, ...added] });
+    toast.success(`${added.length} produit(s) repris de ${source.brandName} — génère les packagings pour les mettre à ta marque`);
+  }
+
+  /** Un produit vide, à remplir dans le catalogue ou directement dans l'aperçu. */
+  function addBlankProduct() {
+    if (!draft) return;
+    const index = draft.products.length + 1;
+    let handle = `new-product-${index}`;
+    while (draft.products.some((product) => product.handle === handle)) handle = `${handle}-${Math.random().toString(36).slice(2, 5)}`;
+    patchDraft({
+      products: [
+        ...draft.products,
+        {
+          handle,
+          name: `New product ${index}`,
+          subtitle: "",
+          category: draft.categories[0]?.id || "",
+          price: 29.99,
+          compareAtPrice: null,
+          dosage: "",
+          description: "Describe the product here: what it is, who it is for, what it does.",
+          bullets: [],
+          usage: "",
+          ingredients: "",
+          imageUrl: "",
+          packagingTaskId: null,
+          badge: "",
+        },
+      ],
+    });
+    setOpenPath({ path: `/product/${handle}`, nonce: Date.now() });
+  }
+
   async function addProductsFrom(domain: string) {
     if (!draft || !domain.trim()) return;
     setBusy("add-products");
@@ -3098,6 +3160,39 @@ export function EcomSitesTab() {
               <p className="min-w-0 flex-1 text-[11px] text-slate-400">
                 Produits repris intacts. Leurs photos deviennent le gabarit de tes packagings.
               </p>
+            </div>
+
+            {/* Tes propres boutiques comme réserve de produits, et le produit écrit à la main. */}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={label}>Ou depuis une de tes boutiques</span>
+              <select value={addFromSite} onChange={(event) => setAddFromSite(event.target.value)} className={cn(field, "w-52")}>
+                <option value="">Choisir une boutique</option>
+                {sites
+                  .filter((site) => site.id !== draft.id && site.products.length)
+                  .map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.brandName} · {site.products.length} produits
+                    </option>
+                  ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => addProductsFromSite(addFromSite)}
+                disabled={!addFromSite}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold disabled:opacity-50 dark:bg-slate-800"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Reprendre les produits
+              </button>
+              <button
+                type="button"
+                onClick={addBlankProduct}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold dark:bg-slate-800"
+                title="Un produit vide, à remplir dans le catalogue ou dans l'aperçu"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Produit vide
+              </button>
             </div>
           </Section>
 
