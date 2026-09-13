@@ -23,19 +23,29 @@ npm run dev
 
 Ouvrir [http://localhost:3000](http://localhost:3000).
 
-## Identifiants de démonstration
+## Authentification
 
-| Rôle | Email | Mot de passe |
-|------|-------|--------------|
-| Admin | `admin@msgate.internal` | `demo1234` |
-| Operator | `operator@msgate.internal` | `demo1234` |
-| Viewer | `viewer@msgate.internal` | `demo1234` |
+Les comptes sont définis côté serveur, dans `AUTH_USERS`, avec des mots de passe
+hachés (scrypt). Le login pose un cookie de session signé par `AUTH_SECRET` ;
+toute route `/api/*` exige ce cookie, sauf le cron `/api/sav/digest` et les
+deux appels publics des boutiques (formulaire de contact, commande). Un compte
+`viewer` ne peut faire que des lectures ; une mutation venue d'une autre origine
+est refusée.
 
-- **Admin** : accès total
-- **Operator** : peut modifier incidents, alertes et KPI
-- **Viewer** : lecture seule
+```bash
+# Secret de signature (32 caractères minimum)
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+# Hash d'un mot de passe, à coller dans AUTH_USERS
+echo -n 'le mot de passe' | node scripts/hash-password.mjs
+```
 
-L’auth demo fonctionne via `localStorage` sans Supabase. Branchez Supabase Auth ensuite avec les variables `NEXT_PUBLIC_SUPABASE_*`.
+`AUTH_USERS` est un tableau JSON sur une ligne :
+`[{"email":"admin@example.com","role":"admin","hash":"$scrypt$…"}]`, rôles
+`admin`, `operator` ou `viewer`. Dans `.env.local`, échappe les `$` du hash en
+`\$` (Next développe les `$` comme des variables) ; dans Vercel, colle le hash
+tel quel. En production les deux variables sont obligatoires. En développement local, sans `AUTH_USERS`, les comptes de
+démonstration (`admin@msgate.internal` / `demo1234`, operator, viewer) restent
+utilisables.
 
 ## Variables d’environnement
 

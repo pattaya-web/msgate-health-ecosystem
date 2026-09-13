@@ -1,4 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { apiGuard } from "@/lib/auth/guard";
+import { getAuthSecret, SESSION_COOKIE } from "@/lib/auth/session";
 import { getBankPageByDomain } from "@/lib/bank-pages/store";
 import { getEcomSiteByDomain } from "@/lib/ecom-sites/store";
 
@@ -28,6 +30,26 @@ function isAppHost(host: string) {
 
 export async function proxy(request: NextRequest) {
   const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "").toLowerCase().replace(/:\d+$/, "");
+
+  /*
+   * L'API exige une session, quel que soit l'hôte.
+   *
+   * La décision vit dans src/lib/auth/guard.ts : exceptions publiques, cookie
+   * signé, lecture seule pour un viewer, origine des mutations. Ici on ne fait
+   * que l'appliquer, avant tout routage de domaine.
+   */
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    const decision = apiGuard({
+      method: request.method,
+      pathname: request.nextUrl.pathname,
+      headers: request.headers,
+      cookieValue: request.cookies.get(SESSION_COOKIE)?.value ?? null,
+      secret: getAuthSecret(),
+      fallbackProtocol: request.nextUrl.protocol.replace(/:$/, ""),
+    });
+    if (decision.kind === "deny") return NextResponse.json({ error: decision.message }, { status: decision.status });
+  }
+
   if (isAppHost(host)) return NextResponse.next();
 
   const { pathname, search } = request.nextUrl;

@@ -144,6 +144,8 @@ export default function LoginPage() {
           </Button>
         </form>
 
+        {/* Les comptes de démonstration n'existent qu'en développement : en production, seuls les comptes de AUTH_USERS se connectent. */}
+        {process.env.NODE_ENV === "production" ? null : (
         <div className="mt-8 border-t border-slate-200/80 pt-5 dark:border-slate-800">
           <div className="eyebrow mb-2.5">Demo accounts · click to fill</div>
           <div className="space-y-1.5">
@@ -165,6 +167,7 @@ export default function LoginPage() {
             ))}
           </div>
         </div>
+        )}
       </div>
     </div>
   );
