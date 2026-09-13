@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
+import { mirror } from "@/lib/storage";
 import { defaultBankPage, type BankPage } from "@/lib/bank-pages/types";
 
 const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
@@ -11,7 +12,12 @@ const mem = ((globalThis as typeof globalThis & {
   __msgateBankPages?: Store;
 }).__msgateBankPages ??= { pages: [] });
 
-let loaded = false;
+/* Le drapeau vit avec la mémoire : une variable de module serait remise
+   à zéro par le rechargement à chaud, et la lecture qui suit écraserait
+   la mémoire avec un fichier en retard. */
+const flags = ((globalThis as typeof globalThis & {
+  __msgateBankPagesFlags?: { loaded: boolean };
+}).__msgateBankPagesFlags ??= { loaded: false });
 
 function slugify(value: string) {
   return (
@@ -27,23 +33,48 @@ function uid() {
   return `bp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/*
+ * Un raté de lecture ne vide plus la mémoire.
+ *
+ * `catch { … = [] }` suivi de `loaded = true` transformait un EBUSY passager
+ * — courant sous Windows quand un `persist()` concurrent fait son `rename` —
+ * en store vide déclaré valide, que l'écriture suivante recopiait sur le
+ * disque. Seul un fichier réellement absent vaut « rien à charger ».
+ */
 async function load(): Promise<Store> {
-  if (loaded) return mem;
+  if (flags.loaded) return mem;
   try {
     const raw = await readFile(CACHE_FILE, "utf8");
     const parsed = JSON.parse(raw) as Store;
-    mem.pages = Array.isArray(parsed.pages) ? parsed.pages : [];
-  } catch {
-    mem.pages = [];
+    mem.pages = Array.isArray(parsed.pages) ? parsed.pages : mem.pages;
+    flags.loaded = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      mem.pages = [];
+      flags.loaded = true;
+    }
   }
-  loaded = true;
   return mem;
 }
 
+/** Le fichier d'avant chaque écriture est gardé, au cas où. */
 async function persist() {
   await mkdir(CACHE_DIR, { recursive: true });
-  const tmp = `${CACHE_FILE}.tmp`;
-  await writeFile(tmp, JSON.stringify({ pages: mem.pages }, null, 2));
+  if (!mem.pages.length && !flags.loaded) return;
+
+  const payload = JSON.stringify({ pages: mem.pages }, null, 2);
+  try {
+    const previous = await readFile(CACHE_FILE, "utf8");
+    if (previous.trim() && previous !== payload) {
+      await writeFile(CACHE_FILE.replace(/\.json$/, ".bak.json"), previous);
+    }
+  } catch {
+    // Rien à sauvegarder.
+  }
+
+  const tmp = `${CACHE_FILE}.${process.pid}.${Date.now().toString(36)}.tmp`;
+  await writeFile(tmp, payload);
+  mirror(CACHE_FILE, Buffer.from(payload));
   await rename(tmp, CACHE_FILE);
 }
 

@@ -1,6 +1,16 @@
 import { NextResponse } from "next/server";
 import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
-import { buildPrompt, type AgeBand, type ShotId } from "@/lib/product-images/shots";
+import { fetchBrandColors } from "@/lib/product-images/brand";
+import {
+  buildPrompt,
+  standalone,
+  usesKit,
+  type AgeBand,
+  type Gender,
+  type ProductFamily,
+  type Ratio,
+  type ShotId,
+} from "@/lib/product-images/shots";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -9,6 +19,10 @@ type GenerateProduct = {
   handle: string;
   title: string;
   type?: string;
+  vendor?: string;
+  /** Description et tags de la fiche : ils nourrissent le décor des programmes. */
+  description?: string;
+  tags?: string;
   /**
    * Photos d'origine du produit. Plusieurs angles valent bien mieux qu'une seule
    * image : sans dos ni détail, le modèle invente les parties qu'il ne voit pas.
@@ -17,18 +31,28 @@ type GenerateProduct = {
 };
 
 type Body = {
-  action?: "prompts" | "logo" | "generate" | "status";
+  action?: "prompts" | "logo" | "brand" | "generate" | "status";
+  /** URL de la boutique dont on lit les couleurs. */
+  url?: string;
   products?: GenerateProduct[];
   shots?: ShotId[];
+  family?: ProductFamily;
   age?: AgeBand;
+  gender?: Gender;
+  ratio?: Ratio;
+  /** Couleurs de l'image « Contenu du protocole » : fond, texte, accent. */
+  brandColor?: string;
+  textColor?: string;
+  accentColor?: string;
   logoUrl?: string;
   logoDataUrl?: string;
   taskIds?: string[];
   resolution?: string;
 };
 
-/** Les visuels produit sortent toujours en portrait 3:4 : non négociable côté client. */
-const ASPECT_RATIO = "3:4";
+/** Format par défaut : le portrait 3:4 de la fiche Shopify. */
+const DEFAULT_RATIO: Ratio = "3:4";
+const RATIOS: Ratio[] = ["3:4", "1:1", "9:16"];
 
 /** Kie accepte 8 images d'entrée ; on en garde une pour le logo du plan unboxing. */
 const MAX_PRODUCT_REFS = 6;
@@ -87,6 +111,11 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (body.action === "brand") {
+      if (!body.url?.trim()) return NextResponse.json({ error: "URL de la boutique manquante" }, { status: 400 });
+      return NextResponse.json({ colors: await fetchBrandColors(body.url) });
+    }
+
     if (body.action === "logo") {
       if (!body.logoDataUrl) return NextResponse.json({ error: "Logo manquant" }, { status: 400 });
       const url = await uploadBase64(body.logoDataUrl, `logo-${Date.now()}.png`);
@@ -96,12 +125,25 @@ export async function POST(request: Request) {
     const products = body.products ?? [];
     const shots = body.shots ?? [];
 
+    const hasLogo = Boolean(body.logoUrl && /^https:\/\//i.test(body.logoUrl));
+    const ratio: Ratio = body.ratio && RATIOS.includes(body.ratio) ? body.ratio : DEFAULT_RATIO;
+    const optionsFor = (shot: ShotId) => ({
+      family: body.family,
+      age: body.age,
+      gender: body.gender,
+      ratio,
+      brandColor: body.brandColor,
+      textColor: body.textColor,
+      accentColor: body.accentColor,
+      hasLogo: hasLogo && (shot === "packaging" || usesKit(shot)),
+    });
+
     if (body.action === "prompts") {
       const prompts = products.flatMap((product) =>
         shots.map((shot) => ({
           handle: product.handle,
           shot,
-          prompt: buildPrompt(shot, product, body.age),
+          prompt: buildPrompt(shot, product, optionsFor(shot)),
         }))
       );
       return NextResponse.json({ prompts });
@@ -117,14 +159,22 @@ export async function POST(request: Request) {
       const jobs = await runQueue(
         entries,
         async ({ product, shot }) => {
-          const prompt = buildPrompt(shot, product, body.age);
+          const prompt = buildPrompt(shot, product, optionsFor(shot));
           const productRefs = (product.referenceUrls ?? []).slice(0, MAX_PRODUCT_REFS);
 
           // L'unboxing montre le produit DANS la boîte : il lui faut le logo et les
           // photos produit. Le logo passe en premier, le prompt s'appuie sur cet
           // ordre pour distinguer ce qui va sur le couvercle de ce qui va dedans.
+          // Un coffret de programme n'a pas de photo produit : seul le logo,
+          // s'il existe, lui sert de référence.
           const references = (
-            shot === "packaging" ? [body.logoUrl, ...productRefs] : productRefs
+            shot === "packaging"
+              ? [body.logoUrl, ...productRefs]
+              : usesKit(shot)
+                ? [body.logoUrl]
+                : standalone(shot)
+                  ? []
+                  : productRefs
           ).filter((url): url is string => Boolean(url && /^https:\/\//i.test(url)));
 
           try {
@@ -133,16 +183,16 @@ export async function POST(request: Request) {
                 ? createKieTask("gpt-image-2-image-to-image", {
                     prompt,
                     input_urls: references,
-                    aspect_ratio: ASPECT_RATIO,
+                    aspect_ratio: ratio,
                     resolution: body.resolution || "1K",
                   })
                 : createKieTask("gpt-image-2-text-to-image", {
                     prompt,
-                    aspect_ratio: ASPECT_RATIO,
+                    aspect_ratio: ratio,
                     resolution: body.resolution || "1K",
                   })
             );
-            return { handle: product.handle, shot, prompt, taskId, error: null, refs: references.length };
+            return { handle: product.handle, shot, prompt, taskId, error: null, refs: references.length, ratio };
           } catch (error) {
             const message = error instanceof Error ? error.message : "Création impossible";
             return {
@@ -153,6 +203,7 @@ export async function POST(request: Request) {
               // Après trois tentatives espacées, c'est bien la file qui sature.
               error: TRANSIENT.test(message) ? "Kie saturé — relance ce produit" : message,
               refs: references.length,
+              ratio,
             };
           }
         },

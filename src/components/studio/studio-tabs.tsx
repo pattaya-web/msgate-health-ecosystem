@@ -2,21 +2,27 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Eraser, FolderOpen, Image as ImageIcon, Mic, Video } from "lucide-react";
+import { Clapperboard, Eraser, FlaskConical, Image as ImageIcon, Mic, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/**
+ * La bibliothèque n'est plus ici : elle a rejoint la barre de gauche, dans
+ * « Création ». On y va pour retrouver une créa, pas pour en fabriquer une —
+ * ce n'est donc pas une étape du studio mais une destination à part.
+ */
 const TABS = [
   { href: "/studio/static", label: "Static", icon: ImageIcon },
+  { href: "/studio/mass-test", label: "Mass test", icon: FlaskConical },
+  { href: "/studio/ai-video", label: "Vidéo IA", icon: Clapperboard },
   { href: "/studio/basic", label: "Voix Off ElevenLabs", icon: Mic },
-  { href: "/studio/library", label: "Toutes les créas", icon: FolderOpen },
   { href: "/studio/remove", label: "Remove Magic", icon: Eraser },
-  { href: "/studio/video", label: "Vidéo", icon: Video },
+  { href: "/studio/video", label: "Texte / montage", icon: Video },
 ];
 
 export function StudioTabs() {
   const pathname = usePathname() || "";
   return (
-    <div className="inline-flex gap-0.5 rounded-xl bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
+    <div className="inline-flex gap-0.5 rounded-full bg-slate-100 p-1 dark:bg-slate-800/70">
       {TABS.map((tab) => {
         const Icon = tab.icon;
         const selected = pathname.startsWith(tab.href);
@@ -24,11 +30,12 @@ export function StudioTabs() {
           <Link
             key={tab.href}
             href={tab.href}
+            prefetch
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium",
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-[background-color,color,box-shadow] duration-150",
               selected
-                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-50"
-                : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
+                ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(35,49,55,0.08),0_4px_12px_-6px_rgba(35,49,55,0.25)] dark:bg-slate-950 dark:text-slate-50"
+                : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
             )}
           >
             <Icon className="h-3.5 w-3.5" />

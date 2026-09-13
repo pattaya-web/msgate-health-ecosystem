@@ -9,7 +9,7 @@ type Balance = { credits: number; usd: number | null };
 const REFRESH_MS = 5 * 60 * 1000;
 
 /**
- * Deux lignes plutôt qu'une : la barre latérale fait 220 px, et « 10 503,68 cr
+ * Deux lignes plutôt qu'une : la barre latérale fait 232 px, et « 10 503,68 cr
  * · 52,52 $ » sur une seule ligne se faisait couper au milieu du montant — soit
  * exactement l'information qu'on vient regarder.
  */
@@ -69,39 +69,37 @@ export function KieCredit() {
       target="_blank"
       rel="noreferrer"
       title={error || "Solde Kie AI — clique pour recharger sur kie.ai"}
-      className="mb-2 flex w-full items-start gap-2 rounded-xl border border-slate-200/80 bg-slate-50/70 px-2.5 py-2 text-left transition-colors hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/60 dark:hover:bg-slate-900"
+      className="mb-2 flex w-full items-start gap-2.5 rounded-2xl border border-slate-200/70 bg-white/70 px-3 py-2.5 text-left transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900/50 dark:hover:bg-slate-900"
     >
-      <Coins className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+      <Coins className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-            Crédits Kie AI
-          </span>
+        <div className="flex items-center gap-1.5">
+          <span className="eyebrow">Crédits Kie AI</span>
           {loading ? <Loader2 className="h-2.5 w-2.5 animate-spin text-slate-400" /> : null}
         </div>
 
         {error ? (
-          <div className="text-[12px] font-semibold text-rose-600 dark:text-rose-400">
+          <div className="mt-0.5 text-[12px] font-semibold text-rose-600 dark:text-rose-400">
             Indisponible
           </div>
         ) : balance ? (
           <>
             {dollars(balance) ? (
-              <div className="text-[15px] font-semibold leading-tight text-slate-900 tabular-nums dark:text-slate-100">
+              <div className="mt-0.5 font-display text-[20px] leading-none text-slate-900 tabular-nums dark:text-slate-100">
                 {dollars(balance)}
               </div>
             ) : null}
-            <div className="text-[11px] leading-tight text-slate-500 tabular-nums">
+            <div className="mt-1 text-[11px] leading-tight text-slate-500 tabular-nums">
               {credits(balance)}
             </div>
           </>
         ) : (
-          <div className="text-[12px] font-semibold text-slate-400">…</div>
+          <div className="mt-1 h-5 w-20 rounded-md skeleton" />
         )}
 
-        <div className="mt-1 flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+        <div className="mt-1.5 flex items-center gap-3">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-700 dark:text-slate-300">
             <ExternalLink className="h-2.5 w-2.5" />
             Recharger
           </span>

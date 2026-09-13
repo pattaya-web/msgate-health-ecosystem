@@ -16,13 +16,25 @@ import {
 } from "@/lib/product-images/csv";
 import {
   AGE_BANDS,
+  DEFAULT_BRAND_COLOR,
+  DEFAULT_SHOTS,
+  FAMILIES,
+  GENDERS,
+  RATIOS,
   SHOTS,
+  SHOTS_BY_FAMILY,
+  guessFamily,
+  hasModel,
   orderShots,
   shotLabel,
   type AgeBand,
+  type Gender,
+  type ProductFamily,
+  type Ratio,
   type ShotId,
 } from "@/lib/product-images/shots";
 import { autoReferences, scoreImages } from "@/lib/product-images/references";
+import { SendToDrive } from "@/components/drive/send-to-drive";
 import { cn } from "@/lib/utils";
 
 type Job = {
@@ -33,6 +45,15 @@ type Job = {
   error: string | null;
   state: "pending" | "done" | "fail";
   urls: string[];
+  /** Format demandé à la génération : la tuile garde ses proportions. */
+  ratio?: Ratio;
+};
+
+/** Classes Tailwind écrites en clair : une chaîne construite ne serait pas compilée. */
+const ASPECT: Record<Ratio, string> = {
+  "3:4": "aspect-[3/4]",
+  "1:1": "aspect-square",
+  "9:16": "aspect-[9/16]",
 };
 
 const POLL_MS = 8000;
@@ -49,7 +70,16 @@ export default function ProductImagesPage() {
   const [fileName, setFileName] = useState("");
   const [products, setProducts] = useState<CsvProduct[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [shots, setShots] = useState<Set<ShotId>>(new Set(["flatlay", "model_front", "packaging"]));
+  const [family, setFamily] = useState<ProductFamily>("fashion");
+  const [shots, setShots] = useState<Set<ShotId>>(new Set(DEFAULT_SHOTS.fashion));
+  const [gender, setGender] = useState<Gender>("woman");
+  const [ratio, setRatio] = useState<Ratio>("3:4");
+  const [brandColor, setBrandColor] = useState(DEFAULT_BRAND_COLOR);
+  const [textColor, setTextColor] = useState("");
+  const [accentColor, setAccentColor] = useState("");
+  const [shopUrl, setShopUrl] = useState("");
+  const [palette, setPalette] = useState<string[]>([]);
+  const [readingBrand, setReadingBrand] = useState(false);
   const [logoUrl, setLogoUrl] = useState("");
   const [logoPreview, setLogoPreview] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -137,6 +167,19 @@ export default function ProductImagesPage() {
       return;
     }
     const grouped = groupProducts(parsed);
+    /*
+     * La famille se devine sur le CSV entier : un export mêle rarement des
+     * vêtements et des programmes, et l'utilisateur corrige d'un clic.
+     */
+    const votes = new Map<ProductFamily, number>();
+    for (const product of grouped) {
+      const guess = guessFamily(`${product.title} ${product.type} ${product.tags} ${product.description}`);
+      votes.set(guess, (votes.get(guess) ?? 0) + 1);
+    }
+    const guessed = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "fashion";
+    setFamily(guessed);
+    setShots(new Set(DEFAULT_SHOTS[guessed]));
+    setGender(guessed === "fashion" ? "woman" : "mixed");
     setTable(parsed);
     setProducts(grouped);
     setFileName(file.name);
@@ -145,6 +188,30 @@ export default function ProductImagesPage() {
     setApproved(new Map());
     toast.success(`${grouped.length} produits chargés`);
   }, []);
+
+  /** Lit les couleurs de la boutique : fond, texte, accent. Corrigeable ensuite au sélecteur. */
+  async function readBrand() {
+    if (!shopUrl.trim()) return toast.error("Colle l'URL de ta boutique");
+    setReadingBrand(true);
+    try {
+      const res = await fetch("/api/product-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "brand", url: shopUrl }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      setBrandColor(body.colors.background);
+      setTextColor(body.colors.text);
+      setAccentColor(body.colors.accent);
+      setPalette(body.colors.palette ?? []);
+      toast.success("Couleurs de la boutique lues");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couleurs illisibles");
+    } finally {
+      setReadingBrand(false);
+    }
+  }
 
   async function onLogo(file: File | undefined) {
     if (!file) return;
@@ -211,13 +278,22 @@ export default function ProductImagesPage() {
               logoUrl,
               resolution,
               shots: orderShots(shots),
+              family,
               age,
+              gender,
+              ratio,
+              brandColor,
+              textColor: textColor || undefined,
+              accentColor: accentColor || undefined,
               products: slice.flatMap((product) =>
                 perColor && product.colors.length > 1
                   ? product.colors.map((color) => ({
                       handle: `${product.handle}::${color.name}`,
                       title: `${product.title} — ${color.name}`,
                       type: product.type,
+                      vendor: product.vendor,
+                      description: product.description,
+                      tags: product.tags,
                       referenceUrls: [color.image],
                     }))
                   : [
@@ -225,6 +301,9 @@ export default function ProductImagesPage() {
                         handle: product.handle,
                         title: product.title,
                         type: product.type,
+                        vendor: product.vendor,
+                        description: product.description,
+                        tags: product.tags,
                         referenceUrls: refsOf(product),
                       },
                     ]
@@ -249,7 +328,7 @@ export default function ProductImagesPage() {
         setBusy(false);
       }
     },
-    [age, logoUrl, perColor, refsOf, resolution, shots]
+    [accentColor, age, brandColor, family, gender, logoUrl, perColor, ratio, refsOf, resolution, shots, textColor]
   );
 
   function generate() {
@@ -257,8 +336,26 @@ export default function ProductImagesPage() {
     if (!picked.length) return toast.error("Sélectionne au moins un produit");
     if (!shots.size) return toast.error("Sélectionne au moins un plan");
     if (shots.has("packaging") && !logoUrl) return toast.error("Charge ton logo pour le plan packaging");
+    if (family !== "digital") {
+      const blind = picked.filter((product) => !refsOf(product).length);
+      if (blind.length) {
+        return toast.error(
+          `${blind.length} produit(s) sans photo : sans référence l'objet serait inventé. Passe en « Programme / digital » s'il n'y a rien à photographier.`
+        );
+      }
+    }
     void submit(picked, true);
   }
+
+  /** Changer de famille remet les plans par défaut de cette famille. */
+  function switchFamily(next: ProductFamily) {
+    setFamily(next);
+    setShots(new Set(DEFAULT_SHOTS[next]));
+    if (next === "fashion") setGender("woman");
+  }
+
+  const familyShots = SHOTS_BY_FAMILY[family];
+  const castingMatters = [...shots].some(hasModel);
 
   /** Relance uniquement les produits dont au moins un plan a échoué. */
   function retryFailed() {
@@ -297,8 +394,20 @@ export default function ProductImagesPage() {
      * chaque couleur garde les siennes à part pour que sa variante pointe sur
      * son propre rendu plutôt que sur une photo partagée.
      */
+    /*
+     * L'ordre des images dans Shopify est celui des plans, pas celui des clics
+     * de validation : l'avant / après reste la première image quel que soit
+     * l'ordre dans lequel les rendus ont été cochés.
+     */
+    const rank = new Map<string, number>();
+    for (const job of jobs) {
+      if (job.urls[0]) rank.set(job.urls[0], SHOTS.findIndex((shot) => shot.id === job.shot));
+    }
+    const byShot = (a: string, b: string) => (rank.get(a) ?? 99) - (rank.get(b) ?? 99);
+
     const merged = new Map<string, Replacement>();
-    for (const [handle, urls] of approved) {
+    for (const [handle, picked] of approved) {
+      const urls = [...picked].sort(byShot);
       const key = baseHandle(handle);
       const color = colorOf(handle);
       const entry = merged.get(key) ?? { images: [], byColor: {} };
@@ -368,7 +477,7 @@ export default function ProductImagesPage() {
     <div>
       <PageHeader
         title="Image Product"
-        description="Dépose un CSV Shopify, génère les visuels produit en 3:4, valide, puis retélécharge le CSV avec les nouvelles images pour le réimporter dans Shopify."
+        description="Dépose un CSV Shopify, génère les visuels produit au format choisi, valide, puis retélécharge le CSV avec les nouvelles images pour le réimporter dans Shopify."
         actions={
           gallery.length ? (
             <div className="flex items-center gap-2">
@@ -419,7 +528,8 @@ export default function ProductImagesPage() {
             Ton logo
           </div>
           <p className="text-[11px] leading-snug text-slate-500">
-            Imprimé sur une boîte blanche nue pour le plan packaging.
+            Imprimé sur la boîte du plan packaging, en haut de l&apos;image « Contenu du protocole » et
+            sur les écrans des programmes.
           </p>
           <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 p-2 text-[12px] dark:border-slate-700">
             <input
@@ -438,12 +548,90 @@ export default function ProductImagesPage() {
               {logoUrl ? "Logo prêt" : "Charger le logo"}
             </span>
           </label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="url"
+              value={shopUrl}
+              onChange={(event) => setShopUrl(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void readBrand();
+              }}
+              placeholder="URL de ta boutique"
+              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+            />
+            <Button size="sm" variant="outline" onClick={() => void readBrand()} disabled={readingBrand}>
+              {readingBrand ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Couleurs"}
+            </Button>
+          </div>
+          <label
+            className="flex items-center gap-2 text-[11px] text-slate-500"
+            title="Fond de l'image « Contenu du protocole » — lu sur la boutique, corrigeable ici. Charge la version claire de ton logo si le fond est foncé."
+          >
+            <input
+              type="color"
+              value={brandColor}
+              onChange={(event) => setBrandColor(event.target.value)}
+              className="h-7 w-9 cursor-pointer rounded border border-slate-200 bg-transparent p-0.5 dark:border-slate-700"
+            />
+            <span>
+              Fond{" "}
+              <span className="font-mono text-[10px] uppercase text-slate-400">{brandColor}</span>
+            </span>
+            {textColor ? (
+              <span className="flex items-center gap-1" title={`Texte ${textColor}`}>
+                <span className="h-4 w-4 rounded-full ring-1 ring-slate-200 dark:ring-slate-700" style={{ background: textColor }} />
+                texte
+              </span>
+            ) : null}
+            {accentColor ? (
+              <span className="flex items-center gap-1" title={`Accent ${accentColor}`}>
+                <span className="h-4 w-4 rounded-full ring-1 ring-slate-200 dark:ring-slate-700" style={{ background: accentColor }} />
+                accent
+              </span>
+            ) : null}
+          </label>
+          {palette.length ? (
+            <div className="flex flex-wrap gap-1" title="Couleurs les plus présentes sur la boutique — clique pour l'utiliser en fond">
+              {palette.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  onClick={() => setBrandColor(hex)}
+                  title={hex}
+                  className={cn(
+                    "h-5 w-5 rounded-md ring-1 ring-slate-200 transition-transform hover:scale-110 dark:ring-slate-700",
+                    brandColor === hex && "ring-2 ring-emerald-500"
+                  )}
+                  style={{ background: hex }}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
       {products.length > 0 ? (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-slate-100/[0.06]">
-          {SHOTS.map((shot) => (
+          <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+            {FAMILIES.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => switchFamily(entry.id)}
+                title={entry.hint}
+                className={cn(
+                  "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                  family === entry.id
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                )}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </div>
+          <span className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
+          {familyShots.map((shot) => (
             <button
               key={shot.id}
               type="button"
@@ -467,6 +655,20 @@ export default function ProductImagesPage() {
           ))}
 
           <div className="ml-auto flex items-center gap-2 text-[12px] text-slate-500">
+            {castingMatters ? (
+              <select
+                value={gender}
+                onChange={(event) => setGender(event.target.value as Gender)}
+                title="Casting des plans avec modèle"
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+              >
+                {GENDERS.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <select
               value={age}
               onChange={(event) => setAge(event.target.value as AgeBand)}
@@ -479,6 +681,25 @@ export default function ProductImagesPage() {
                 </option>
               ))}
             </select>
+
+            <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+              {RATIOS.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => setRatio(entry.id)}
+                  title={entry.hint}
+                  className={cn(
+                    "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                    ratio === entry.id
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                      : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                  )}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
 
             <div className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
               {(["1K", "2K"] as const).map((value) => (
@@ -586,9 +807,16 @@ export default function ProductImagesPage() {
                       {product.title || product.handle}
                     </div>
                     <div className="truncate text-[11px] text-slate-500">
-                      {product.images.length} photo{product.images.length > 1 ? "s" : ""} d&apos;origine
+                      {family === "digital" && !product.images.length
+                        ? "Programme — rendu en coffret, sans photo d'origine"
+                        : `${product.images.length} photo${product.images.length > 1 ? "s" : ""} d'origine`}
                       {picked.length ? ` · ${picked.length} validée(s)` : ""}
                     </div>
+                    {family === "digital" && product.description ? (
+                      <div className="truncate text-[10px] text-slate-400" title={product.description}>
+                        {product.description}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -639,7 +867,12 @@ export default function ProductImagesPage() {
                   <div className="mt-2.5 flex flex-wrap gap-2">
                     {productJobs.map((job) => (
                       <div key={`${job.shot}-${job.taskId}`} className="w-[132px]">
-                        <div className="relative aspect-[3/4] overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
+                        <div
+                          className={cn(
+                            "relative overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800",
+                            ASPECT[job.ratio ?? "3:4"]
+                          )}
+                        >
                           {job.state === "done" && job.urls[0] ? (
                             <>
                               <button
@@ -751,7 +984,7 @@ export default function ProductImagesPage() {
               </div>
 
               <div className="text-[11px] text-slate-500">
-                {preview !== null ? `${preview + 1} / ${gallery.length}` : ""} · format 3:4
+                {preview !== null ? `${preview + 1} / ${gallery.length}` : ""} · format {current.ratio ?? "3:4"}
               </div>
 
               <Button
@@ -777,6 +1010,7 @@ export default function ProductImagesPage() {
               >
                 Ouvrir en taille réelle
               </a>
+              <SendToDrive url={current.urls[0]} name={`${current.handle}-${current.shot}.png`} />
 
               <div className="mt-1 border-t border-slate-100 pt-2 dark:border-slate-800">
                 <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">

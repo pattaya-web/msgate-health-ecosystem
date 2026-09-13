@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Search, Store } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,14 @@ function money(value: number) {
 
 export default function ShopifyScraperPage() {
   const [shop, setShop] = useState("");
+
+  /* Arrivée depuis SpyShop : /shopify-scraper?shop=marque.com. */
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("shop");
+    if (!wanted) return;
+    const timer = setTimeout(() => setShop(wanted), 0);
+    return () => clearTimeout(timer);
+  }, []);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [collection, setCollection] = useState("");
   const [min, setMin] = useState("");

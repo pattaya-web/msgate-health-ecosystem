@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
    */
   serverExternalPackages: ["ffmpeg-static"],
 
+  experimental: {
+    /** Fondu natif entre deux routes via l'API View Transitions du navigateur. */
+    viewTransition: true,
+  },
+
   async redirects() {
     return [
       { source: "/alerts", destination: "/", permanent: false },

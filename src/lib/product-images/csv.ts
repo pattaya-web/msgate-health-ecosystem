@@ -10,6 +10,9 @@ export type CsvProduct = {
   title: string;
   type: string;
   vendor: string;
+  /** Description de la fiche (Body HTML), débarrassée de ses balises. */
+  description: string;
+  tags: string;
   /** Images d'origine, dans l'ordre des positions. */
   images: string[];
   /** Texte alternatif de chaque image, aligné sur `images`. Sert à reconnaître
@@ -95,12 +98,26 @@ function column(table: CsvTable, name: string) {
   return table.headers.indexOf(name);
 }
 
+/** Le texte d'une description Shopify, sans balises ni entités. */
+function stripHtml(html: string) {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Regroupe les lignes par handle : un produit Shopify s'étale sur plusieurs lignes. */
 export function groupProducts(table: CsvTable): CsvProduct[] {
   const handleAt = column(table, "Handle");
   const titleAt = column(table, "Title");
   const typeAt = column(table, "Type");
   const vendorAt = column(table, "Vendor");
+  const bodyAt = column(table, "Body (HTML)");
+  const tagsAt = column(table, "Tags");
   const imageAt = column(table, "Image Src");
   const altAt = column(table, "Image Alt Text");
   const variantImageAt = column(table, "Variant Image");
@@ -119,7 +136,18 @@ export function groupProducts(table: CsvTable): CsvProduct[] {
 
     let product = byHandle.get(handle);
     if (!product) {
-      product = { handle, title: "", type: "", vendor: "", images: [], imageAlts: [], colors: [], rowIndexes: [] };
+      product = {
+        handle,
+        title: "",
+        type: "",
+        vendor: "",
+        description: "",
+        tags: "",
+        images: [],
+        imageAlts: [],
+        colors: [],
+        rowIndexes: [],
+      };
       byHandle.set(handle, product);
     }
 
@@ -127,6 +155,8 @@ export function groupProducts(table: CsvTable): CsvProduct[] {
     if (titleAt >= 0 && row[titleAt]?.trim() && !product.title) product.title = row[titleAt].trim();
     if (typeAt >= 0 && row[typeAt]?.trim() && !product.type) product.type = row[typeAt].trim();
     if (vendorAt >= 0 && row[vendorAt]?.trim() && !product.vendor) product.vendor = row[vendorAt].trim();
+    if (bodyAt >= 0 && row[bodyAt]?.trim() && !product.description) product.description = stripHtml(row[bodyAt]);
+    if (tagsAt >= 0 && row[tagsAt]?.trim() && !product.tags) product.tags = row[tagsAt].trim();
 
     const image = imageAt >= 0 ? (row[imageAt] ?? "").trim() : "";
     if (image && !product.images.includes(image)) {
@@ -169,18 +199,39 @@ export type Replacement = {
   byColor?: Record<string, string[]>;
 };
 
+/** Colonnes que Shopify lit pour attacher des images à un produit. */
+const IMAGE_COLUMNS = ["Image Src", "Image Position", "Image Alt Text"];
+
+/**
+ * Un CSV écrit à la main — l'import initial d'une boutique sans visuels — n'a
+ * souvent aucune colonne d'image. Sans elles, le fichier réexporté était
+ * identique à l'entrée et Shopify n'importait rien. On les ajoute en fin de
+ * tableau, vides sur toutes les lignes existantes.
+ */
+function withImageColumns(table: CsvTable): CsvTable {
+  const missing = IMAGE_COLUMNS.filter((name) => column(table, name) < 0);
+  if (!missing.length) return table;
+  const headers = [...table.headers, ...missing];
+  const rows = table.rows.map((row) => {
+    const next = [...row];
+    while (next.length < headers.length) next.push("");
+    return next;
+  });
+  return { headers, rows };
+}
+
 export function applyGeneratedImages(
-  table: CsvTable,
+  source: CsvTable,
   replacements: Map<string, Replacement>
 ): CsvTable {
+  if (column(source, "Handle") < 0) return source;
+  const table = withImageColumns(source);
   const handleAt = column(table, "Handle");
 
   const imageAt = column(table, "Image Src");
   const positionAt = column(table, "Image Position");
   const altAt = column(table, "Image Alt Text");
   const variantImageAt = column(table, "Variant Image");
-
-  if (handleAt < 0 || imageAt < 0) return table;
 
   // La couleur peut occuper n'importe quel rang d'option chez Shopify.
   const optionCols = [1, 2, 3]

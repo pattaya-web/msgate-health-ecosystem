@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, rm, writeFile } from "fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
 import path from "path";
+import { mirror } from "@/lib/storage";
 import type { StaticCreative } from "@/lib/studio/library-types";
 
 export type { StaticCreative } from "@/lib/studio/library-types";
@@ -13,7 +14,12 @@ const mem = ((globalThis as typeof globalThis & {
   __msgateStaticLibrary?: Store;
 }).__msgateStaticLibrary ??= { items: [] });
 
-let loaded = false;
+/* Le drapeau vit avec la mémoire : une variable de module serait remise
+   à zéro par le rechargement à chaud, et la lecture qui suit écraserait
+   la mémoire avec un fichier en retard. */
+const flags = ((globalThis as typeof globalThis & {
+  __msgateLibraryFlags?: { loaded: boolean };
+}).__msgateLibraryFlags ??= { loaded: false });
 
 function uid() {
   return `sc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -32,23 +38,61 @@ export function libraryFileUrl(id: string, file: string) {
 }
 
 async function load(): Promise<Store> {
-  if (loaded) return mem;
+  if (flags.loaded) return mem;
+  /*
+   * Un raté de lecture ne vide plus l'index.
+   *
+   * Le rattrapage disque plus bas limitait déjà la casse — les images restent —
+   * mais les briefs, prompts et ratios, eux, ne se retrouvent nulle part.
+   */
   try {
     const raw = await readFile(INDEX, "utf8");
     const parsed = JSON.parse(raw) as Store;
-    mem.items = Array.isArray(parsed.items) ? parsed.items : [];
-  } catch {
-    mem.items = [];
+    mem.items = Array.isArray(parsed.items) ? parsed.items : mem.items;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") mem.items = [];
   }
-  loaded = true;
+
+  /*
+   * Rattrapage : les dossiers présents sur le disque mais absents de l'index
+   * sont réintégrés. Ils viennent d'enregistrements interrompus après l'écriture
+   * de l'image — l'index n'est qu'un catalogue, c'est le disque qui fait foi.
+   */
+  try {
+    const known = new Set(mem.items.map((item) => item.id));
+    for (const id of await readdir(ROOT)) {
+      if (!isCreativeId(id) || known.has(id)) continue;
+      const files = await readdir(path.join(ROOT, id)).catch(() => [] as string[]);
+      const results = files.filter((file) => /^result-\d+\./i.test(file)).sort();
+      if (!results.length) continue;
+      const info = await stat(path.join(ROOT, id)).catch(() => null);
+      mem.items.push({
+        id,
+        createdAt: (info?.mtime ?? new Date()).toISOString(),
+        brief: "",
+        prompt: "(récupérée depuis le disque)",
+        ratio: "3:4",
+        resolution: "1K",
+        resultFiles: results,
+        refFiles: files.filter((file) => /^ref-\d+\./i.test(file)).sort(),
+      });
+    }
+    mem.items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  } catch {
+    // Dossier absent : rien à rattraper.
+  }
+
+  flags.loaded = true;
   return mem;
 }
 
 async function persist() {
   await mkdir(ROOT, { recursive: true });
-  const tmp = `${INDEX}.tmp`;
-  await writeFile(tmp, JSON.stringify({ items: mem.items }, null, 2));
+  const tmp = `${INDEX}.${process.pid}.${Date.now().toString(36)}.tmp`;
+  const payload = JSON.stringify({ items: mem.items }, null, 2);
+  await writeFile(tmp, payload);
   await rename(tmp, INDEX);
+  mirror(INDEX, Buffer.from(payload));
 }
 
 function allowedSource(url: string) {
@@ -57,7 +101,7 @@ function allowedSource(url: string) {
     const parsed = new URL(url);
     return (
       parsed.protocol === "https:" &&
-      /(aiquickdraw|kie\.ai|redpandaai\.co|amazonaws\.com|cloudfront\.net|aliyuncs\.com|googleapis\.com)/i.test(
+      /(aiquickdraw|kie\.ai|redpandaai\.co|amazonaws\.com|cloudfront\.net|aliyuncs\.com|googleapis\.com|cdn\.shopify\.com|shopifycdn\.net|myshopify\.com)/i.test(
         parsed.hostname
       )
     );
@@ -79,14 +123,19 @@ async function saveBinary(dir: string, name: string, source: string) {
     const match = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(source);
     if (!match) throw new Error("Image data URL illisible");
     const file = `${name}.${extFrom(match[1], "png")}`;
-    await writeFile(path.join(dir, file), Buffer.from(match[2], "base64"));
+    const body = Buffer.from(match[2], "base64");
+    await writeFile(path.join(dir, file), body);
+    mirror(path.join(dir, file), body);
     return file;
   }
   if (!allowedSource(source)) throw new Error("URL image refusée");
   const res = await fetch(source, { cache: "no-store" });
   if (!res.ok) throw new Error("Téléchargement créa impossible");
   const file = `${name}.${extFrom(res.headers.get("content-type") || "", "png")}`;
-  await writeFile(path.join(dir, file), Buffer.from(await res.arrayBuffer()));
+  const body = Buffer.from(await res.arrayBuffer());
+  await writeFile(path.join(dir, file), body);
+  // L'image part aussi en ligne : c'est elle le travail, pas l'index.
+  mirror(path.join(dir, file), body);
   return file;
 }
 
@@ -129,9 +178,19 @@ export async function saveStaticCreative(input: {
   const resultFiles = await Promise.all(
     input.resultUrls.slice(0, 8).map((url, i) => saveBinary(dir, `result-${i}`, url))
   );
-  const refFiles = await Promise.all(
-    (input.referenceUrls || []).slice(0, 8).map((url, i) => saveBinary(dir, `ref-${i}`, url))
-  );
+  /*
+   * Les références sont accessoires : elles servent à rejouer une créa, pas à
+   * la définir. Une seule qui échoue faisait rejeter tout l'enregistrement, et
+   * l'image — déjà écrite, déjà facturée — restait orpheline sur le disque
+   * pendant que la bibliothèque paraissait vide.
+   */
+  const refFiles = (
+    await Promise.all(
+      (input.referenceUrls || [])
+        .slice(0, 8)
+        .map((url, i) => saveBinary(dir, `ref-${i}`, url).catch(() => null))
+    )
+  ).filter((file): file is string => Boolean(file));
   const item: StaticCreative = {
     id,
     createdAt: new Date().toISOString(),

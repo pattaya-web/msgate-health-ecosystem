@@ -54,3 +54,11 @@ whop-export/
 curl.txt
 lesson*.html
 *.pdf
+
+# Creas de reference d autrui : restent locales
+/data/style-posters/*
+!/data/style-posters/README.md
+
+# Videos de reference d autrui
+/data/references/*
+!/data/references/README.md

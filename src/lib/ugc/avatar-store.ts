@@ -10,6 +10,7 @@
 
 import { mkdir, readFile, rename, writeFile, rm } from "fs/promises";
 import path from "path";
+import { mirror } from "@/lib/storage";
 import { uploadBase64 } from "@/lib/studio/kie";
 import type { Casting } from "@/lib/ugc/casting";
 
@@ -49,7 +50,9 @@ async function load(): Promise<Store> {
 async function persist(store: Store) {
   await mkdir(CACHE_DIR, { recursive: true });
   const tmp = `${FILE}.tmp`;
-  await writeFile(tmp, JSON.stringify(store, null, 2));
+  const payload = JSON.stringify(store, null, 2);
+  await writeFile(tmp, payload);
+  mirror(FILE, Buffer.from(payload));
   await rename(tmp, FILE);
 }
 

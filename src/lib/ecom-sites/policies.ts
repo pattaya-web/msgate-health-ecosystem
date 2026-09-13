@@ -7,7 +7,7 @@
  * contredit le dossier de la LLC est le motif de refus le plus courant.
  */
 
-import { fullAddress, money, type EcomSite } from "@/lib/ecom-sites/types";
+import { editedText, fullAddress, money, type EcomSite } from "@/lib/ecom-sites/types";
 
 export const POLICY_SLUGS = [
   "shipping-policy",
@@ -265,11 +265,22 @@ const BUILDERS: Record<PolicySlug, (site: EcomSite) => PolicySection[]> = {
 };
 
 export function buildPolicy(site: EcomSite, slug: PolicySlug): PolicyDoc {
+  /* Les corrections faites dans l'aperçu s'appliquent phrase par phrase. */
   return {
     slug,
-    title: POLICY_LABELS[slug],
+    title: editedText(site, POLICY_LABELS[slug]),
     updated: updatedOn(site),
-    sections: BUILDERS[slug](site),
+    sections: BUILDERS[slug](site)
+      .map((section) => ({
+        heading: editedText(site, section.heading),
+        // Un paragraphe vidé depuis l'aperçu n'est plus rendu ; un texte collé
+        // avec des lignes vides devient autant de paragraphes.
+        body: section.body
+          .flatMap((paragraph) => editedText(site, paragraph).split(/\n\s*\n/))
+          .map((paragraph) => paragraph.trim())
+          .filter(Boolean),
+      }))
+      .filter((section) => section.heading.trim() || section.body.length),
   };
 }
 

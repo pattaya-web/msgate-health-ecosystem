@@ -10,6 +10,20 @@ import { STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-type
 import { ratioAspect } from "@/lib/studio/ratios";
 import { cn } from "@/lib/utils";
 
+/**
+ * Adresse du fichier, selon d'où vient la créa.
+ *
+ * Les images du studio et les vidéos UGC sont servies par deux routes
+ * différentes parce qu'elles vivent dans deux dossiers. La bibliothèque les
+ * présente ensemble, elle doit donc savoir à qui demander quoi. L'identifiant
+ * d'une entrée UGC porte son lot avant `::`.
+ */
+function mediaUrl(item: StaticCreative, file: string) {
+  if (item.source !== "ugc") return libraryFileUrl(item.id, file);
+  const batchId = item.id.split("::")[0];
+  return `/api/ugc/file?id=${encodeURIComponent(batchId)}&file=${encodeURIComponent(file)}`;
+}
+
 export function StaticLibrary() {
   const router = useRouter();
   const [items, setItems] = useState<StaticCreative[]>([]);
@@ -84,8 +98,22 @@ export function StaticLibrary() {
                 )}
               >
                 {item.resultFiles[0] ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={libraryFileUrl(item.id, item.resultFiles[0])} alt="" className="h-full w-full object-cover" />
+                  item.media === "video" ? (
+                    <video
+                      src={mediaUrl(item, item.resultFiles[0])}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={mediaUrl(item, item.resultFiles[0])}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  )
                 ) : null}
               </div>
               <div className="px-2 py-1.5">
@@ -111,15 +139,25 @@ export function StaticLibrary() {
               </DialogHeader>
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
                 <div className="space-y-2">
-                  {open.resultFiles.map((file) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={file}
-                      src={libraryFileUrl(open.id, file)}
-                      alt=""
-                      className="w-full rounded-xl ring-1 ring-slate-900/10"
-                    />
-                  ))}
+                  {open.resultFiles.map((file) =>
+                    open.media === "video" ? (
+                      <video
+                        key={file}
+                        src={mediaUrl(open, file)}
+                        controls
+                        playsInline
+                        className="w-full rounded-xl bg-black ring-1 ring-slate-900/10"
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={file}
+                        src={mediaUrl(open, file)}
+                        alt=""
+                        className="w-full rounded-xl ring-1 ring-slate-900/10"
+                      />
+                    )
+                  )}
                 </div>
                 <div className="space-y-3">
                   <div>

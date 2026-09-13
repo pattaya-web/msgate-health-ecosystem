@@ -16,8 +16,8 @@ export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
 
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-emerald-100/80 bg-white/90 backdrop-blur-xl lg:hidden dark:border-emerald-900/40 dark:bg-slate-950/90">
-      <div className="flex items-stretch">
+    <nav className="safe-bottom fixed inset-x-3 bottom-3 z-40 lg:hidden">
+      <div className="float-header flex items-stretch px-1 py-1">
         {items.map((item) => {
           const active =
             item.href === "/process"
@@ -32,16 +32,13 @@ export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
               key={item.href}
               href={item.href}
               className={cn(
-                "relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors",
+                "flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[10px] font-medium transition-colors",
                 active
-                  ? "text-emerald-700 dark:text-emerald-300"
-                  : "text-slate-500 dark:text-slate-400"
+                  ? "bg-white/12 text-[var(--pill-foreground)]"
+                  : "text-[var(--pill-muted)]"
               )}
             >
-              {active ? (
-                <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-gradient-to-r from-emerald-400 to-teal-500" />
-              ) : null}
-              <Icon className="h-[18px] w-[18px]" />
+              <Icon className="h-[17px] w-[17px]" />
               {item.label}
             </Link>
           );
@@ -49,10 +46,10 @@ export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
         <button
           type="button"
           onClick={onOpenMenu}
-          className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium text-slate-500 transition-colors active:text-emerald-700 dark:text-slate-400"
+          className="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[10px] font-medium text-[var(--pill-muted)] transition-colors active:text-[var(--pill-foreground)]"
           aria-label="Ouvrir le menu"
         >
-          <Menu className="h-[18px] w-[18px]" />
+          <Menu className="h-[17px] w-[17px]" />
           Menu
         </button>
       </div>

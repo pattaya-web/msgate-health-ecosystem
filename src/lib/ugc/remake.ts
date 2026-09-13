@@ -103,6 +103,18 @@ async function detectCuts(file: string, threshold = 0.3): Promise<number[]> {
   }
 }
 
+/**
+ * Durée d'un plan, en secondes entières.
+ *
+ * Seedance refuse toute valeur fractionnaire — « The value of duration must be
+ * a multiple of 1.0 ». Un plan relevé à 4,96 s partait donc en erreur pendant
+ * que le reste du lot passait, ce qui donnait un remake troué. L'arrondi se
+ * fait ici, une fois, plutôt que dans chaque appelant.
+ */
+function shotSeconds(raw: number) {
+  return Math.min(MAX_SHOT, Math.max(MIN_SHOT, Math.round(raw)));
+}
+
 /** Découpe régulière quand la source n'a pas de coupe franche. */
 function evenShots(duration: number): Shot[] {
   const count = Math.max(1, Math.round(duration / 6));
@@ -110,7 +122,7 @@ function evenShots(duration: number): Shot[] {
   return Array.from({ length: count }, (_, index) => ({
     index,
     start: Number((index * each).toFixed(2)),
-    duration: Number(Math.min(MAX_SHOT, Math.max(MIN_SHOT, each)).toFixed(2)),
+    duration: shotSeconds(each),
   }));
 }
 
@@ -122,15 +134,13 @@ function shotsFromCuts(cuts: number[], duration: number): Shot[] {
     const raw = bounds[i + 1] - bounds[i];
     // Un plan de 0,5 s n'est pas générable : il est absorbé par le précédent.
     if (raw < 1 && shots.length) {
-      shots[shots.length - 1].duration = Number(
-        Math.min(MAX_SHOT, shots[shots.length - 1].duration + raw).toFixed(2)
-      );
+      shots[shots.length - 1].duration = shotSeconds(shots[shots.length - 1].duration + raw);
       continue;
     }
     shots.push({
       index: shots.length,
       start: Number(bounds[i].toFixed(2)),
-      duration: Number(Math.min(MAX_SHOT, Math.max(MIN_SHOT, raw)).toFixed(2)),
+      duration: shotSeconds(raw),
     });
   }
 

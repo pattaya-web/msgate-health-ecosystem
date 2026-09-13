@@ -6,11 +6,16 @@ import { toast } from "sonner";
 import { appleEmojiUrl, APPLE_EMOJIS } from "@/lib/studio/apple-emoji";
 import {
   captionWindow,
-  composeVerticalCreative,
+  renderCaptionCues,
   renderOverlayPng,
   type CaptionPreset,
 } from "@/lib/studio/compose-video";
-import { burnOverlay, probeDuration, randomVideoName, toMp4 } from "@/lib/studio/client";
+import {
+  burnOverlay,
+  composeMontage,
+  probeDuration,
+  randomVideoName,
+} from "@/lib/studio/client";
 import { cn } from "@/lib/utils";
 
 /**
@@ -69,6 +74,13 @@ export function VideoStudio() {
   const [exportName, setExportName] = useState("");
   /** Mesures affichees apres export, pour localiser une video tronquee. */
   const [diag, setDiag] = useState("");
+  /* Réglages du montage serveur. */
+  const [fps, setFps] = useState<30 | 60>(30);
+  const [height, setHeight] = useState<1280 | 1920>(1920);
+  const [speed, setSpeed] = useState(1);
+  const [muteClips, setMuteClips] = useState(false);
+  const [musicFile, setMusicFile] = useState<File | null>(null);
+  const [musicVolume, setMusicVolume] = useState(35);
 
   const previewSrc = clipUrls[clipIndex] || clipUrls[0] || "";
   const cap = useMemo(() => {
@@ -125,6 +137,21 @@ export function VideoStudio() {
     setGuides({ x: x.snapped, y: y.snapped });
   }
 
+  /**
+   * Le sous-titre se pose à la souris, comme le texte du mode Texte. Seule la
+   * hauteur bouge : l'horizontale est déjà tenue par les trois boutons
+   * d'alignement, et un sous-titre qui dérive latéralement sort du cadre lisible.
+   */
+  function moveCaption(event: React.PointerEvent<HTMLDivElement>) {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    const raw = ((event.clientY - rect.top) / rect.height) * 100;
+    const y = snap(Math.min(95, Math.max(5, raw)), [25, 50, 65, 79, 90]);
+    setCapY(y.value);
+    setGuides({ x: false, y: y.snapped });
+  }
+
   function onTime() {
     const t = audioRef.current?.currentTime || videoRef.current?.currentTime || 0;
     setPlayHead(t);
@@ -170,50 +197,57 @@ export function VideoStudio() {
         return;
       }
 
-      const blob = await composeVerticalCreative({
+      /**
+       * Montage : ffmpeg concatène et réencode en une passe. Les sous-titres
+       * partent en PNG avec leur fenêtre de temps, comme le calque de l'onglet
+       * Texte — c'est ce qui garantit à l'image la police de la preview.
+       */
+      setProgress("Mesure des clips…");
+      const durations = await Promise.all(clips.map((clip) => probeDuration(clip)));
+      const sourceSeconds = durations.reduce((total, value) => total + value, 0);
+      const finalSeconds = sourceSeconds / speed;
+
+      let cues: Array<{ png: string; start: number; end: number }> = [];
+      if (captions && script.trim()) {
+        setProgress("Rendu des sous-titres…");
+        cues = await renderCaptionCues({
+          script,
+          duration: finalSeconds,
+          caption: {
+            preset,
+            fill,
+            stroke,
+            highlight,
+            y: capY,
+            size: Math.round(capSize * (1080 / 320)),
+            align: capAlign,
+            words: capWords,
+            strokeWidth,
+          },
+        });
+      }
+
+      setProgress(`Montage ${fps} fps · ${height === 1920 ? "1080p" : "720p"}…`);
+      const mp4 = await composeMontage({
         clips,
-        mode,
-        captions,
-        voiceBlob: voiceFile,
-        script,
-        overlayText: "",
-        overlay: {
-          align,
-          size: Math.round(textSize * (1080 / 320)),
-          y: textY,
-          x: textX,
-          fill,
-          stroke,
-          strokeWidth,
-        },
-        emojiUrls: [],
-        watermark: "none",
-        caption: {
-          preset,
-          fill,
-          stroke,
-          highlight,
-          y: capY,
-          size: Math.round(capSize * (1080 / 320)),
-          align: capAlign,
-          words: capWords,
-          strokeWidth,
-        },
-        seed: Date.now(),
-        onMeta: (info) =>
-          setDiag(
-            `source ${info.clipSeconds.join(" + ")}s · vise ${info.target}s · capture ${info.recorded}s`
-          ),
-        onProgress: (p, label) => setProgress(`${label} · ${p}%`),
+        captions: cues,
+        music: musicFile,
+        voice: voiceFile,
+        musicVolume: musicVolume / 100,
+        muteClips,
+        speed,
+        fps,
+        height,
       });
-      setProgress("Conversion MP4…");
-      const webmSeconds = await probeDuration(blob);
-      const mp4 = await toMp4(blob);
+
       const mp4Seconds = await probeDuration(mp4);
       setExportUrl(URL.createObjectURL(mp4));
       setExportName(randomVideoName("montage"));
-      setDiag((current) => `${current} · capture lue ${webmSeconds}s · mp4 ${mp4Seconds}s`);
-      toast.success(`MP4 prêt — ${mp4Seconds}s`);
+      setDiag(
+        `source ${durations.map((d) => d.toFixed(2)).join(" + ")}s · ${fps} fps · ` +
+          `${height === 1920 ? "1080×1920" : "720×1280"} · ${cues.length} sous-titre(s) · mp4 ${mp4Seconds}s`
+      );
+      toast.success(`MP4 prêt — ${mp4Seconds}s en ${fps} fps`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Export impossible");
     } finally {
@@ -370,6 +404,88 @@ export function VideoStudio() {
           </>
         ) : (
           <>
+            {/* Sortie : ffmpeg réencode une fois, la cadence et la définition ne
+                sont donc que des paramètres. */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <label className="flex items-center gap-1.5 text-[11px]">
+                <span className="shrink-0 text-slate-500">Cadence</span>
+                <select
+                  value={fps}
+                  onChange={(e) => setFps(Number(e.target.value) as 30 | 60)}
+                  className="flex-1 rounded-lg bg-slate-100 px-2 py-1.5 text-[11px] font-medium outline-none dark:bg-slate-800"
+                >
+                  <option value={30}>30 fps</option>
+                  <option value={60}>60 fps</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-1.5 text-[11px]">
+                <span className="shrink-0 text-slate-500">Taille</span>
+                <select
+                  value={height}
+                  onChange={(e) => setHeight(Number(e.target.value) as 1280 | 1920)}
+                  className="flex-1 rounded-lg bg-slate-100 px-2 py-1.5 text-[11px] font-medium outline-none dark:bg-slate-800"
+                >
+                  <option value={1920}>1080p</option>
+                  <option value={1280}>720p</option>
+                </select>
+              </label>
+            </div>
+
+            <label className="block text-[11px] text-slate-500">
+              Vitesse ×{speed.toFixed(2)}
+              <input
+                type="range"
+                min={50}
+                max={200}
+                step={5}
+                value={Math.round(speed * 100)}
+                onChange={(e) => setSpeed(Number(e.target.value) / 100)}
+                className="w-full"
+              />
+            </label>
+
+            <label className="flex h-10 cursor-pointer items-center justify-center rounded-lg bg-slate-100 px-2 text-[12px] font-medium dark:bg-slate-800">
+              <span className="truncate">{musicFile ? musicFile.name : "Importer une musique"}</span>
+              <input
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={(e) => setMusicFile(e.target.files?.[0] || null)}
+              />
+            </label>
+
+            {musicFile ? (
+              <div className="space-y-1">
+                <label className="block text-[11px] text-slate-500">
+                  Volume musique {musicVolume}%
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={musicVolume}
+                    onChange={(e) => setMusicVolume(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setMusicFile(null)}
+                  className="text-[11px] font-medium text-slate-400 hover:text-rose-500"
+                >
+                  Retirer la musique
+                </button>
+              </div>
+            ) : null}
+
+            <label className="flex items-center gap-2 text-[12px]">
+              <input
+                type="checkbox"
+                checked={muteClips}
+                onChange={(e) => setMuteClips(e.target.checked)}
+              />
+              Couper le son des clips
+            </label>
+
             <label className="flex h-10 cursor-pointer items-center justify-center rounded-lg bg-slate-100 text-[12px] font-medium dark:bg-slate-800">
               {voiceFile ? voiceFile.name : "Upload voix-off (MP3)"}
               <input
@@ -493,7 +609,9 @@ export function VideoStudio() {
             </a>
           ) : null}
         </div>
-        <div className="mx-auto w-fit max-w-full">
+        {/* Preview et rendu côte à côte : c'est en les comparant qu'on juge un
+            placement de texte, pas en descendant la page. */}
+        <div className="flex flex-wrap items-start justify-center gap-3">
           {previewSrc ? (
             <div
               ref={stageRef}
@@ -590,7 +708,24 @@ export function VideoStudio() {
               ) : null}
               {mode === "montage" && captions && cap.line.length ? (
                 <div
-                  className="pointer-events-none absolute left-3 right-3"
+                  onPointerDown={(event) => {
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    setDragging(true);
+                    moveCaption(event);
+                  }}
+                  onPointerMove={(event) => {
+                    if (dragging) moveCaption(event);
+                  }}
+                  onPointerUp={(event) => {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                    setDragging(false);
+                    setGuides({ x: false, y: false });
+                  }}
+                  title="Glisse pour déplacer le sous-titre"
+                  className={cn(
+                    "absolute left-3 right-3 touch-none select-none rounded",
+                    dragging ? "cursor-grabbing ring-1 ring-emerald-400/70" : "cursor-grab"
+                  )}
                   style={{
                     top: `${capY}%`,
                     fontSize: `${capSize}px`,
@@ -634,10 +769,20 @@ export function VideoStudio() {
               {mode === "overlay" ? "Upload une vidéo" : "Empile tes clips"}
             </div>
           )}
+          {exportUrl ? (
+            <div className="w-[min(360px,100%)]">
+              <p className="mb-1 px-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                Rendu final
+              </p>
+              <video
+                src={exportUrl}
+                controls
+                playsInline
+                className="w-full rounded-xl bg-black"
+              />
+            </div>
+          ) : null}
         </div>
-        {exportUrl ? (
-          <video src={exportUrl} controls className="mx-auto mt-3 max-h-48 rounded-lg" />
-        ) : null}
       </section>
     </div>
   );

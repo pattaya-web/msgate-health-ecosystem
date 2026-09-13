@@ -30,7 +30,40 @@ export type BankPage = {
   stats: Array<{ value: string; label: string }>;
   services: Array<{ title: string; body: string }>;
   results: Array<{ brand: string; metric: string; detail: string; note: string }>;
+  /** Textes de la page corrigés depuis l'aperçu, par clé (voir BANK_DEFAULT_TEXTS). */
+  texts?: Record<string, string>;
 };
+
+/** Une page en cours de création : tout sauf ce que le serveur attribue. */
+export type BankPageDraft = Omit<BankPage, "id" | "slug" | "createdAt" | "updatedAt">;
+
+/**
+ * Applique une correction faite dans l'aperçu. Le chemin désigne un champ
+ * (`heroTitle`), une entrée de liste (`stats.0.label`) ou un texte libre
+ * (`texts.about.p1`). Rend une copie, l'original n'est pas touché.
+ */
+export function withTextEdit<T extends BankPageDraft>(page: T, path: string, value: string): T {
+  if (path.startsWith("texts.")) {
+    return { ...page, texts: { ...(page.texts ?? {}), [path.slice("texts.".length)]: value } };
+  }
+  const [field, index, sub] = path.split(".");
+  if (index !== undefined && sub !== undefined) {
+    const list = [...((page as unknown as Record<string, unknown>)[field] as Array<Record<string, string>>)];
+    list[Number(index)] = { ...list[Number(index)], [sub]: value };
+    return { ...page, [field]: list };
+  }
+  return { ...page, [field]: value };
+}
+
+/** Tout le texte d'une page, dans l'ordre de lecture, pour le presse-papiers. */
+export function bankPageText(root: HTMLElement) {
+  const parts: string[] = [];
+  root.querySelectorAll<HTMLElement>("[data-edit]").forEach((element) => {
+    const text = element.innerText.trim();
+    if (text) parts.push(text);
+  });
+  return parts.join("\n");
+}
 
 export function defaultBankPage(): Omit<BankPage, "id" | "slug" | "createdAt" | "updatedAt"> {
   return {

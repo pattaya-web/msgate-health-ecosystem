@@ -5,12 +5,11 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth/auth-context";
 import { DEMO_CREDENTIALS } from "@/lib/mock/data";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/shared/page-states";
@@ -71,83 +70,83 @@ export default function LoginPage() {
 
   if (loading || user) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="app-aurora min-h-screen">
         <LoadingState className="min-h-screen" />
       </div>
     );
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background px-4 py-10">
+    <div className="app-aurora relative flex min-h-screen items-center justify-center px-4 py-10">
       <div className="absolute right-4 top-4">
-        <ThemeToggle />
+        <ThemeToggle variant="outline" />
       </div>
-      <div className="w-full max-w-sm space-y-5">
-        <div className="flex flex-col items-center text-center">
-          <BrandLogo size="lg" className="mb-3" />
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-            MSGate Health
+
+      <div className="page-enter w-full max-w-[400px]">
+        <div className="mb-8 flex flex-col items-start">
+          <BrandLogo size="md" className="mb-5" />
+          <span className="eyebrow">MSGate · Health cockpit</span>
+          <h1 className="font-display mt-2 text-[40px] leading-[1.02] text-slate-900 dark:text-slate-50">
+            Welcome <span className="italic">back.</span>
           </h1>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Cockpit opérationnel — pilote le backend (Airtable, LLC, recovery)
+          <p className="mt-3 text-[13px] leading-relaxed text-slate-500 dark:text-slate-400">
+            Cockpit opérationnel — pilote le backend (Airtable, LLC, recovery).
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Sign in</CardTitle>
-            <CardDescription>Use your workspace credentials to continue</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="you@msgate.internal"
-                  {...register("email")}
-                />
-                {errors.email ? (
-                  <p className="text-xs text-rose-600">{errors.email.message}</p>
-                ) : null}
-              </div>
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="email" className="text-[12px] text-slate-600 dark:text-slate-400">
+              Email
+            </Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@msgate.internal"
+              className="h-11 rounded-2xl px-4"
+              {...register("email")}
+            />
+            {errors.email ? (
+              <p className="text-xs text-rose-600">{errors.email.message}</p>
+            ) : null}
+          </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  {...register("password")}
-                />
-                {errors.password ? (
-                  <p className="text-xs text-rose-600">{errors.password.message}</p>
-                ) : null}
-              </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="password" className="text-[12px] text-slate-600 dark:text-slate-400">
+              Password
+            </Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+              className="h-11 rounded-2xl px-4"
+              {...register("password")}
+            />
+            {errors.password ? (
+              <p className="text-xs text-rose-600">{errors.password.message}</p>
+            ) : null}
+          </div>
 
-              <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Signing in…
-                  </>
-                ) : (
-                  "Sign in"
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+          <Button type="submit" size="lg" className="h-11 w-full rounded-2xl" disabled={submitting}>
+            {submitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Signing in…
+              </>
+            ) : (
+              <>
+                Sign in
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
+          </Button>
+        </form>
 
-        <Card className="border-emerald-100 bg-emerald-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/30">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Demo accounts</CardTitle>
-            <CardDescription>Click a row to fill the form</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="mt-8 border-t border-slate-200/80 pt-5 dark:border-slate-800">
+          <div className="eyebrow mb-2.5">Demo accounts · click to fill</div>
+          <div className="space-y-1.5">
             {demoAccounts.map((account) => (
               <button
                 key={account.email}
@@ -156,7 +155,7 @@ export default function LoginPage() {
                   setValue("email", account.email);
                   setValue("password", account.password);
                 }}
-                className="flex w-full items-center justify-between rounded-lg border border-emerald-100 bg-white px-3 py-2 text-left text-xs transition-colors hover:border-emerald-200 hover:bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-slate-950 dark:hover:bg-emerald-950/40"
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 text-left text-xs transition-colors hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-950/60 dark:hover:bg-slate-900"
               >
                 <span className="font-medium text-slate-800 dark:text-slate-100">{account.role}</span>
                 <span className="font-mono text-[10px] text-slate-500">
@@ -164,8 +163,8 @@ export default function LoginPage() {
                 </span>
               </button>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

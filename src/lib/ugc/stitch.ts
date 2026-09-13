@@ -14,9 +14,29 @@ const run = promisify(execFile);
  * `concat` en copie produit alors une vidéo qui se désynchronise ou refuse de
  * lire. Le réencodage coûte quelques secondes de CPU et donne un fichier sûr.
  */
+/**
+ * Cadence du premier clip. Seedance sort du 24 i/s : forcer 30 dupliquait une
+ * image sur quatre et donnait un rendu saccadé. On lit la cadence réelle et on
+ * l'impose à tout le montage — constante, donc l'audio reste calé.
+ */
+async function fpsOf(file: string) {
+  if (!ffmpegPath) return 24;
+  try {
+    await run(ffmpegPath, ["-i", file], { maxBuffer: 1024 * 1024 * 4 });
+  } catch (error) {
+    // ffmpeg -i sans sortie termine en erreur : c'est le stderr qu'on veut.
+    const stderr = String((error as { stderr?: string }).stderr ?? "");
+    const match = stderr.match(/(\d+(?:\.\d+)?) fps/);
+    const fps = match ? Number(match[1]) : 0;
+    if (fps >= 12 && fps <= 60) return fps;
+  }
+  return 24;
+}
+
 export async function stitchClips(dir: string, files: string[], outName: string) {
   if (!ffmpegPath) throw new Error("ffmpeg introuvable");
   if (files.length < 2) throw new Error("Il faut au moins deux clips à assembler");
+  const fps = await fpsOf(path.join(dir, files[0]));
 
   const listPath = path.join(dir, `${outName}.txt`);
   const outPath = path.join(dir, outName);
@@ -34,11 +54,11 @@ export async function stitchClips(dir: string, files: string[], outName: string)
         "-safe", "0",
         "-i", listPath,
         // Cadence et échantillonnage fixes : c'est ce qui garde l'audio calé.
-        "-r", "30",
+        "-r", String(fps),
         "-ar", "44100",
         "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "20",
+        "-preset", "medium",
+        "-crf", "17",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "128k",

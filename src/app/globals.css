@@ -4,36 +4,117 @@
    prefers-color-scheme (which would darken the app against the user's choice). */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ---------------------------------------------------------------------------
+   Design tokens — Qoves-inspired: cool paper white, one charcoal-teal ink
+   (#233137), muted grey-teal secondaries, hairline borders, generous radii.
+   --------------------------------------------------------------------------- */
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #f9fbfb;
+  --foreground: #233137;
   --card: #ffffff;
-  --primary: #059669;
+  --primary: #233137;
   --primary-foreground: #ffffff;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --border: #e2e8f0;
-  --success: #059669;
-  --warning: #d97706;
-  --danger: #e11d48;
-  --shell: #f8fafc;
-  --panel: rgba(255, 255, 255, 0.82);
+  --muted: #f2f5f5;
+  --muted-foreground: #758084;
+  --border: #e8e8e8;
+  --success: #0c6826;
+  --warning: #eb850a;
+  --danger: #bb3030;
+  --shell: #f9fbfb;
+  --panel: rgba(255, 255, 255, 0.86);
+  --ink: #233137;
+  --ink-2: #515255;
+  --ink-3: #758084;
+  --ink-4: #9aaeb5;
+  --line: #e8e8e8;
+  --line-soft: #f2f2f2;
+  --pill: rgba(35, 49, 55, 0.88);
+  --pill-foreground: #ffffff;
+  --pill-muted: rgba(255, 255, 255, 0.62);
+
+  --duration-exit: 120ms;
+  --duration-enter: 220ms;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dark {
-  --background: #0b1220;
-  --foreground: #e2e8f0;
-  --card: #111827;
-  --primary: #34d399;
-  --primary-foreground: #ffffff;
-  --muted: #1e293b;
-  --muted-foreground: #94a3b8;
-  --border: #1e293b;
-  --success: #34d399;
-  --warning: #fbbf24;
-  --danger: #fb7185;
-  --shell: #0b1220;
-  --panel: rgba(17, 24, 39, 0.78);
+  --background: #0b1315;
+  --foreground: #e6ebec;
+  --card: #121a1d;
+  --primary: #e6ebec;
+  --primary-foreground: #0b1315;
+  --muted: #172126;
+  --muted-foreground: #9aaeb5;
+  --border: #1f2b30;
+  --success: #6fbf85;
+  --warning: #f0a04b;
+  --danger: #e06767;
+  --shell: #0b1315;
+  --panel: rgba(18, 26, 29, 0.82);
+  --ink: #e6ebec;
+  --ink-2: #c7d1d5;
+  --ink-3: #9aaeb5;
+  --ink-4: #758084;
+  --line: #1f2b30;
+  --line-soft: #172126;
+  --pill: rgba(18, 26, 29, 0.86);
+  --pill-foreground: #f2f5f5;
+  --pill-muted: rgba(242, 245, 245, 0.6);
+}
+
+/* The whole app is written against Tailwind's `slate` and `emerald` scales.
+   Rather than rewriting thirty screens, the scales themselves are re-tuned to
+   the Qoves palette: slate becomes a cool grey-teal neutral, emerald becomes
+   the charcoal-teal ink with its pale washes. Every existing class keeps its
+   meaning, only the ambience changes. */
+@theme {
+  --color-slate-50: #f9fbfb;
+  --color-slate-100: #f2f5f5;
+  --color-slate-200: #e3e8ea;
+  --color-slate-300: #cdd5d8;
+  --color-slate-400: #9aaeb5;
+  --color-slate-500: #758084;
+  --color-slate-600: #5d6b70;
+  --color-slate-700: #3f4c52;
+  --color-slate-800: #2d3b41;
+  --color-slate-900: #233137;
+  --color-slate-950: #121a1d;
+
+  --color-emerald-50: #f2f5f5;
+  --color-emerald-100: #e3ecee;
+  --color-emerald-200: #cddbe1;
+  --color-emerald-300: #aec2c9;
+  --color-emerald-400: #7f969e;
+  --color-emerald-500: #5d767e;
+  --color-emerald-600: #233137;
+  --color-emerald-700: #1a262b;
+  --color-emerald-800: #141d21;
+  --color-emerald-900: #0f1719;
+  --color-emerald-950: #0b1315;
+
+  --color-teal-50: #f2f5f5;
+  --color-teal-100: #e3ecee;
+  --color-teal-200: #cddbe1;
+  --color-teal-300: #aec2c9;
+  --color-teal-400: #7f969e;
+  --color-teal-500: #5d767e;
+  --color-teal-600: #3f4c52;
+  --color-teal-700: #2d3b41;
+  --color-teal-800: #233137;
+  --color-teal-900: #141d21;
+  --color-teal-950: #0b1315;
+
+  --color-orange-500: #eb850a;
+  --color-orange-600: #d3770a;
+  --color-rose-600: #bb3030;
+  --color-rose-700: #9a2727;
+
+  --radius-xl: 0.8rem;
+  --radius-2xl: 1.2rem;
+  --radius-3xl: 1.6rem;
+
+  --font-display: var(--font-app-display);
 }
 
 @theme inline {
@@ -56,15 +137,41 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  scrollbar-gutter: stable;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior-y: none;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+.font-display {
+  font-family: var(--font-display), var(--font-sans), Georgia, serif;
+  letter-spacing: -0.02em;
+  font-weight: 400;
+}
+
+/* Small technical labels: eyebrow captions, section names, timestamps. */
+.eyebrow {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-4);
 }
 
 /* Metric-heavy UI: keep digits aligned across every card and table. */
@@ -74,95 +181,302 @@ table {
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--primary) 20%, white);
+  background: color-mix(in oklab, var(--ink) 14%, white);
 }
 
-/* Emerald glass logo */
+.dark ::selection {
+  background: color-mix(in oklab, var(--ink) 30%, black);
+}
+
+/* ---------------------------------------------------------------------------
+   Brand mark: a plain ink square, no glow. Qoves never decorates its logo.
+   --------------------------------------------------------------------------- */
 .brand-logo-glass {
-  background: linear-gradient(135deg, #34d399 0%, #059669 45%, #047857 100%);
+  background: var(--ink);
+  color: var(--background);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.22) inset,
-    0 8px 20px -8px rgba(5, 150, 105, 0.65),
-    0 2px 6px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(10px);
-  animation: logo-breathe 4.5s ease-in-out infinite;
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 6px 18px -8px rgba(35, 49, 55, 0.5);
 }
 
 .brand-logo-glow {
-  background: radial-gradient(circle, rgba(52, 211, 153, 0.55) 0%, transparent 70%);
-  filter: blur(10px);
-  animation: logo-pulse 3.2s ease-in-out infinite;
+  display: none;
 }
 
 .brand-logo-icon {
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.25));
-  animation: logo-icon-float 3.8s ease-in-out infinite;
+  color: var(--background);
 }
 
-@keyframes logo-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.04);
-  }
-}
-
-@keyframes logo-pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 0.9;
-    transform: scale(1.18);
-  }
-}
-
-@keyframes logo-icon-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-1px);
-  }
-}
-
+/* ---------------------------------------------------------------------------
+   Surfaces
+   --------------------------------------------------------------------------- */
 .glass-chip {
-  border-radius: 0.75rem;
+  border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   background: var(--panel);
   backdrop-filter: blur(12px);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 2px rgba(35, 49, 55, 0.04);
 }
 
 .glass-panel {
   border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
   background: var(--panel);
   backdrop-filter: blur(14px);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 2px rgba(35, 49, 55, 0.04);
 }
 
-/* Emerald ambience behind the whole cockpit */
+/* Paper-white ground with a barely-there cool wash at the top — the "clean
+   lab" ambience rather than the previous emerald aurora. */
 .app-aurora {
   background:
-    radial-gradient(1200px 560px at 6% -12%, rgba(16, 185, 129, 0.14), transparent 60%),
-    radial-gradient(900px 480px at 100% -6%, rgba(45, 212, 191, 0.11), transparent 58%),
-    radial-gradient(760px 520px at 50% 110%, rgba(5, 150, 105, 0.07), transparent 62%),
+    radial-gradient(1100px 420px at 18% -8%, rgba(174, 194, 201, 0.22), transparent 60%),
+    radial-gradient(900px 380px at 92% -6%, rgba(205, 219, 225, 0.2), transparent 58%),
     var(--background);
   background-attachment: fixed;
 }
 
 .dark .app-aurora {
   background:
-    radial-gradient(1200px 560px at 6% -12%, rgba(16, 185, 129, 0.16), transparent 62%),
-    radial-gradient(900px 480px at 100% -6%, rgba(20, 184, 166, 0.12), transparent 58%),
-    radial-gradient(760px 520px at 50% 110%, rgba(5, 150, 105, 0.1), transparent 62%),
+    radial-gradient(1100px 420px at 18% -8%, rgba(93, 118, 126, 0.16), transparent 60%),
+    radial-gradient(900px 380px at 92% -6%, rgba(46, 61, 68, 0.2), transparent 58%),
     var(--background);
   background-attachment: fixed;
+}
+
+/* Floating navbar — the Qoves pill: dark ink, heavy blur, soft drop shadow,
+   sitting a few pixels below the top edge of the viewport. */
+.float-header {
+  background: var(--pill);
+  color: var(--pill-foreground);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(40px) saturate(1.3);
+  -webkit-backdrop-filter: blur(40px) saturate(1.3);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 18px 48px -18px rgba(11, 19, 21, 0.55),
+    0 2px 8px rgba(11, 19, 21, 0.12);
+  transition:
+    box-shadow 0.25s var(--ease-out-quart),
+    transform 0.25s var(--ease-out-quart),
+    background-color 0.25s var(--ease-out-quart);
+}
+
+.float-header[data-scrolled="true"] {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 24px 60px -16px rgba(11, 19, 21, 0.6),
+    0 3px 10px rgba(11, 19, 21, 0.16);
+}
+
+.dark .float-header {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.float-header .pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 999px;
+  color: var(--pill-muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s var(--ease-out-quart);
+}
+
+.float-header .pill-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--pill-foreground);
+}
+
+.float-header .pill-btn:active {
+  transform: scale(0.96);
+}
+
+.float-header .pill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--pill-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin indeterminate bar that runs inside the header while a route loads. */
+.nav-progress {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.nav-progress[data-active="true"] {
+  opacity: 1;
+}
+
+.nav-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+  animation: nav-progress-slide 1s var(--ease-out-quart) infinite;
+}
+
+@keyframes nav-progress-slide {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+/* Sidebar */
+.side-nav {
+  background: color-mix(in oklab, var(--background) 92%, white);
+  border-right: 1px solid var(--line-soft);
+}
+
+.dark .side-nav {
+  background: color-mix(in oklab, var(--background) 80%, black);
+  border-right-color: var(--line);
+}
+
+.side-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 0.8rem;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--ink-2);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.2s var(--ease-out-quart);
+}
+
+.side-link:hover {
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+  color: var(--ink);
+}
+
+.side-link:active {
+  transform: scale(0.985);
+}
+
+.side-link[data-active="true"] {
+  background: var(--ink);
+  color: var(--background);
+  box-shadow: 0 8px 20px -12px rgba(35, 49, 55, 0.55);
+}
+
+.side-link svg {
+  color: var(--ink-4);
+  transition: color 0.15s ease;
+}
+
+.side-link:hover svg {
+  color: var(--ink-2);
+}
+
+.side-link[data-active="true"] svg {
+  color: color-mix(in oklab, var(--background) 80%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion — page and tab transitions
+   --------------------------------------------------------------------------- */
+
+/* Route changes: old content fades out fast, new content rises in softly.
+   The header and the sidebar are anchored so only the page moves. */
+::view-transition-old(.page-fade) {
+  animation: var(--duration-exit) ease-out both vt-fade reverse;
+}
+
+::view-transition-new(.page-fade) {
+  animation:
+    var(--duration-enter) var(--ease-out-quart) both vt-fade,
+    var(--duration-enter) var(--ease-out-expo) both vt-rise;
+}
+
+::view-transition-group(app-header),
+::view-transition-group(app-sidebar) {
+  animation: none;
+  z-index: 100;
+}
+
+::view-transition-old(app-header),
+::view-transition-old(app-sidebar) {
+  display: none;
+}
+
+::view-transition-new(app-header),
+::view-transition-new(app-sidebar) {
+  animation: none;
+}
+
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vt-rise {
+  from {
+    transform: translateY(6px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+/* Same-page tab panels (Radix Tabs) and any block that mounts on demand. */
+@keyframes tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * `backwards`, pas `both` : avec `both` le `transform: translateY(0)` final
+ * reste appliqué, et un ancêtre transformé devient le repère de tout
+ * `position: fixed` en dessous. Les aperçus plein écran se centraient alors
+ * dans la hauteur de la page au lieu de la fenêtre, et finissaient hors champ.
+ */
+.animate-tab-in {
+  animation: tab-in 0.18s var(--ease-out-quart) backwards;
+}
+
+.page-enter {
+  animation: tab-in 0.22s var(--ease-out-quart) backwards;
 }
 
 /* Swipeable metric rails on small screens */
@@ -179,7 +493,7 @@ table {
 /* Slim scrollbars for the data tables */
 .thin-scroll {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--primary) 35%, transparent) transparent;
+  scrollbar-color: color-mix(in oklab, var(--ink) 25%, transparent) transparent;
 }
 
 .thin-scroll::-webkit-scrollbar {
@@ -189,7 +503,24 @@ table {
 
 .thin-scroll::-webkit-scrollbar-thumb {
   border-radius: 9999px;
-  background: color-mix(in oklab, var(--primary) 35%, transparent);
+  background: color-mix(in oklab, var(--ink) 25%, transparent);
+}
+
+/* Global scrollbar: thin and quiet, like a native app. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in oklab, var(--ink) 22%, transparent);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .safe-bottom {
@@ -215,64 +546,94 @@ table {
 }
 
 .animate-drawer-in {
-  animation: drawer-in 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: drawer-in 0.28s var(--ease-out-expo);
 }
 
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
 
-/* Dark mode: soften common hard-coded slate surfaces on pages */
+/* Skeleton shimmer: a slow light sweep reads as "arriving" rather than
+   "broken", which a plain opacity pulse tends to suggest. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--card) 70%, transparent),
+    transparent
+  );
+  animation: shimmer 1.6s var(--ease-out-quart) infinite;
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Dark mode: soften hard-coded surfaces used across the screens
+   --------------------------------------------------------------------------- */
 .dark .bg-\[\#F8FAFC\] {
   background-color: var(--background) !important;
 }
 
 .dark .bg-white {
-  background-color: #111827 !important;
+  background-color: #121a1d !important;
 }
 
 .dark .bg-white\/90 {
-  background-color: rgba(17, 24, 39, 0.9) !important;
+  background-color: rgba(18, 26, 29, 0.9) !important;
 }
 
 .dark .bg-slate-50,
 .dark .bg-slate-50\/50,
 .dark .bg-slate-50\/70 {
-  background-color: #0f172a !important;
+  background-color: #0f1719 !important;
 }
 
 .dark .text-slate-900 {
-  color: #f1f5f9 !important;
+  color: #f2f5f5 !important;
 }
 
 .dark .text-slate-800 {
-  color: #e2e8f0 !important;
+  color: #e6ebec !important;
 }
 
 .dark .text-slate-700 {
-  color: #cbd5e1 !important;
+  color: #c7d1d5 !important;
 }
 
 .dark .text-slate-600 {
-  color: #94a3b8 !important;
+  color: #9aaeb5 !important;
 }
 
 .dark .text-slate-500 {
-  color: #94a3b8 !important;
+  color: #9aaeb5 !important;
 }
 
 .dark .border-slate-200,
 .dark .border-slate-200\/80,
 .dark .border-slate-100 {
-  border-color: #1e293b !important;
+  border-color: #1f2b30 !important;
 }
 
 .dark .hover\:bg-slate-50:hover {
-  background-color: #1e293b !important;
+  background-color: #172126 !important;
 }
 
 .dark .hover\:bg-slate-100:hover {
-  background-color: #1e293b !important;
+  background-color: #172126 !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -280,12 +641,19 @@ table {
     scroll-behavior: auto;
   }
 
-  .brand-logo-glass,
-  .brand-logo-glow,
-  .brand-logo-icon,
   .animate-drawer-in,
-  .animate-fade-in {
+  .animate-fade-in,
+  .animate-tab-in,
+  .page-enter,
+  .skeleton::after,
+  .nav-progress::after {
     animation: none;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
   }
 }
 

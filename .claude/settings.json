@@ -4,7 +4,13 @@
       "Bash(npx tsc *)",
       "Bash(npm run lint *)",
       "Bash(curl http://localhost:*)",
-      "Bash(curl http://127.0.0.1:*)"
+      "Bash(curl http://127.0.0.1:*)",
+      "Bash(echo \"=== tsc exit: $? ===\")",
+      "Bash(npx eslint *)",
+      "WebFetch(domain:www.shopify.com)",
+      "WebSearch",
+      "WebFetch(domain:shopify.dev)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

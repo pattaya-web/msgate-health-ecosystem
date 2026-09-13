@@ -181,41 +181,204 @@ export function isKieFailed(state?: string) {
  * `images` : base64 JPEG bruts, joints avant le texte. Sert à faire décrire des
  * images clés — cadrage, angle, échelle de plan — pour rejouer un montage.
  */
+/**
+ * Type d'image lu sur les premiers octets, pas declare au juge.
+ *
+ * Le type etait fige sur `image/jpeg` : un PNG partait donc annonce comme un
+ * JPEG, le modele ne le decodait pas et repondait « no image came through with
+ * your message » — un message qui accuse l'envoi alors que le tort est dans
+ * l'etiquette. Les vignettes extraites par ffmpeg sont bien des JPEG, mais un
+ * visuel depose par l'utilisateur est le plus souvent un PNG.
+ */
+function sniffImageType(base64: string) {
+  if (base64.startsWith("iVBORw0KGgo")) return "image/png" as const;
+  if (base64.startsWith("R0lGOD")) return "image/gif" as const;
+  if (base64.startsWith("UklGR")) return "image/webp" as const;
+  return "image/jpeg" as const;
+}
+
 export async function kieClaude(userText: string, maxTokens = 4000, images: string[] = []) {
   const content = images.length
     ? [
-        ...images.filter(Boolean).map((data) => ({
-          type: "image" as const,
-          source: { type: "base64" as const, media_type: "image/jpeg" as const, data },
-        })),
+        ...images.filter(Boolean).map((raw) => {
+          const data = toRawBase64(raw);
+          return {
+            type: "image" as const,
+            source: { type: "base64" as const, media_type: sniffImageType(data), data },
+          };
+        }),
         { type: "text" as const, text: userText },
       ]
     : userText;
 
-  const res = await fetch("https://api.kie.ai/claude/v1/messages", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      stream: false,
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content }],
-    }),
-    cache: "no-store",
-  });
-  const body = (await res.json()) as {
-    content?: Array<{ type?: string; text?: string }>;
-    error?: { message?: string };
-    msg?: string;
+  /**
+   * Cascade de modèles plutôt que relances sur un seul.
+   *
+   * Kie sert ses modèles Claude de façon inégale : un même identifiant peut
+   * répondre en texte et rendre 429 sur une requête avec image, et cette
+   * disponibilité bouge d'un jour à l'autre. Le message renvoyé — « Internal
+   * error, please try again later » — laisse croire à une panne générale alors
+   * que le voisin répond parfaitement.
+   *
+   * Insister sur un modèle indisponible ne mène donc à rien : on passe au
+   * suivant. Une seule relance courte par modèle absorbe les vraies limites de
+   * débit sans transformer un échec en attente de plusieurs minutes.
+   */
+  /*
+   * Deux passages sur la liste plutôt qu'un.
+   *
+   * Les échecs reviennent immédiatement — 429 ou 500 sans délai — donc insister
+   * ne coûte presque rien, alors qu'un modèle qui refuse à l'instant T répond
+   * souvent trente secondes plus tard. Mesuré : trois tours ont été nécessaires
+   * pour qu'un des trois accepte une image.
+   */
+  const MODELS = ["claude-opus-4-5", "claude-sonnet-4-6", "claude-opus-5"];
+  /*
+   * Assez large pour ne jamais couper une vraie génération, assez court devant
+   * une passerelle pendue. Il suit la longueur demandée : un JSON de quelques
+   * lignes revient en secondes, quatre mille jetons prennent leur temps, et
+   * couper le second pour protéger le premier serait une régression.
+   */
+  const ATTEMPT_TIMEOUT_MS = Math.max(45_000, maxTokens * 30);
+  /*
+   * Budget total. Quand la passerelle est tombée pour de bon, chaque modèle
+   * rend son erreur en une seconde et la cascade entière tient en dix ; mais
+   * dès qu'un modèle pend, six tentatives de 45 s font attendre l'utilisateur
+   * plusieurs minutes pour rien. Passé ce budget, on sort et on laisse la main
+   * au repli — ou à l'erreur, qui au moins arrive vite.
+   */
+  const TOTAL_BUDGET_MS = 75_000;
+  const started = Date.now();
+  let lastMessage = "Claude (Kie) indisponible";
+
+  /*
+   * Sonde avant la vraie requête. Mesuré : un modèle en panne ne rend pas
+   * toujours son erreur vite, il peut pendre jusqu'au timeout de la tentative
+   * — deux minutes pour un storyboard — et l'utilisateur voit une roue sans
+   * fin. Une requête de cinq jetons bornée à huit secondes dit tout de suite
+   * si le modèle est vivant ; on ne dépense la longue tentative que sur lui.
+   */
+  const alive = async (model: string) => {
+    try {
+      const res = await fetch("https://api.kie.ai/claude/v1/messages", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, stream: false, max_tokens: 5, messages: [{ role: "user", content: "OK" }] }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(8_000),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
   };
-  const text = (body.content || []).map((block) => block.text || "").join("\n").trim();
-  if (!res.ok || !text) {
-    throw new Error(body.error?.message || body.msg || "Claude (Kie) indisponible");
+
+  cascade: for (let pass = 0; pass < 2; pass += 1) {
+    for (const model of MODELS) {
+      if (Date.now() - started > TOTAL_BUDGET_MS) break cascade;
+      if (!(await alive(model))) {
+        lastMessage = `${model} indisponible chez Kie`;
+        continue;
+      }
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (Date.now() - started > TOTAL_BUDGET_MS) break cascade;
+        if (attempt || pass) await new Promise((resolve) => setTimeout(resolve, 1500));
+
+        /*
+         * Un modèle en panne ne doit pas manger le budget des suivants.
+         *
+         * Le commentaire au-dessus tient l'échec pour immédiat — 429 ou 500 sans
+         * délai. C'est vrai de la plupart, pas de tous : mesuré, un modèle
+         * indisponible a laissé la requête pendue 111 secondes avant de rendre
+         * son 500. L'appelant abandonnait avant que la cascade ait seulement
+         * essayé le troisième. On borne donc chaque tentative, et une coupure
+         * vaut un échec de plus : on passe au modèle suivant.
+         */
+        let res: Response;
+        try {
+          res = await fetch("https://api.kie.ai/claude/v1/messages", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${key()}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              stream: false,
+              max_tokens: maxTokens,
+              messages: [{ role: "user", content }],
+            }),
+            cache: "no-store",
+            signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+          });
+        } catch {
+          lastMessage = `${model} n'a pas répondu`;
+          continue;
+        }
+
+        const body = (await res.json().catch(() => ({}))) as {
+          content?: Array<{ type?: string; text?: string }>;
+          error?: { message?: string };
+          msg?: string;
+        };
+        const text = (body.content || []).map((block) => block.text || "").join("\n").trim();
+
+        if (res.ok && text) {
+          /*
+           * Une réponse peut arriver sans que l'image soit passée : la
+           * passerelle la perd, le modèle répond sur le texte seul et annonce
+           * qu'il n'a rien reçu. C'est un échec, pas un résultat — sans ce
+           * garde-fou l'appelant recevait de la prose au lieu de son JSON.
+           */
+          if (images.length && /no image|image attachment|didn't receive|did not receive|can'?t see (the|an) image|only the text/i.test(text)) {
+            lastMessage = "L'image n'est pas arrivée jusqu'au modèle";
+            continue;
+          }
+          return text;
+        }
+
+        lastMessage = body.error?.message || body.msg || lastMessage;
+        // 4xx hors 429 : la requête est en cause, changer de modèle n'y fera rien.
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+          throw new Error(lastMessage);
+        }
+      }
+    }
   }
-  return text;
+
+  /**
+   * Repli hors Kie. Le passage Claude de Kie tombe régulièrement pendant que
+   * ses autres modèles répondent ; avec une clé Anthropic dans `.env.local`
+   * (ANTHROPIC_API_KEY), l'écriture continue en direct. Sans clé, on remonte
+   * l'erreur de Kie telle quelle.
+   */
+  const direct = process.env.ANTHROPIC_API_KEY?.trim();
+  if (direct) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": direct,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-5",
+        max_tokens: maxTokens,
+        messages: [{ role: "user", content }],
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      content?: Array<{ type?: string; text?: string }>;
+      error?: { message?: string };
+    };
+    const text = (body.content || []).map((block) => block.text || "").join("\n").trim();
+    if (res.ok && text) return text;
+    lastMessage = body.error?.message || `Anthropic ${res.status}`;
+  }
+
+  throw new Error(`Aucun modèle Claude disponible chez Kie — ${lastMessage}`);
 }
 
 export async function pollKieTask(taskId: string, tries = 40) {

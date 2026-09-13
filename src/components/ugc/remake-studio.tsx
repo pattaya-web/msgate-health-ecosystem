@@ -11,14 +11,28 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, Film, ImagePlus, Loader2, Music, Star, Upload, UserRound } from "lucide-react";
+import {
+  Clapperboard,
+  Film,
+  ImagePlus,
+  Loader2,
+  Music,
+  Star,
+  Trash2,
+  Upload,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
+import { StaticRemake } from "@/components/ugc/static-remake";
 import type { Casting } from "@/lib/ugc/casting";
-import { AGE_BANDS, DEFAULT_CASTING } from "@/lib/ugc/casting";
+import { AGE_BANDS, DEFAULT_CASTING, GENDERS } from "@/lib/ugc/casting";
 import { KINDS, type ProductKind } from "@/lib/ugc/kinds";
 import type { Shot } from "@/lib/ugc/remake";
 import { RESOLUTIONS, estimateCredits, formatUsd, type Resolution } from "@/lib/ugc/types";
 import { cn } from "@/lib/utils";
+
+/** 5 s par tour : de quoi couvrir 15 min, au-delà Seedance ne rend plus rien d'utile. */
+const POLL_MAX_TICKS = 180;
 
 type AvatarMeta = { id: string; name: string; casting: Casting; uploaded: boolean };
 
@@ -97,6 +111,11 @@ export function RemakeStudio() {
 
   /* Avatar créé sur place : généré ou chargé, puis enregistré pour la suite. */
   const [casting, setCasting] = useState<Casting>(DEFAULT_CASTING);
+  const [strictFraming, setStrictFraming] = useState(true);
+  const [kind, setKind] = useState<"video" | "static">("video");
+  const [zoomAvatar, setZoomAvatar] = useState<string | null>(null);
+  const [sourceScript, setSourceScript] = useState("");
+  const [script, setScript] = useState("");
   const [avatarPreview, setAvatarPreview] = useState("");
 
   async function makeAvatar() {
@@ -214,6 +233,9 @@ export function RemakeStudio() {
     try {
       const body = await ugcPost<{
         analysis: Analysis;
+        sourceScript?: string;
+        script?: string;
+        scriptError?: string | null;
         framing: string[];
         framingError: string | null;
         product: Product | null;
@@ -229,6 +251,9 @@ export function RemakeStudio() {
       setFraming(body.framing || []);
       setProduct(body.product);
       setAudioBase64(body.audioBase64);
+      setSourceScript(body.sourceScript || "");
+      setScript(body.script || "");
+      if (body.scriptError) toast.error(`Script non relevé — ${body.scriptError}`);
       setFramingNote(
         body.framing?.length
           ? ""
@@ -264,6 +289,7 @@ export function RemakeStudio() {
         action: "generate",
         shots: analysis.shots,
         framing,
+        strictFraming,
         product,
         avatarId: activeId,
         resolution,
@@ -280,14 +306,30 @@ export function RemakeStudio() {
     }
   }
 
+  /**
+   * Suit les plans jusqu'à leur sortie.
+   *
+   * Les clips sont rapatriés côté serveur dès qu'ils tombent : même si cette
+   * boucle meurt, le lot finit dans l'onglet Résultats. La boucle a donc un
+   * plafond — sans lui, une erreur réseau avalée laissait tourner les roues
+   * indéfiniment alors que les vidéos étaient déjà prêtes sur le disque.
+   */
   function startPolling(taskIds: string[]) {
     if (!taskIds.length) return;
     if (polling.current) window.clearInterval(polling.current);
     const pending = new Set(taskIds);
+    let ticks = 0;
 
     polling.current = window.setInterval(async () => {
       if (!pending.size) {
         if (polling.current) window.clearInterval(polling.current);
+        return;
+      }
+      if ((ticks += 1) > POLL_MAX_TICKS) {
+        if (polling.current) window.clearInterval(polling.current);
+        toast.message(
+          `${pending.size} plan(s) encore en génération — ils arrivent dans l'onglet Résultats.`
+        );
         return;
       }
       try {
@@ -317,13 +359,26 @@ export function RemakeStudio() {
     if (!batchId) return;
     setBusy("assemble");
     try {
-      const body = await ugcPost<{ file: string; audio: boolean }>("/api/ugc/remake", {
-        action: "assemble",
-        batchId,
-        audioBase64,
-      });
+      const body = await ugcPost<{ file: string; audio: boolean; voiced?: boolean }>(
+        "/api/ugc/remake",
+        {
+          action: "assemble",
+          batchId,
+          audioBase64,
+          // Un script réécrit remplace la bande son : c'est la voix de l'avatar
+          // qui parle, pas celle du concurrent.
+          script: script.trim() || undefined,
+          casting,
+        }
+      );
       setFinalFile(body.file);
-      toast.success(body.audio ? "Montage prêt avec la musique d'origine" : "Montage prêt (sans audio)");
+      toast.success(
+        body.voiced
+          ? "Montage prêt, dit par la voix de l'avatar"
+          : body.audio
+            ? "Montage prêt avec la bande son d'origine"
+            : "Montage prêt (sans audio)"
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Remontage impossible");
     } finally {
@@ -335,6 +390,33 @@ export function RemakeStudio() {
   const credits = analysis ? estimateCredits(analysis.shots, resolution) : 0;
 
   return (
+    <div className="space-y-3">
+      {/* Deux façons de reprendre une créa qui marche : rejouer son montage, ou
+          rejouer la mise en page d'un visuel fixe. */}
+      <div className="flex w-fit items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+        {(
+          [
+            ["video", "Depuis une vidéo"],
+            ["static", "Depuis une statique"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setKind(id)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors",
+              kind === id
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
+                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {kind === "static" ? <StaticRemake /> : (
     <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
       {/* ---------------- Colonne gauche ---------------- */}
       <div className="space-y-3">
@@ -389,37 +471,160 @@ export function RemakeStudio() {
 
           {avatars.length ? (
             <div className="space-y-1.5">
-              {avatars.map((avatar) => (
-                <button
-                  key={avatar.id}
-                  type="button"
-                  onClick={() => void ugcPost("/api/ugc", { action: "avatar-use", avatarId: avatar.id }).then(loadAvatars)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left ring-1",
-                    activeId === avatar.id
-                      ? "bg-emerald-50 ring-emerald-300 dark:bg-emerald-950/30"
-                      : "bg-slate-50 ring-transparent dark:bg-slate-800/60"
-                  )}
-                >
-                  <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{avatar.name}</span>
-                  {activeId === avatar.id ? (
-                    <Star className="h-3.5 w-3.5 shrink-0 fill-emerald-500 text-emerald-500" />
-                  ) : null}
-                </button>
-              ))}
+              {avatars.map((avatar) => {
+                const active = activeId === avatar.id;
+                return (
+                  <div
+                    key={avatar.id}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg p-1.5 ring-1",
+                      active
+                        ? "bg-emerald-50 ring-emerald-300 dark:bg-emerald-950/30"
+                        : "bg-slate-50 ring-transparent dark:bg-slate-800/60"
+                    )}
+                  >
+                    {/* Le visage d'abord : un avatar se reconnaît à sa tête, pas
+                        à son nom. Un clic l'ouvre en grand avant de l'engager
+                        sur un lot entier. */}
+                    <button
+                      type="button"
+                      onClick={() => setZoomAvatar(avatar.id)}
+                      title="Voir en grand"
+                      className="h-11 w-9 shrink-0 overflow-hidden rounded-md bg-slate-200 dark:bg-slate-700"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/ugc/avatar-image?id=${encodeURIComponent(avatar.id)}`}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+
+                    <input
+                      value={avatar.name}
+                      onChange={(event) =>
+                        setAvatars((current) =>
+                          current.map((item) =>
+                            item.id === avatar.id ? { ...item, name: event.target.value } : item
+                          )
+                        )
+                      }
+                      onBlur={(event) =>
+                        void ugcPost("/api/ugc", {
+                          action: "avatar-rename",
+                          avatarId: avatar.id,
+                          name: event.target.value.trim() || "Sans nom",
+                        }).then(loadAvatars)
+                      }
+                      className="min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 text-[12px] font-medium outline-none focus:bg-white dark:focus:bg-slate-950"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void ugcPost("/api/ugc", {
+                          action: "avatar-use",
+                          avatarId: avatar.id,
+                        }).then(loadAvatars)
+                      }
+                      title={active ? "Avatar utilisé" : "Utiliser cet avatar"}
+                      className="shrink-0 p-1"
+                    >
+                      <Star
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          active
+                            ? "fill-emerald-500 text-emerald-500"
+                            : "text-slate-300 hover:text-slate-500"
+                        )}
+                      />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!window.confirm(`Supprimer « ${avatar.name} » ?`)) return;
+                        void ugcPost("/api/ugc", {
+                          action: "avatar-delete",
+                          avatarId: avatar.id,
+                        }).then(loadAvatars);
+                      }}
+                      title="Supprimer"
+                      className="shrink-0 p-1 text-slate-300 hover:text-rose-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+
+          {zoomAvatar ? (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4"
+              onClick={() => setZoomAvatar(null)}
+            >
+              <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/ugc/avatar-image?id=${encodeURIComponent(zoomAvatar)}`}
+                  alt=""
+                  className="max-h-[75vh] w-auto rounded-xl shadow-2xl"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void ugcPost("/api/ugc", {
+                        action: "avatar-use",
+                        avatarId: zoomAvatar,
+                      }).then(loadAvatars);
+                      setZoomAvatar(null);
+                    }}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-white px-4 text-[12px] font-semibold text-slate-900"
+                  >
+                    <Star className="h-3.5 w-3.5" />
+                    Utiliser celui-là
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoomAvatar(null)}
+                    className="h-9 rounded-lg px-3 text-[12px] font-medium text-slate-300"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </div>
             </div>
           ) : null}
 
           <div className="mt-2 space-y-2 border-t border-slate-100 pt-2.5 dark:border-slate-800">
-            <select
-              value={casting.age}
-              onChange={(event) => setCasting({ ...casting, age: event.target.value as Casting["age"] })}
-              className={field}
-            >
-              {AGE_BANDS.map((band) => (
-                <option key={band.id} value={band.id}>{band.label}</option>
-              ))}
-            </select>
+            {/* Genre et âge décident du visage généré : ils dépendent de l'audience
+                visée et du produit, donc ils se règlent ici avant de lancer. Une
+                photo chargée fait foi et rend les deux sans effet. */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <select
+                value={casting.gender}
+                onChange={(event) =>
+                  setCasting({ ...casting, gender: event.target.value as Casting["gender"] })
+                }
+                className={field}
+              >
+                {GENDERS.map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+              <select
+                value={casting.age}
+                onChange={(event) => setCasting({ ...casting, age: event.target.value as Casting["age"] })}
+                className={field}
+              >
+                {AGE_BANDS.map((band) => (
+                  <option key={band.id} value={band.id}>{band.label}</option>
+                ))}
+              </select>
+            </div>
 
             <div className="flex gap-1.5">
               <button
@@ -499,6 +704,27 @@ export function RemakeStudio() {
               ) : null}
             </div>
 
+            {sourceScript ? (
+              <div className="mb-3 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60">
+                <p className="mb-1 text-[11px] font-semibold">Script — relevé puis réécrit</p>
+                <p className="mb-1.5 text-[11px] italic leading-snug text-slate-400">
+                  « {sourceScript} »
+                </p>
+                {/* Modifiable : c'est ce texte que la voix de l'avatar va dire,
+                    et une accroche se corrige avant d'être enregistrée. */}
+                <textarea
+                  value={script}
+                  onChange={(event) => setScript(event.target.value)}
+                  rows={3}
+                  placeholder="Script pour ton produit — laissé vide, la bande son d'origine est conservée"
+                  className="w-full resize-y rounded-lg bg-white px-2 py-1.5 text-[12px] leading-relaxed outline-none dark:bg-slate-950"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Dit par une voix choisie d&apos;après le casting de l&apos;avatar.
+                </p>
+              </div>
+            ) : null}
+
             {framingNote ? (
               <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">{framingNote}</p>
             ) : null}
@@ -527,6 +753,23 @@ export function RemakeStudio() {
                   <option key={value} value={value}>{value}</option>
                 ))}
               </select>
+              {/* Strict = on rejoue les angles relevés tels quels. Décoché, le
+                  cadrage relevé n'est qu'une piste et le modèle recompose. */}
+              <label
+                className="flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300"
+                title={
+                  strictFraming
+                    ? "Les angles de la source sont imposés plan par plan"
+                    : "Le cadrage relevé sert d'inspiration, le modèle recompose"
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={strictFraming}
+                  onChange={(event) => setStrictFraming(event.target.checked)}
+                />
+                Respecter les angles
+              </label>
               <span className="text-[11px] text-slate-400">
                 ~{credits.toLocaleString("fr-FR")} crédits ({formatUsd(credits)})
               </span>
@@ -597,6 +840,8 @@ export function RemakeStudio() {
           </div>
         ) : null}
       </div>
+    </div>
+      )}
     </div>
   );
 }

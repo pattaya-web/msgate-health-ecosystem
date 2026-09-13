@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { AboutView, ContactView, PolicyView, Storefront } from "@/components/ecom-sites/storefront";
+import { AboutView, ContactView, CustomPageView, PolicyView, Storefront } from "@/components/ecom-sites/storefront";
 import { buildPolicy, POLICY_LABELS, POLICY_SLUGS, type PolicySlug } from "@/lib/ecom-sites/policies";
 import { getEcomSiteBySlug } from "@/lib/ecom-sites/store";
 
@@ -20,6 +20,8 @@ export async function generateMetadata({ params }: Ctx): Promise<Metadata> {
   if (isPolicy(page)) return { title: `${POLICY_LABELS[page]} | ${site.brandName}` };
   if (page === "about") return { title: `About | ${site.brandName}` };
   if (page === "contact") return { title: `Contact | ${site.brandName}` };
+  const custom = (site.pages ?? []).find((entry) => entry.slug === page);
+  if (custom) return { title: `${custom.title} | ${site.brandName}` };
   return { title: site.brandName };
 }
 
@@ -48,6 +50,16 @@ export default async function EcomStaticPage({ params }: Ctx) {
     return (
       <Storefront site={site}>
         <ContactView site={site} />
+      </Storefront>
+    );
+  }
+
+  // Une page ajoutée à la boutique : FAQ, page reprise d'un autre site…
+  const custom = (site.pages ?? []).find((entry) => entry.slug === page);
+  if (custom) {
+    return (
+      <Storefront site={site}>
+        <CustomPageView site={site} page={custom} />
       </Storefront>
     );
   }

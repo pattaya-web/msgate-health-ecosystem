@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
 import path from "path";
+import { mirror } from "@/lib/storage";
 import { stitchClips } from "@/lib/ugc/stitch";
 import type { ProductInput, Resolution, UgcJob } from "@/lib/ugc/types";
 
@@ -35,7 +36,10 @@ async function readBatch(id: string): Promise<UgcBatch | null> {
 
 async function writeBatch(batch: UgcBatch) {
   await mkdir(batchDir(batch.id), { recursive: true });
-  await writeFile(path.join(batchDir(batch.id), "batch.json"), JSON.stringify(batch, null, 2));
+  const file = path.join(batchDir(batch.id), "batch.json");
+  const payload = JSON.stringify(batch, null, 2);
+  await writeFile(file, payload);
+  mirror(file, Buffer.from(payload));
 }
 
 export async function createBatch(input: {
@@ -66,7 +70,10 @@ async function download(batchId: string, taskId: string, url: string) {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
-    await writeFile(target, Buffer.from(await res.arrayBuffer()));
+    const body = Buffer.from(await res.arrayBuffer());
+    await writeFile(target, body);
+    // La vidéo part aussi en ligne : l'URL Kie, elle, expire.
+    mirror(target, body);
     return file;
   } catch {
     return null;

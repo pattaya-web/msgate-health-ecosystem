@@ -10,11 +10,16 @@ import {
   setActiveAvatar,
   toMeta,
 } from "@/lib/ugc/avatar-store";
-import { DEFAULT_CASTING, avatarPrompt, type Casting } from "@/lib/ugc/casting";
+import { DEFAULT_CASTING, avatarPrompt, avatarPromptFromText, type Casting } from "@/lib/ugc/casting";
 import { fetchProductFromUrl } from "@/lib/ugc/fetch-product";
+import type { FormatId, NicheId } from "@/lib/ugc/formats";
+import { isPhysical } from "@/lib/ugc/kinds";
 import { OUTFIT_ANGLES, composeOutfitPrompt } from "@/lib/ugc/outfit";
+import { chatStory, writeAngles, writeStory, type ChatMessage } from "@/lib/ugc/script-writer";
+import { getScript } from "@/lib/creative-library/store";
+import { scrapeProduct } from "@/lib/meta/ad-copy";
 import { applyResults, createBatch, listBatches, stitchAngle } from "@/lib/ugc/store";
-import { withDuration, type ProductInput, type Resolution } from "@/lib/ugc/types";
+import { withDuration, type Angle, type ProductInput, type Resolution } from "@/lib/ugc/types";
 
 /** `outfit` = clips muets où la tenue est portée et montrée, sans parole. */
 type UgcMode = "speaking" | "outfit";
@@ -57,8 +62,32 @@ type Body = {
     | "avatar-use"
     | "avatar-rename"
     | "avatar-delete"
-    | "upload-image";
+    | "upload-image"
+    | "write-angles"
+    | "write-story"
+    | "story-chat";
+  /** Mode histoire : texte libre, source facultative, script de base facultatif. */
+  story?: string;
+  sourceUrl?: string;
+  scriptId?: string;
+  imageUrls?: string[];
+  /** Durée totale visée pour la vidéo, en secondes. */
+  targetSeconds?: number;
+  /** Conversation de cadrage avec l'IA. */
+  messages?: ChatMessage[];
   mode?: UgcMode;
+  /** Comment c'est filmé : selfie, facecam, podcast, interview… */
+  formatId?: FormatId;
+  /** Qui parle et d'où : mode, beauté, fitness… */
+  nicheId?: NicheId;
+  /** Angles écrits sur mesure (Claude, main, bibliothèque) : générés comme les autres. */
+  customAngles?: Angle[];
+  /** Bloc de style relevé sur une vidéo de référence. */
+  styleBlock?: string;
+  /** Brief pour `write-angles`. */
+  brief?: string;
+  count?: number;
+  language?: "en" | "fr";
   /** Durée par plan, en secondes. Mode outfit uniquement. */
   clipDuration?: number;
   /** Avatar enregistré à réutiliser — c'est lui qui garantit le même visage. */
@@ -69,6 +98,10 @@ type Body = {
   angleIds?: string[];
   resolution?: Resolution;
   casting?: Casting;
+  /** Sujet libre sans casting : la personne est celle du prompt. */
+  castingFree?: boolean;
+  /** Avatar décrit en toutes lettres — prime sur le casting. */
+  description?: string;
   avatarUrl?: string;
   avatarDataUrl?: string;
   /** Un avatar chargé décrit lui-même la personne : le casting ne l'écrase pas. */
@@ -111,12 +144,20 @@ function buildScenes(
   casting: Casting,
   describeCasting: boolean,
   mode: UgcMode,
-  clipDuration?: number
+  clipDuration?: number,
+  customAngles: Angle[] = [],
+  context: { format?: FormatId; niche?: NicheId; styleBlock?: string; hasAvatar?: boolean; castingFree?: boolean } = {}
 ) {
   const wanted = new Set(angleIds);
-  const library = mode === "outfit" ? OUTFIT_ANGLES : ANGLES;
+  // Les angles sur mesure passent devant : un même identifiant est le leur.
+  const library = mode === "outfit" ? OUTFIT_ANGLES : [...customAngles, ...ANGLES];
+  const seen = new Set<string>();
   return library
-    .filter((angle) => wanted.has(angle.id))
+    .filter((angle) => {
+      if (!wanted.has(angle.id) || seen.has(angle.id)) return false;
+      seen.add(angle.id);
+      return true;
+    })
     .flatMap((angle) =>
       // La durée choisie ne s'applique qu'aux clips muets : en mode parlant,
       // elle est calée sur la longueur du dialogue et l'allonger désynchronise.
@@ -128,7 +169,7 @@ function buildScenes(
         prompt:
           mode === "outfit"
             ? composeOutfitPrompt(scene.prompt, product, casting, describeCasting)
-            : composeScenePrompt(scene.prompt, product, casting, product.kind, describeCasting),
+            : composeScenePrompt(scene.prompt, product, casting, product.kind, describeCasting, context),
       }))
     );
 }
@@ -207,7 +248,9 @@ export async function POST(request: Request) {
     if (body.action === "avatar") {
       const taskId = await withRetry(() =>
         createKieTask("gpt-image-2-text-to-image", {
-          prompt: avatarPrompt(body.casting ?? DEFAULT_CASTING),
+          prompt: body.description?.trim()
+            ? avatarPromptFromText(body.description)
+            : avatarPrompt(body.casting ?? DEFAULT_CASTING),
           aspect_ratio: "3:4",
           resolution: "1K",
         })
@@ -269,11 +312,93 @@ export async function POST(request: Request) {
       return NextResponse.json({ results, throttled: results.some((row) => row.throttled) });
     }
 
+    /**
+     * Mode histoire : un texte libre, une source facultative (fiche produit
+     * ou site entier), un script de base facultatif. On lit la source ici —
+     * une fiche Shopify donne images et prix, n'importe quelle autre page
+     * donne son texte — puis Claude reformule et écrit le script.
+     */
+    if (body.action === "story-chat") {
+      const messages = (body.messages ?? []).filter((message) => message && message.content?.trim());
+      if (!messages.length) return NextResponse.json({ error: "Dis-moi ce que tu veux" }, { status: 400 });
+      const result = await chatStory({ messages, targetSeconds: body.targetSeconds, language: body.language });
+      return NextResponse.json(result);
+    }
+
+    if (body.action === "write-story") {
+      if (!body.story?.trim()) return NextResponse.json({ error: "Écris ton histoire d'abord" }, { status: 400 });
+
+      let product: ProductInput | null = null;
+      let sourceText = "";
+      let sourceTitle = "";
+      let sourceError: string | null = null;
+      const source = body.sourceUrl?.trim();
+      if (source) {
+        try {
+          product = await fetchProductFromUrl(source);
+          if (!product.imageUrls.length && !product.price) {
+            // Pas une fiche produit : on garde le texte de la page, rien d'autre.
+            sourceTitle = product.name;
+            sourceText = product.description;
+            product = null;
+          }
+        } catch {
+          product = null;
+        }
+        if (!product) {
+          try {
+            const page = await scrapeProduct(source);
+            sourceTitle = page.title || sourceTitle;
+            sourceText = [page.description, page.text].filter(Boolean).join("\n").slice(0, 4000) || sourceText;
+          } catch (error) {
+            sourceError = error instanceof Error ? error.message : "Source illisible";
+          }
+        }
+      }
+
+      let scriptText = "";
+      if (body.scriptId) {
+        const script = await getScript(body.scriptId);
+        scriptText = script?.text ?? "";
+      }
+
+      const draft = await writeStory({
+        story: body.story,
+        sourceText: product ? [product.description, product.keyPoints.join("; ")].filter(Boolean).join("\n") : sourceText,
+        sourceTitle: product ? product.name : sourceTitle,
+        scriptText,
+        hasProduct: Boolean(product?.imageUrls.length) || Boolean(body.imageUrls?.length),
+        format: body.formatId,
+        niche: body.nicheId,
+        language: body.language,
+        targetSeconds: body.targetSeconds,
+      });
+      return NextResponse.json({ draft, product, sourceError });
+    }
+
     const product = body.product;
-    const angleIds = body.angleIds ?? [];
     if (!product?.name) {
       return NextResponse.json({ error: "Renseigne au moins le nom du produit" }, { status: 400 });
     }
+
+    /**
+     * Angles sur mesure : Claude écrit les scènes depuis le sujet, le format
+     * et le brief. Rien n'est dépensé chez Kie côté vidéo — seul le texte.
+     */
+    if (body.action === "write-angles") {
+      const angles = await writeAngles({
+        product,
+        brief: body.brief ?? "",
+        count: body.count ?? 2,
+        format: body.formatId,
+        niche: body.nicheId,
+        language: body.language,
+      });
+      if (!angles.length) return NextResponse.json({ error: "Aucun angle écrit" }, { status: 502 });
+      return NextResponse.json({ angles });
+    }
+
+    const angleIds = body.angleIds ?? [];
     if (!angleIds.length) {
       return NextResponse.json({ error: "Sélectionne au moins un angle" }, { status: 400 });
     }
@@ -284,9 +409,18 @@ export async function POST(request: Request) {
       product,
       angleIds,
       casting,
-      !body.avatarUploaded,
+      // Un avatar chargé ou décrit fait foi ; en sujet libre le casting n'a rien à dire.
+      !body.avatarUploaded && !body.castingFree,
       mode,
-      body.clipDuration
+      body.clipDuration,
+      body.customAngles ?? [],
+      {
+        format: body.formatId,
+        niche: body.nicheId,
+        styleBlock: body.styleBlock,
+        hasAvatar: Boolean(body.avatarId || (body.avatarUrl && /^https:\/\//i.test(body.avatarUrl))),
+        castingFree: Boolean(body.castingFree),
+      }
     );
 
     // Prévisualisation : on montre les prompts finaux sans rien dépenser.
@@ -299,8 +433,9 @@ export async function POST(request: Request) {
       .slice(0, MAX_REFS);
 
     // Sans photo du produit, Seedance en invente un. On refuse plutôt que de
-    // laisser partir un lot payant qui ne montrera pas le bon article.
-    if (!productRefs.length) {
+    // laisser partir un lot payant qui ne montrera pas le bon article. Un
+    // sujet sans objet (app, service, histoire) n'a rien à montrer : il passe.
+    if (!productRefs.length && isPhysical(product.kind)) {
       return NextResponse.json(
         {
           error:

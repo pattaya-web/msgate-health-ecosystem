@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock } from "lucide-react";
 
 function formatCity(timeZone: string) {
   const now = new Date();
@@ -68,7 +67,7 @@ function Flag({ country }: { country: Country }) {
       viewBox="0 0 24 16"
       role="img"
       aria-label={flag.label}
-      className="h-3 w-[18px] shrink-0 rounded-[2px] ring-1 ring-inset ring-black/15"
+      className="h-2.5 w-[15px] shrink-0 rounded-[2px] opacity-90 ring-1 ring-inset ring-white/20"
     >
       {flag.shapes}
     </svg>
@@ -92,21 +91,15 @@ export function TimezoneClocks() {
   void tick;
 
   return (
-    <div className="hidden items-center gap-2 sm:flex">
-      {CITIES.map((city, index) => {
+    <div className="hidden items-center gap-1.5 sm:flex">
+      {CITIES.map((city) => {
         const { time, day } = formatCity(city.timeZone);
         return (
-          <div
-            key={city.label}
-            title={city.timeZone}
-            className="glass-chip flex items-center gap-2 px-2.5 py-1.5 text-[11px] tabular-nums text-slate-600 dark:text-slate-300"
-          >
-            {/* L'icône horloge n'apparaît que sur la première puce, en repère. */}
-            {index === 0 ? <Clock className="h-3 w-3 text-emerald-600 dark:text-emerald-400" /> : null}
+          <div key={city.label} title={city.timeZone} className="pill-chip">
             <Flag country={city.country} />
-            <span className="font-medium text-slate-800 dark:text-slate-100">{city.label}</span>
-            <span>{time}</span>
-            <span className="text-slate-400 dark:text-slate-500">{day}</span>
+            <span className="font-medium text-[var(--pill-foreground)]">{city.label}</span>
+            <span className="font-mono text-[11px]">{time}</span>
+            <span className="opacity-60">{day}</span>
           </div>
         );
       })}

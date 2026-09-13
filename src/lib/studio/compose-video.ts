@@ -320,6 +320,114 @@ export async function renderOverlayPng(input: {
   return canvas.toDataURL("image/png");
 }
 
+/**
+ * Dessine un sous-titre. Extrait de la boucle de rendu pour que le montage
+ * serveur produise exactement le même trait que la preview : une seule
+ * implémentation, donc aucune dérive possible entre ce qu'on voit et ce qu'on
+ * exporte.
+ */
+function drawCaptionBlock(
+  ctx: CanvasRenderingContext2D,
+  font: string,
+  line: string[],
+  active: number,
+  style: CaptionStyle
+) {
+  if (!line.length) return;
+
+  ctx.textAlign = "center";
+  const align = style.align || "center";
+  const anchor = align === "left" ? 300 : align === "right" ? W - 300 : W / 2;
+  const size = style.size || 56;
+  ctx.font = `700 ${size}px ${font}`;
+  ctx.lineJoin = "round";
+
+  const joined = line.join(" ");
+  const y = ((style.y ?? 79) / 100) * H;
+
+  if (style.preset === "boxed" || style.preset === "pop") {
+    const pad = 22;
+    const width = Math.min(980, ctx.measureText(joined).width + pad * 2);
+    drawRounded(ctx, anchor - width / 2, y - 58, width, 84, 16);
+    ctx.fillStyle = style.preset === "pop" ? style.highlight : "rgba(0,0,0,0.72)";
+    ctx.fill();
+    ctx.fillStyle = style.fill;
+    ctx.fillText(joined, anchor, y);
+    return;
+  }
+
+  if (style.preset === "minimal") {
+    ctx.fillStyle = style.fill;
+    ctx.fillText(joined, anchor, y);
+    return;
+  }
+
+  let x = anchor - ctx.measureText(joined).width / 2;
+  line.forEach((word, index) => {
+    const width = ctx.measureText(word).width;
+    ctx.lineWidth = Math.max(0, Math.round((size * (style.strokeWidth ?? 25)) / 100));
+    ctx.strokeStyle = style.stroke;
+    ctx.strokeText(word, x + width / 2, y);
+    ctx.fillStyle = index === active ? style.highlight : style.fill;
+    ctx.fillText(word, x + width / 2, y);
+    x += width + ctx.measureText(" ").width;
+  });
+}
+
+/** Un sous-titre et la fenêtre pendant laquelle il reste à l'image. */
+export type CaptionCue = { png: string; start: number; end: number };
+
+/**
+ * Rend chaque état de sous-titre en PNG plein cadre, avec sa fenêtre de temps.
+ *
+ * Le montage serveur ne redessine rien : il incruste ces images. C'est le même
+ * principe que l'onglet Texte, et c'est ce qui permet d'avoir la vraie police
+ * sans en installer une sur le serveur.
+ *
+ * Le découpage suit le mot : `captionWindow` fait avancer le surlignage mot à
+ * mot dans un groupe, donc chaque mot vaut un état — et une image.
+ */
+export async function renderCaptionCues(input: {
+  script: string;
+  duration: number;
+  caption: CaptionStyle;
+}): Promise<CaptionCue[]> {
+  const words = input.script.trim().split(/\s+/).filter(Boolean);
+  if (!words.length || input.duration <= 0) return [];
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas indisponible");
+
+  const font = tiktokFamily();
+  await Promise.all([
+    document.fonts.load(`700 72px ${font}`).catch(() => undefined),
+    document.fonts.load(`600 72px ${font}`).catch(() => undefined),
+  ]);
+
+  const slot = input.duration / words.length;
+  const cues: CaptionCue[] = [];
+
+  for (let index = 0; index < words.length; index += 1) {
+    const start = index * slot;
+    const { line, active } = captionWindow(
+      input.script,
+      start + slot / 2,
+      input.duration,
+      input.caption.words
+    );
+    if (!line.length) continue;
+
+    ctx.clearRect(0, 0, W, H);
+    drawCaptionBlock(ctx, font, line, active, input.caption);
+    cues.push({ png: canvas.toDataURL("image/png"), start, end: start + slot });
+  }
+
+  return cues;
+}
+
 export async function composeVerticalCreative(input: ComposeInput): Promise<Blob> {
   if (!input.clips.length) throw new Error("Ajoute au moins une vidéo");
   input.onProgress?.(2, "Chargement clips");

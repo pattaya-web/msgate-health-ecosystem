@@ -1,4 +1,13 @@
-export type ProductKind = "fashion" | "beauty" | "gadget" | "furniture" | "food" | "other";
+export type ProductKind =
+  | "fashion"
+  | "beauty"
+  | "gadget"
+  | "furniture"
+  | "food"
+  | "book"
+  | "digital"
+  | "topic"
+  | "other";
 
 export const KINDS: Array<{ id: ProductKind; label: string; hint: string }> = [
   { id: "fashion", label: "Vêtement / accessoire", hint: "Porté sur le corps" },
@@ -6,8 +15,16 @@ export const KINDS: Array<{ id: ProductKind; label: string; hint: string }> = [
   { id: "gadget", label: "Gadget / high-tech", hint: "Tenu et manipulé" },
   { id: "furniture", label: "Meuble / déco", hint: "Posé dans la pièce, à l'échelle" },
   { id: "food", label: "Alimentaire", hint: "Goûté, consommé" },
-  { id: "other", label: "Autre", hint: "Montré face caméra" },
+  { id: "book", label: "Livre", hint: "Couverture face caméra, pages feuilletées" },
+  { id: "digital", label: "App / service / formation", hint: "Rien à tenir : montré sur le téléphone ou juste raconté" },
+  { id: "topic", label: "Sujet / histoire", hint: "Pas de produit : la personne parle d'une idée, d'une histoire" },
+  { id: "other", label: "Autre objet", hint: "Montré face caméra" },
 ];
+
+/** Les catégories sans objet physique : pas de photo produit à exiger. */
+export function isPhysical(kind: ProductKind) {
+  return kind !== "digital" && kind !== "topic";
+}
 
 /**
  * Chaque catégorie impose une manipulation différente. C'est ce bloc qui
@@ -47,6 +64,26 @@ const HANDLING: Record<ProductKind, string> = {
     "shows use, the protagonist opens it and tastes it with a genuine, unexaggerated reaction. ",
     "The food itself looks exactly like the reference images — no styling, no substitution.",
   ].join(""),
+  book: [
+    "PRODUCT TYPE — BOOK. The product is a printed book. The protagonist holds it with the front ",
+    "cover facing the camera so the cover art and title read clearly, exactly as in the reference ",
+    "images — same cover, same colours, same typography, no invented title. When a scene shows use, ",
+    "they open it, flip a few pages, point at a passage or read from it with the cover still visible ",
+    "at some point. The book stays the single, identical copy in every clip.",
+  ].join(""),
+  digital: [
+    "PRODUCT TYPE — DIGITAL PRODUCT OR SERVICE (an app, an online course, a website, a subscription). ",
+    "There is NO physical object to hold. The protagonist either talks about it straight to the camera ",
+    "or briefly holds up their own phone with the screen turned toward the lens. If the screen is ",
+    "visible it shows a generic, softly out-of-focus interface: do NOT invent readable UI text, logos, ",
+    "menus or numbers. The value comes from what the protagonist SAYS, not from what is on the screen.",
+  ].join(""),
+  topic: [
+    "NO PRODUCT — this is a pure talking piece about a topic, a story or an idea. There is no product ",
+    "prop, no packaging, no phone screen to show. The protagonist simply talks to the camera with ",
+    "natural gestures, as a creator sharing something they care about. Ignore any instruction that ",
+    "would require holding or showing an object.",
+  ].join(""),
   other: [
     "PRODUCT TYPE — GENERIC OBJECT. The protagonist holds the product facing the camera, at chest ",
     "height, label side out, hands clear of any detail, and presents it plainly.",
@@ -64,6 +101,14 @@ export function handlingFor(kind: ProductKind) {
 export function guessKind(text: string): ProductKind {
   const value = text.toLowerCase();
   const rules: Array<[ProductKind, RegExp]> = [
+    [
+      "book",
+      /\b(livre|book|roman|novel|ebook|e-book|guide papier|manuel|recueil|bd|manga|comic)\b/,
+    ],
+    [
+      "digital",
+      /\b(app|application|logiciel|software|saas|formation|course|cours en ligne|masterclass|abonnement|subscription|template|preset|notion|ebook pdf|programme en ligne|coaching)\b/,
+    ],
     [
       "fashion",
       /robe|dress|shirt|chemise|tee|t-shirt|pantalon|trouser|jean|veste|jacket|manteau|coat|pull|sweater|hoodie|jupe|skirt|short|chaussure|shoe|sneaker|basket|sac|bag|ceinture|belt|montre|watch|bijou|jewel|collier|necklace|bracelet|bague|ring|lunette|sunglass|chapeau|hat|casquette|cap|legging|body|brassiere|soutien|lingerie|maillot|socks|chaussette/,

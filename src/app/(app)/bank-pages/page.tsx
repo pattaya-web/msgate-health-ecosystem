@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Copy, ExternalLink, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { BankPageView } from "@/components/bank-pages/bank-page-view";
 import { EcomSitesTab } from "@/components/ecom-sites/ecom-sites-tab";
-import { BANK_THEMES, defaultBankPage, type BankPage, type BankThemeId } from "@/lib/bank-pages/types";
+import { BANK_THEMES, bankPageText, defaultBankPage, withTextEdit, type BankPage, type BankPageDraft, type BankThemeId } from "@/lib/bank-pages/types";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -52,11 +52,117 @@ export default function BankPagesAdminPage() {
 
 const empty = defaultBankPage();
 
+/**
+ * L'aperçu en grand, taille réelle, où chaque texte se clique et se corrige
+ * sur place. Entrée valide, Échap annule la frappe en cours ; le presse-papiers
+ * fonctionne comme dans n'importe quel texte, et « Copier tout » emporte la
+ * page entière en texte brut.
+ */
+function PageEditor({ page, title, status, saved = false, onEdit, onClose }: { page: BankPageDraft; title: string; status: string; saved?: boolean; onEdit: (path: string, value: string) => void; onClose: () => void }) {
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  async function copyAll() {
+    if (!root.current) return;
+    try {
+      await navigator.clipboard.writeText(bankPageText(root.current));
+      toast.success("Texte de la page copié");
+    } catch {
+      toast.error("Copie impossible");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex flex-col bg-slate-950/80 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="flex flex-wrap items-center gap-2 bg-slate-950 px-3 py-2 text-white shadow-md">
+        <Pencil className="h-4 w-4 text-emerald-400" />
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-semibold">{title}</p>
+          <p className="text-[11px] text-slate-400">Clique un texte pour le modifier · Entrée valide · Échap annule · Ctrl+C / Ctrl+V comme d&apos;habitude</p>
+        </div>
+        <span className={cn("ml-auto inline-flex items-center gap-1 text-[11px]", saved ? "text-emerald-400" : "text-slate-400")}>
+          {saved ? <Check className="h-3.5 w-3.5" /> : null}
+          {status}
+        </span>
+        <button type="button" onClick={() => void copyAll()} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-3 text-[12px] font-semibold hover:bg-white/20">
+          <Copy className="h-3.5 w-3.5" />
+          Copier tout le texte
+        </button>
+        <button type="button" onClick={onClose} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white px-3 text-[12px] font-semibold text-slate-900 hover:bg-slate-200">
+          <X className="h-3.5 w-3.5" />
+          Fermer
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-3 md:p-5" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+        <div ref={root} className="mx-auto min-w-[360px] max-w-[1280px] overflow-hidden rounded-xl shadow-2xl">
+          <BankPageView page={page} editable onEdit={onEdit} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BankPagesTab() {
   const [pages, setPages] = useState<BankPage[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(empty);
+  const [form, setForm] = useState<BankPageDraft>(empty);
+  /* L'aperçu plein écran : la page en création, ou une page enregistrée. */
+  const [editingDraft, setEditingDraft] = useState(false);
+  const [editing, setEditing] = useState<BankPage | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSave = useRef<BankPage | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  /** Une correction sur une page enregistrée part au serveur toute seule, après une courte pause. */
+  const persistEdit = useCallback(async (page: BankPage) => {
+    setSaveState("saving");
+    try {
+      const res = await fetch(`/api/bank-pages/${page.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(page),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Enregistrement impossible");
+      setPages((current) => current.map((item) => (item.id === page.id ? { ...item, ...page } : item)));
+      setSaveState("saved");
+    } catch (error) {
+      setSaveState("idle");
+      toast.error(error instanceof Error ? error.message : "Enregistrement impossible");
+    }
+  }, []);
+
+  function editSaved(path: string, value: string) {
+    setEditing((current) => {
+      if (!current) return current;
+      const next = withTextEdit(current, path, value);
+      pendingSave.current = next;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        if (pendingSave.current) void persistEdit(pendingSave.current);
+        pendingSave.current = null;
+      }, 700);
+      return next;
+    });
+  }
+
+  function closeSaved() {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (pendingSave.current) {
+      void persistEdit(pendingSave.current);
+      pendingSave.current = null;
+    }
+    setEditing(null);
+    setSaveState("idle");
+  }
 
   const load = useCallback(async () => {
     const res = await fetch("/api/bank-pages");
@@ -189,22 +295,45 @@ function BankPagesTab() {
             </button>
           </div>
           <div className="overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-900/[0.04]">
-            <p className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">Preview live</p>
-            <div className="h-[340px] overflow-hidden bg-white">
-              <div className="origin-top-left scale-[0.34]" style={{ width: 1120 }}>
-                <BankPageView
-                  page={{
-                    ...form,
-                    id: "preview",
-                    slug: "preview",
-                    createdAt: "",
-                    updatedAt: "",
+            <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-1.5">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Aperçu · clique un texte pour le modifier</p>
+              <span className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (previewRef.current) void navigator.clipboard.writeText(bankPageText(previewRef.current)).then(() => toast.success("Texte de la page copié"));
                   }}
-                />
-              </div>
+                  className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-slate-900/[0.06] hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  <Copy className="h-3 w-3" />
+                  Copier tout le texte
+                </button>
+                <button type="button" onClick={() => setEditingDraft(true)} className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-slate-900/[0.06] hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200">
+                  <Pencil className="h-3 w-3" />
+                  Agrandir
+                </button>
+              </span>
+            </div>
+            {/* L'aperçu est la page elle-même, éditable sur place, réduite pour tenir dans la colonne. */}
+            <div ref={previewRef} className="h-[560px] overflow-auto bg-white" style={{ zoom: 0.7 }}>
+              <BankPageView page={form} editable onEdit={(path, value) => setForm((current) => withTextEdit(current, path, value))} />
             </div>
           </div>
         </div>
+
+        {editingDraft ? (
+          <PageEditor page={form} title="Nouvelle bank page" status="Les corrections restent dans le formulaire jusqu'à « Créer »" onEdit={(path, value) => setForm((current) => withTextEdit(current, path, value))} onClose={() => setEditingDraft(false)} />
+        ) : null}
+        {editing ? (
+          <PageEditor
+            page={editing}
+            title={editing.brandName}
+            status={saveState === "saving" ? "Enregistrement…" : saveState === "saved" ? "Enregistré" : "Chaque correction s'enregistre toute seule"}
+            saved={saveState === "saved"}
+            onEdit={editSaved}
+            onClose={closeSaved}
+          />
+        ) : null}
 
         <div className="space-y-2">
           {loading ? <p className="text-[12px] text-slate-400">Chargement…</p> : null}
@@ -222,6 +351,17 @@ function BankPagesTab() {
                   <ExternalLink className="h-3 w-3" />
                   Ouvrir
                 </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSaveState("idle");
+                    setEditing(page);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Modifier
+                </button>
                 <button type="button" onClick={() => void remove(page.id)} className="rounded-md px-2 py-1 text-[11px] text-rose-600">
                   <Trash2 className="h-3 w-3" />
                 </button>
