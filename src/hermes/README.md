@@ -25,6 +25,26 @@ Hermes  →  POST /api/hermes/tools/<name>  (Authorization: Bearer HERMES_API_KE
   `.msgate-cache/hermes-audit.json` (copié dans Supabase). Ni clé, ni charge
   utile.
 
+## MCP
+
+Le même registre est servi en MCP (JSON-RPC 2.0, transport Streamable HTTP,
+sans état) sur `POST /api/mcp`, avec la même clé en `Authorization: Bearer`.
+Méthodes : `initialize`, `ping`, `tools/list`, `tools/call`. Un appel d'outil
+passe par `runTool`, donc par la même validation, le même journal et la même
+frontière lecture seule. Configuration côté agent :
+
+```json
+{
+  "mcpServers": {
+    "msgate-crm": {
+      "type": "streamable-http",
+      "url": "https://<hôte de l'outil>/api/mcp",
+      "headers": { "Authorization": "Bearer <HERMES_API_KEY>" }
+    }
+  }
+}
+```
+
 ## Ajouter un outil
 
 1. Créer `src/hermes/tools/<nom>.ts` exportant un `ReadonlyTool` : nom,

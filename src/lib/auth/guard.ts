@@ -34,8 +34,8 @@ const PUBLIC_POSTS = new Set(["/api/ecom-sites/messages", "/api/ecom-sites/order
 export function isPublicApi(method: string, pathname: string) {
   if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) return true;
   if (pathname === "/api/sav/digest") return true;
-  // Hermes n'a pas de session : ses routes vérifient elles-mêmes HERMES_API_KEY (src/hermes/auth.ts).
-  if (pathname === "/api/hermes" || pathname.startsWith("/api/hermes/")) return true;
+  // Hermes n'a pas de session : ses routes (API et MCP) vérifient elles-mêmes HERMES_API_KEY (src/hermes/auth.ts).
+  if (pathname === "/api/hermes" || pathname.startsWith("/api/hermes/") || pathname === "/api/mcp") return true;
   return method === "POST" && PUBLIC_POSTS.has(pathname);
 }
 
