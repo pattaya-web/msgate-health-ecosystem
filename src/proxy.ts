@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getBankPageByDomain } from "@/lib/bank-pages/store";
 import { getEcomSiteByDomain } from "@/lib/ecom-sites/store";
 
 /**
@@ -31,7 +32,19 @@ export async function proxy(request: NextRequest) {
 
   const { pathname, search } = request.nextUrl;
   const site = await getEcomSiteByDomain(host);
-  if (!site) return NextResponse.next();
+  if (!site) {
+    /* Pas une boutique : peut-être une page agence (bank page). Elle tient
+       sur une seule adresse ; le reste du domaine n'existe pas. */
+    const bankPage = await getBankPageByDomain(host);
+    if (!bankPage) return NextResponse.next();
+    if (pathname.startsWith("/_next/")) return NextResponse.next();
+    if (pathname === "/" || pathname === `/p/${bankPage.slug}`) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/p/${bankPage.slug}`;
+      return NextResponse.rewrite(url);
+    }
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   /*
    * Sur le domaine d'une boutique, seules ses propres routes existent.

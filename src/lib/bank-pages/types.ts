@@ -32,6 +32,8 @@ export type BankPage = {
   results: Array<{ brand: string; metric: string; detail: string; note: string }>;
   /** Textes de la page corrigés depuis l'aperçu, par clé (voir BANK_DEFAULT_TEXTS). */
   texts?: Record<string, string>;
+  /** Le nom de domaine qui sert cette page, quand on en a acheté un (ex. blumelmrkt.com). */
+  domain?: string;
 };
 
 /** Une page en cours de création : tout sauf ce que le serveur attribue. */

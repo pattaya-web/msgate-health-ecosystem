@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
-import { mirror } from "@/lib/storage";
+import { persistJson, readMirror } from "@/lib/storage";
 import { defaultBankPage, type BankPage } from "@/lib/bank-pages/types";
 
 const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
@@ -50,16 +50,31 @@ async function load(): Promise<Store> {
     flags.loaded = true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
-      mem.pages = [];
+      // Disque vide (hébergeur) : la copie Supabase, si elle existe, fait foi.
+      const remote = await readMirror(CACHE_FILE);
+      try {
+        const parsed = remote ? (JSON.parse(remote) as Store) : null;
+        mem.pages = parsed && Array.isArray(parsed.pages) ? parsed.pages : [];
+      } catch {
+        mem.pages = [];
+      }
       flags.loaded = true;
     }
   }
   return mem;
 }
 
+/** La page servie par un nom de domaine, quand une page en porte un. */
+export async function getBankPageByDomain(host: string) {
+  const store = await load();
+  const clean = host.toLowerCase().replace(/^www\./, "").replace(/:\d+$/, "");
+  return store.pages.find((page) => (page.domain ?? "").toLowerCase().replace(/^www\./, "").trim() === clean) || null;
+}
+
 /** Le fichier d'avant chaque écriture est gardé, au cas où. */
 async function persist() {
-  await mkdir(CACHE_DIR, { recursive: true });
+  // Un disque en lecture seule (hébergeur) n'empêche pas d'écrire : la copie Supabase prend le relais.
+  await mkdir(CACHE_DIR, { recursive: true }).catch(() => undefined);
   if (!mem.pages.length && !flags.loaded) return;
 
   const payload = JSON.stringify({ pages: mem.pages }, null, 2);
@@ -72,10 +87,11 @@ async function persist() {
     // Rien à sauvegarder.
   }
 
-  const tmp = `${CACHE_FILE}.${process.pid}.${Date.now().toString(36)}.tmp`;
-  await writeFile(tmp, payload);
-  mirror(CACHE_FILE, Buffer.from(payload));
-  await rename(tmp, CACHE_FILE);
+  await persistJson(CACHE_FILE, payload, async () => {
+    const tmp = `${CACHE_FILE}.${process.pid}.${Date.now().toString(36)}.tmp`;
+    await writeFile(tmp, payload);
+    await rename(tmp, CACHE_FILE);
+  });
 }
 
 export async function listBankPages() {

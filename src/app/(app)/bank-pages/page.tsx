@@ -264,6 +264,12 @@ function BankPagesTab() {
               placeholder="Téléphone"
               className="h-8 rounded-lg bg-slate-50 px-2.5 text-[12px] outline-none dark:bg-slate-800"
             />
+            <input
+              value={form.domain ?? ""}
+              onChange={(e) => setForm({ ...form, domain: e.target.value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "") })}
+              placeholder="Domaine si tu en as acheté un (agence.com) — sinon la page vit sur /p/…"
+              className="h-8 rounded-lg bg-slate-50 px-2.5 text-[12px] outline-none sm:col-span-2 dark:bg-slate-800"
+            />
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {BANK_THEMES.map((theme) => (
@@ -341,6 +347,20 @@ function BankPagesTab() {
             <div key={page.id} className="rounded-xl bg-white p-2.5 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70">
               <p className="truncate text-[13px] font-semibold">{page.brandName}</p>
               <p className="text-[11px] text-slate-400">/p/{page.slug}</p>
+              {/* Le domaine se pose ici, après coup : il suffit qu'il pointe sur le déploiement. */}
+              <input
+                defaultValue={page.domain ?? ""}
+                placeholder="domaine (agence.com)"
+                title="Nom de domaine qui sert cette page. Chez le registrar : A @ → 216.198.79.1, CNAME www → cname.vercel-dns.com, puis ajoute-le au projet Vercel."
+                onBlur={(e) => {
+                  const domain = e.target.value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+                  if (domain === (page.domain ?? "")) return;
+                  void fetch(`/api/bank-pages/${page.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain }) })
+                    .then(() => load())
+                    .then(() => toast.success(domain ? `Domaine ${domain} enregistré` : "Domaine retiré"));
+                }}
+                className="mt-1 h-7 w-full rounded-md bg-slate-50 px-2 text-[11px] outline-none dark:bg-slate-800"
+              />
               <div className="mt-2 flex gap-1.5">
                 <a
                   href={`/p/${page.slug}`}
