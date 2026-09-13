@@ -1,0 +1,14 @@
+# Ce qui ne doit jamais partir chez Vercel : caches locaux, sorties de build, données de travail.
+.git
+node_modules
+.next
+.msgate-cache
+.phoenix-cache
+.claude
+.vercel
+data
+docs
+*.mp4
+*.mov
+*.log
+.env*

@@ -30,11 +30,27 @@ export async function proxy(request: NextRequest) {
   if (isAppHost(host)) return NextResponse.next();
 
   const { pathname, search } = request.nextUrl;
-  // Les liens internes de la boutique sont déjà en `/s/<slug>/…` : on les laisse passer.
-  if (pathname.startsWith("/s/") || pathname.startsWith("/api/") || pathname.startsWith("/_next/")) return NextResponse.next();
-
   const site = await getEcomSiteByDomain(host);
   if (!site) return NextResponse.next();
+
+  /*
+   * Sur le domaine d'une boutique, seules ses propres routes existent.
+   *
+   * L'outil et ses API vivent sur le même déploiement : sans ce tri, un visiteur
+   * de sage-renew.com pourrait lire /api/ecom-sites — toutes les boutiques, tous
+   * les réglages. Ne passent que le formulaire de contact, la commande, et les
+   * fichiers internes de Next.
+   */
+  if (pathname.startsWith("/_next/")) return NextResponse.next();
+  if (pathname.startsWith("/api/")) {
+    const allowed = ["/api/ecom-sites/messages", "/api/ecom-sites/orders"];
+    if (allowed.some((route) => pathname === route || pathname.startsWith(`${route}/`)) && request.method === "POST") return NextResponse.next();
+    return new NextResponse("Not found", { status: 404 });
+  }
+  // Les liens internes de la boutique sont déjà en `/s/<slug>/…` : on les laisse passer, pour cette boutique seulement.
+  if (pathname.startsWith("/s/")) {
+    return pathname === `/s/${site.slug}` || pathname.startsWith(`/s/${site.slug}/`) ? NextResponse.next() : new NextResponse("Not found", { status: 404 });
+  }
 
   const url = request.nextUrl.clone();
   url.pathname = `/s/${site.slug}${pathname === "/" ? "" : pathname}`;
