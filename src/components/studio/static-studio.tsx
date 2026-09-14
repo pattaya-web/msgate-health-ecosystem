@@ -83,7 +83,8 @@ function loadStoredJobs(): Job[] {
   }
 }
 
-type RefImage = { id: string; preview: string; dataUrl: string; name: string };
+/** Une référence : fichier chargé (`dataUrl`) ou photo lue sur une fiche produit (`url`). L'ordre de la liste est l'ordre envoyé. */
+type RefImage = { id: string; preview: string; name: string; dataUrl?: string; url?: string };
 
 export function StaticStudio() {
   const [brief, setBrief] = useState("");
@@ -99,7 +100,27 @@ export function StaticStudio() {
   const watching = useRef<Set<string>>(new Set());
   const [refs, setRefs] = useState<RefImage[]>([]);
   const [genPaste, setGenPaste] = useState("");
-  const [pageRefs, setPageRefs] = useState<string[]>([]);
+  /** Référence ouverte en grand, et index en cours de glisser pour réordonner. */
+  const [refZoom, setRefZoom] = useState<RefImage | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [fileOver, setFileOver] = useState(false);
+  /** Photos d'une fiche produit : elles remplacent les précédentes photos de fiche, sans toucher aux fichiers chargés. */
+  const setPageRefs = useCallback((urls: string[]) => {
+    setRefs((list) => {
+      const kept = list.filter((ref) => !ref.url);
+      const fresh = urls.filter((url) => /^https?:\/\//i.test(url)).map((url, i) => ({ id: `page-${url}`, preview: assetProxy(url), name: `fiche-${i + 1}`, url }));
+      return [...kept, ...fresh].slice(0, 8);
+    });
+  }, []);
+  function moveRef(from: number, to: number) {
+    if (from === to) return;
+    setRefs((list) => {
+      const next = [...list];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }
   /* Lien produit en prompt libre, facultatif : la fiche est lue, ses photos deviennent les références. */
   const [productUrl, setProductUrl] = useState("");
   const [productBusy, setProductBusy] = useState(false);
@@ -113,9 +134,12 @@ export function StaticStudio() {
 
   /* Aperçu ouvert : Échap le ferme, et la page derrière ne défile plus. */
   useEffect(() => {
-    if (!zoom) return;
+    if (!zoom && !refZoom) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setZoom(null);
+      if (event.key === "Escape") {
+        setZoom(null);
+        setRefZoom(null);
+      }
     };
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -124,7 +148,7 @@ export function StaticStudio() {
       document.body.style.overflow = previous;
       window.removeEventListener("keydown", onKey);
     };
-  }, [zoom]);
+  }, [zoom, refZoom]);
   const [picked, setPicked] = useState<string[]>([]);
   /** En mode sélection, un clic n'agrandit plus : il coche. */
   const [selectMode, setSelectMode] = useState(false);
@@ -393,7 +417,7 @@ export function StaticStudio() {
         count,
         ratio,
         // La première image chargée sert de créa de référence au moteur (structure, hiérarchie, callouts).
-        referenceDataUrl: refs[0]?.dataUrl,
+        referenceDataUrl: refs.find((ref) => ref.dataUrl)?.dataUrl,
       });
       setPrompts(body.prompts);
       setSelected(Object.fromEntries(body.prompts.map((_, i) => [i, true])));
@@ -426,7 +450,7 @@ export function StaticStudio() {
     const base = resolveFreePrompts({
       prompts: typed,
       styleId: override?.length ? NO_STYLE : productType,
-      hasReferences: refs.length > 0 || pageRefs.length > 0,
+      hasReferences: refs.length > 0,
     });
     if (!base.length) {
       toast.error("Écris un prompt ou ajoute au moins une image de référence");
@@ -444,17 +468,20 @@ export function StaticStudio() {
     // Kie a rendu les taskId, la main est libre pour lancer un autre lot.
     setBusy("gen");
     try {
+      // Dans l'ordre affiché : les fichiers sont envoyés, les photos de fiche partent telles quelles.
       const referenceUrls: string[] = [];
       for (const ref of refs) {
+        if (ref.url) {
+          if (!referenceUrls.includes(ref.url)) referenceUrls.push(ref.url);
+          continue;
+        }
+        if (!ref.dataUrl) continue;
         const uploaded = await studioPost<{ url: string }>({
           action: "upload",
           imageDataUrl: ref.dataUrl,
           fileName: ref.name.replace(/[^\w.-]+/g, "-") || `ref-${Date.now()}.png`,
         });
         if (uploaded.url) referenceUrls.push(uploaded.url);
-      }
-      for (const url of pageRefs) {
-        if (!referenceUrls.includes(url)) referenceUrls.push(url);
       }
       const body = await studioPost<{
         jobs: Array<{ prompt: string; taskId: string }>;
@@ -738,34 +765,75 @@ export function StaticStudio() {
             ) : null}
           </div>
 
-          {/* Ligne 1 — les références d'abord, puis les trois réglages du rendu. */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          {/* Ligne 1 — les références d'abord (dépôt de fichiers, clic pour agrandir, glisser pour réordonner), puis les réglages du rendu. */}
+          <div
+            data-refs-zone
+            className={cn(
+              "flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl p-1 transition-colors",
+              fileOver && "bg-emerald-50 ring-2 ring-dashed ring-emerald-400 dark:bg-emerald-950/30"
+            )}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes("Files")) {
+                e.preventDefault();
+                setFileOver(true);
+              }
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false);
+            }}
+            onDrop={(e) => {
+              if (!e.dataTransfer.types.includes("Files")) return;
+              e.preventDefault();
+              setFileOver(false);
+              const files = [...e.dataTransfer.files].filter((file) => file.type.startsWith("image/"));
+              if (files.length) void addRefs(files);
+            }}
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="Dépose des images ici. Clic : agrandir. Glisser : changer l'ordre.">
               Références{refs.length ? ` ${refs.length}/8` : ""}
             </span>
 
-            {pageRefs.map((url) => (
-              <div key={url} className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-1 ring-emerald-500/40">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={assetProxy(url)} alt="" className="h-full w-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => setPageRefs((list) => list.filter((item) => item !== url))}
-                  className="absolute right-0 top-0 rounded bg-black/60 p-0.5 text-white"
-                >
-                  <X className="h-2.5 w-2.5" />
+            {refs.map((ref, index) => (
+              <div
+                key={ref.id}
+                draggable
+                data-ref-index={index}
+                onDragStart={(e) => {
+                  setDragIndex(index);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", String(index));
+                }}
+                onDragEnd={() => setDragIndex(null)}
+                onDragOver={(e) => {
+                  if (dragIndex !== null) e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  if (dragIndex === null) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  moveRef(dragIndex, index);
+                  setDragIndex(null);
+                }}
+                className={cn(
+                  "group/ref relative h-11 w-11 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 active:cursor-grabbing",
+                  ref.url ? "ring-emerald-500/40" : "ring-slate-900/10",
+                  dragIndex === index && "opacity-40"
+                )}
+                title={`${index + 1} · ${ref.name} — clic : agrandir, glisser : réordonner`}
+              >
+                <button type="button" onClick={() => setRefZoom(ref)} className="h-full w-full" aria-label={`Agrandir la référence ${index + 1}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={ref.preview} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />
                 </button>
-              </div>
-            ))}
-
-            {refs.map((ref) => (
-              <div key={ref.id} className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg ring-1 ring-slate-900/10">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={ref.preview} alt="" className="h-full w-full object-cover" />
+                <span className="pointer-events-none absolute bottom-0 left-0 rounded-tr bg-black/60 px-1 text-[9px] font-semibold leading-3 text-white">{index + 1}</span>
                 <button
                   type="button"
-                  onClick={() => setRefs((list) => list.filter((item) => item.id !== ref.id))}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRefs((list) => list.filter((item) => item.id !== ref.id));
+                  }}
                   className="absolute right-0 top-0 rounded bg-black/60 p-0.5 text-white"
+                  aria-label={`Retirer la référence ${index + 1}`}
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -774,8 +842,8 @@ export function StaticStudio() {
 
             {refs.length < 8 ? (
               <label
-                title="Ajouter une image de référence"
-                className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-dashed ring-slate-300 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600"
+                title="Ajouter une image de référence (ou dépose des fichiers sur la rangée)"
+                className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-dashed ring-slate-300 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600"
               >
                 <ImagePlus className="h-4 w-4" />
                 <input
@@ -859,7 +927,7 @@ export function StaticStudio() {
           </div>
 
           <p className="mt-1 text-[11px] text-slate-400">
-            {!genPaste.trim() && !activePrompts.length && (refs.length || pageRefs.length)
+            {!genPaste.trim() && !activePrompts.length && refs.length
               ? `Sans prompt : les références sont reproduites telles quelles × Batch ×${count}.`
               : genCount === 1
                 ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
@@ -927,7 +995,7 @@ export function StaticStudio() {
           <div
             className={cn(
               "grid gap-2",
-              isWideRatio(ratio) || ratio === "1:1" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-2 md:grid-cols-4"
+              isWideRatio(jobs[0]?.ratio ?? ratio) || (jobs[0]?.ratio ?? ratio) === "1:1" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-2 md:grid-cols-4"
             )}
           >
             {jobs.map((job) => {
@@ -941,7 +1009,8 @@ export function StaticStudio() {
                     chosen ? "ring-2 ring-emerald-500" : "ring-slate-900/[0.06]"
                   )}
                 >
-                  <div className={cn("relative bg-slate-100 dark:bg-slate-800", ratioAspect(ratio))}>
+                  {/* Chaque rendu garde le ratio avec lequel il a été généré : changer le réglage des prochaines créas ne déforme pas les précédentes. */}
+                  <div className={cn("relative bg-slate-100 dark:bg-slate-800", ratioAspect(job.ratio))}>
                     {src ? (
                       <>
                         {/* Un clic ouvre en grand : une créa se juge à sa taille
@@ -1047,6 +1116,20 @@ export function StaticStudio() {
         </div>
       ) : null}
 
+      {refZoom ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm" onClick={() => setRefZoom(null)} data-ref-zoom>
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={refZoom.preview} alt={refZoom.name} className="max-h-[85vh] w-auto max-w-[90vw] rounded-xl object-contain shadow-2xl" />
+            <div className="mt-2 flex items-center justify-between text-[12px] text-slate-200">
+              <span>{refZoom.name}</span>
+              <button type="button" onClick={() => setRefZoom(null)} className="rounded-lg bg-white/10 px-2 py-1 hover:bg-white/20" aria-label="Fermer">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {zoom ? (() => {
         const job = jobs.find((item) => item.urls.some((url) => assetProxy(url) === zoom));
         const tech = job
