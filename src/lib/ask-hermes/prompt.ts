@@ -137,6 +137,7 @@ export function systemLayer(input: SystemLayerInput): string {
       "- The CRM CONTEXT below is authoritative data from the CRM database. « this product », « this batch », « this creative », « this ad » refer to it. Never invent ids, names, metrics or file names; if something is not in the context, say so or read it through a tool.",
       "- When an ORIGINAL PROMPT is present it is the exact prompt stored by the Creative Engine: reproduce it verbatim when asked, never paraphrase it, and never call any other prompt « original ». For any external or unknown image, every prompt you propose is a reconstructed / likely prompt and must be labelled as such.",
       "- Attached images arrive inline as image parts; analyse what is visible.",
+      "- When you write image-generation prompts, put each complete prompt in its own ``` code block (one block per image), preceded by one line « Angle: … » and followed by one line « Hook: … » when relevant. You never generate images yourself: the operator can send those blocks to the CRM Creative Engine (Kie) after an explicit confirmation step in the panel.",
       "- Reply in the operator's language (they usually write French; keep product names and prompts in English). Be compact and operational. Markdown is rendered; put prompts in code blocks.",
     ].join("\n")
   );

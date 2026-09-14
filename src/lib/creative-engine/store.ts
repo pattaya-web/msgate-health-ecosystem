@@ -7,6 +7,7 @@ import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from 
 import type { Ratio } from "@/lib/studio/ratios";
 import { analyzeProductUrl, classify, inferGender } from "@/lib/creative-engine/analysis";
 import { creativeName } from "@/lib/creative-engine/naming";
+import { buildPromptBatch, type PromptBatchSpec } from "@/lib/creative-engine/prompt-batch";
 import { planBatch, presetsFrom, type Plan } from "@/lib/creative-engine/planner";
 import { composeCreativePrompt } from "@/lib/creative-engine/prompt";
 import {
@@ -365,6 +366,43 @@ export async function createTestBatch(spec: GenerateSpec) {
       parentId: null,
     });
   }
+  batches.unshift(batch);
+  await saveBatches(batches);
+
+  for (const [index, item] of batch.items.entries()) {
+    if (index) await new Promise((resolve) => setTimeout(resolve, CREATE_GAP_MS));
+    await launch(item, batch);
+    await saveBatches(batches);
+  }
+  return batch;
+}
+
+/**
+ * Lance un lot à partir de prompts déjà écrits (Ask Hermes). Même chemin que
+ * createTestBatch après le plan : lot écrit avant les créations, une tâche Kie
+ * par prompt avec le même écart, refreshBatch / retryFailed inchangés. Le
+ * modèle image-to-image n'est choisi que si une référence explicite ou, sur
+ * demande, les photos produit du CRM sont fournies.
+ */
+export async function createPromptBatch(spec: Omit<PromptBatchSpec, "referenceUrls" | "productImageUrls"> & { referenceDataUrls: string[]; useProductImages: boolean }) {
+  const products = await listProducts();
+  const product = spec.productId ? products.find((entry) => entry.id === spec.productId) ?? null : null;
+  const referenceUrls: string[] = [];
+  for (const [index, dataUrl] of spec.referenceDataUrls.slice(0, 3).entries()) {
+    try {
+      referenceUrls.push(await uploadBase64(dataUrl, `hermes-reference-${Date.now()}-${index}.png`));
+    } catch {
+      // une référence qui ne monte pas ne bloque pas le lot
+    }
+  }
+  const batches = await listBatches();
+  const number = batches.reduce((max, batch) => Math.max(max, batch.number), 0) + 1;
+  const batch = buildPromptBatch({
+    spec: { ...spec, referenceUrls, productImageUrls: spec.useProductImages && product ? product.imageUrls.slice(0, MAX_REFS) : [] },
+    product,
+    number,
+    ids: { batch: uid("batch"), items: spec.prompts.map(() => uid("crea")) },
+  });
   batches.unshift(batch);
   await saveBatches(batches);
 

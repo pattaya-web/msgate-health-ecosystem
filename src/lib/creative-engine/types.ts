@@ -387,6 +387,11 @@ export type TestBatch = {
   variationsPerAngle: number;
   plan: PlanSummary;
   items: BatchItem[];
+  /** Absent pour un lot planifié par le moteur ; « ask-hermes » quand les prompts viennent du chat, après confirmation. */
+  source?: "ask-hermes";
+  /** Conversation Ask Hermes d'origine, pour retrouver l'échange. */
+  sessionId?: string | null;
+  referenceFrameworkId?: string | null;
 };
 
 export type BatchSummary = {

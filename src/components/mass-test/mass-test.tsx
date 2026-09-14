@@ -41,11 +41,19 @@ export function MassTest() {
     return () => clearTimeout(timer);
   }, [load]);
 
-  /* Arrivée depuis une fiche produit : /studio/mass-test?url=… pré-remplit l'analyse. */
+  /* Arrivée depuis une fiche produit : /studio/mass-test?url=… pré-remplit l'analyse.
+     Arrivée depuis Ask Hermes : ?batch=<id> ouvre la liste des tests sur ce lot. */
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("url");
-    if (!wanted) return;
-    const timer = setTimeout(() => setInitialUrl(wanted), 0);
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("url");
+    const batchId = params.get("batch");
+    const timer = setTimeout(() => {
+      if (wanted) setInitialUrl(wanted);
+      if (batchId) {
+        setFocus(batchId);
+        setView("batches");
+      }
+    }, 0);
     return () => clearTimeout(timer);
   }, []);
 
