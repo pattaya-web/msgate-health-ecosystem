@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
-import { mirror } from "@/lib/storage";
+import { persistBytes, persistJson, readMirror, readMirrorBytes } from "@/lib/storage";
 import { saveFile as saveDriveFile } from "@/lib/drive/store";
 import { CREATIVE_TYPES } from "@/lib/studio/creative-types";
 import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from "@/lib/studio/kie";
@@ -45,17 +45,36 @@ export function shortName(name: string) {
   return name.split(/\s+[|–—]\s+/)[0].trim().slice(0, 60) || name.slice(0, 60);
 }
 
+/*
+ * Lecture : le fichier local d'abord, sinon sa copie Supabase.
+ *
+ * Sur Vercel le disque est vide à chaque instance : produits et lots
+ * n'existaient donc qu'ici, en local. Un fichier absent (et seulement absent :
+ * un fichier illisible garde le repli d'avant) est relu depuis le miroir,
+ * déposé par `writeJson` à chaque enregistrement. Le format ne change pas.
+ */
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   try {
     return JSON.parse(await readFile(file, "utf8")) as T;
-  } catch {
-    return fallback;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") return fallback;
+    const remote = await readMirror(file);
+    if (!remote) return fallback;
+    try {
+      return JSON.parse(remote) as T;
+    } catch {
+      return fallback;
+    }
   }
 }
 
+/** Écriture locale quand le disque le permet, copie Supabase dans tous les cas. */
 async function writeJson(file: string, data: unknown) {
-  await mkdir(ROOT, { recursive: true });
-  await writeFile(file, JSON.stringify(data, null, 2));
+  const payload = JSON.stringify(data, null, 2);
+  await persistJson(file, payload, async () => {
+    await mkdir(ROOT, { recursive: true });
+    await writeFile(file, payload);
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -438,10 +457,12 @@ export async function refreshBatch(batchId: string) {
           if (res.ok) {
             const data = Buffer.from(await res.arrayBuffer());
             const dir = batchDir(batch.id);
-            await mkdir(dir, { recursive: true });
             const file = `${item.id}.png`;
-            await writeFile(path.join(dir, file), data);
-            mirror(path.join(dir, file), data);
+            // Disque local si possible, copie Supabase dans tous les cas : sur un hébergeur, seule la copie reste.
+            await persistBytes(path.join(dir, file), data, async () => {
+              await mkdir(dir, { recursive: true });
+              await writeFile(path.join(dir, file), data);
+            });
             item.file = file;
           }
         } catch {
@@ -519,7 +540,16 @@ export async function exportToDrive(batchId: string, folder: string, itemIds: st
 
 export async function readBatchFile(batchId: string, file: string) {
   if (!/^[\w.-]+$/.test(file) || !/^[\w-]+$/.test(batchId)) throw new Error("Chemin refusé");
-  return readFile(path.join(batchDir(batchId), file));
+  const local = path.join(batchDir(batchId), file);
+  try {
+    return await readFile(local);
+  } catch (error) {
+    // Image absente du disque (hébergeur) : sa copie Supabase, déposée à la génération.
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+    const remote = await readMirrorBytes(local);
+    if (!remote) throw error;
+    return remote;
+  }
 }
 
 export { CREATIVE_TYPES };

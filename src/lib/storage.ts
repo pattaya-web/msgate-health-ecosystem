@@ -140,13 +140,56 @@ export async function readMirror(cachePath: string): Promise<string | null> {
   }
 }
 
-/** Écrit sur le disque si on le peut, et dans Supabase dans tous les cas : un hébergeur au disque en lecture seule ne perd rien. */
-export async function persistJson(cachePath: string, payload: string, writeLocal: () => Promise<void>) {
+/** La copie distante d'un fichier binaire du cache (une image générée), ou null. */
+export async function readMirrorBytes(cachePath: string): Promise<Buffer | null> {
+  if (!isStorageReady()) return null;
+  const remote = remotePath(cachePath);
+  if (!remote) return null;
+  try {
+    const { data, error } = await storage().download(remote);
+    if (error || !data) return null;
+    return Buffer.from(await data.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+/** Même contrat que persistJson, pour un fichier binaire (une image générée). */
+export async function persistBytes(cachePath: string, data: Buffer, writeLocal: () => Promise<void>) {
+  let localOk = true;
   try {
     await writeLocal();
   } catch (error) {
+    localOk = false;
+    if (!isStorageReady()) throw error;
+  }
+  if (localOk) {
+    mirror(cachePath, data);
+    return;
+  }
+  const remote = remotePath(cachePath);
+  if (remote && !remote.startsWith("tmp/")) await putFile(remote, data);
+}
+
+/**
+ * Écrit sur le disque si on le peut, et dans Supabase dans tous les cas : un
+ * hébergeur au disque en lecture seule ne perd rien. Quand le disque a refusé,
+ * la copie distante est la seule : on attend qu'elle soit déposée avant de
+ * rendre la main, sinon une fonction serverless pourrait s'arrêter avant.
+ */
+export async function persistJson(cachePath: string, payload: string, writeLocal: () => Promise<void>) {
+  let localOk = true;
+  try {
+    await writeLocal();
+  } catch (error) {
+    localOk = false;
     // Disque en lecture seule (Vercel) : la copie distante fait foi.
     if (!isStorageReady()) throw error;
   }
-  mirror(cachePath, Buffer.from(payload));
+  if (localOk) {
+    mirror(cachePath, Buffer.from(payload));
+    return;
+  }
+  const remote = remotePath(cachePath);
+  if (remote && !remote.startsWith("tmp/")) await putFile(remote, Buffer.from(payload));
 }
