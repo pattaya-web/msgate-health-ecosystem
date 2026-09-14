@@ -23,6 +23,7 @@ import { STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-type
 import { SendToDrive } from "@/components/drive/send-to-drive";
 import { DEFAULT_RATIO, RATIOS, isWideRatio, ratioAspect, type Ratio } from "@/lib/studio/ratios";
 import { CREATIVE_TYPES, buildCreativePrompt, type ProductCategory } from "@/lib/studio/creative-types";
+import { NO_STYLE, resolveFreePrompts, styleInstructions } from "@/lib/studio/free-prompt";
 import type { ProductInput } from "@/lib/ugc/types";
 
 /** La catégorie de la fiche UGC, traduite pour le constructeur de prompts du studio. */
@@ -99,11 +100,12 @@ export function StaticStudio() {
   const [refs, setRefs] = useState<RefImage[]>([]);
   const [genPaste, setGenPaste] = useState("");
   const [pageRefs, setPageRefs] = useState<string[]>([]);
-  /* Lien produit en prompt libre : la fiche est lue, ses photos deviennent les références. */
+  /* Lien produit en prompt libre, facultatif : la fiche est lue, ses photos deviennent les références. */
   const [productUrl, setProductUrl] = useState("");
   const [productBusy, setProductBusy] = useState(false);
   const [product, setProduct] = useState<ProductInput | null>(null);
-  const [productType, setProductType] = useState("ugc");
+  /* Style de créa, facultatif : vide, le prompt part tel quel ; choisi, ses consignes s'ajoutent au prompt. */
+  const [productType, setProductType] = useState(NO_STYLE);
   const [pageLabel, setPageLabel] = useState("");
   const [mode, setMode] = useState<"batch" | "prompt">("batch");
   /** Créa ouverte en grand, et lot coché pour un export groupé. */
@@ -349,8 +351,8 @@ export function StaticStudio() {
       setProduct(found);
       setPageRefs(found.imageUrls.filter((item) => /^https:\/\//i.test(item)).slice(0, 6));
       setBrief(`${url}\n${found.name}${found.description ? ` — ${found.description}` : ""}${found.price ? ` · ${found.price}` : ""}`);
-      setGenPaste(promptFromProduct(found, productType));
-      toast.success(`${found.name} chargé · ${found.imageUrls.length} photo(s) en référence · prompt prêt`);
+      if (productType) setGenPaste(promptFromProduct(found, productType));
+      toast.success(`${found.name} chargé · ${found.imageUrls.length} photo(s) en référence${productType ? " · prompt prêt" : " · écris ton prompt"}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Fiche illisible");
     } finally {
@@ -372,7 +374,7 @@ export function StaticStudio() {
 
   async function expand() {
     if (!brief.trim()) {
-      toast.error("Colle l’URL produit + tes consignes");
+      toast.error("Écris tes consignes (le lien produit est facultatif)");
       return;
     }
     setBusy("expand");
@@ -418,9 +420,16 @@ export function StaticStudio() {
    */
   async function generate(override?: string[]) {
     const fromPaste = override?.length ? override : splitGeneratePrompts(genPaste);
-    const base = fromPaste.length ? fromPaste : activePrompts.length ? activePrompts : [];
+    const typed = fromPaste.length ? fromPaste : activePrompts.length ? activePrompts : [];
+    // Sans prompt mais avec des références, une consigne neutre les reproduit telles quelles.
+    // Le style choisi s'ajoute au prompt libre ; les prompts d'un lot sont déjà complets.
+    const base = resolveFreePrompts({
+      prompts: typed,
+      styleId: override?.length ? NO_STYLE : productType,
+      hasReferences: refs.length > 0 || pageRefs.length > 0,
+    });
     if (!base.length) {
-      toast.error("Colle les prompts dans la zone Générer");
+      toast.error("Écris un prompt ou ajoute au moins une image de référence");
       return;
     }
     // Un seul prompt : Batch décide du nombre de variantes. Plusieurs prompts
@@ -579,7 +588,7 @@ export function StaticStudio() {
             <textarea
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
-              placeholder={"https://ton-produit.com/...\nUGC cuisine, femme 35 ans, lumière iPhone, packshot lisible"}
+              placeholder={"Tes consignes (lien produit facultatif)\nUGC cuisine, femme 35 ans, lumière iPhone, packshot lisible"}
               rows={7}
               className="w-full resize-none rounded-xl bg-slate-50 px-2.5 py-2 text-[12px] leading-relaxed outline-none dark:bg-slate-800"
             />
@@ -680,7 +689,7 @@ export function StaticStudio() {
             mode === "batch" && "hidden"
           )}
         >
-          {/* Ligne 0 — un lien produit suffit : fiche lue, photos en références, prompt écrit. */}
+          {/* Ligne 0 — lien produit facultatif : fiche lue, photos en références, et un prompt écrit si un style est choisi. */}
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <div className="relative min-w-[260px] flex-1">
               <Link2 className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -690,25 +699,10 @@ export function StaticStudio() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void loadProduct();
                 }}
-                placeholder="Lien de ta page produit — la fiche est lue, ses photos servent de références, un prompt est écrit"
+                placeholder="Facultatif — lien de ta page produit : la fiche est lue et ses photos servent de références"
                 className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-[12px] dark:border-slate-700 dark:bg-slate-950"
               />
             </div>
-            <select
-              value={productType}
-              onChange={(e) => {
-                setProductType(e.target.value);
-                if (product) setGenPaste(promptFromProduct(product, e.target.value));
-              }}
-              title="Type de créa écrit depuis la fiche"
-              className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-[12px] dark:border-slate-700 dark:bg-slate-950"
-            >
-              {CREATIVE_TYPES.filter((item) => item.enabled).map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
             <button
               type="button"
               onClick={() => void loadProduct()}
@@ -722,14 +716,16 @@ export function StaticStudio() {
               <span className="text-[11px] text-slate-500">
                 {product.name}
                 {product.price ? ` · ${product.price}` : ""} · {product.imageUrls.length} photo(s)
-                <button
-                  type="button"
-                  onClick={() => product && setGenPaste(promptFromProduct(product, productType))}
-                  className="ml-2 font-medium text-emerald-600 hover:underline"
-                  title="Réécrire un nouveau prompt depuis la fiche, autre variation"
-                >
-                  Nouvelle variation
-                </button>
+                {productType ? (
+                  <button
+                    type="button"
+                    onClick={() => product && setGenPaste(promptFromProduct(product, productType))}
+                    className="ml-2 font-medium text-emerald-600 hover:underline"
+                    title="Réécrire un nouveau prompt depuis la fiche, autre variation"
+                  >
+                    Nouvelle variation
+                  </button>
+                ) : null}
                 <a
                   href={`/studio/mass-test?url=${encodeURIComponent(productUrl.trim())}`}
                   className="ml-2 inline-flex items-center gap-1 rounded-full bg-slate-900 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900"
@@ -796,6 +792,21 @@ export function StaticStudio() {
             ) : null}
 
             <div className="ml-auto flex items-center gap-1.5">
+              <Picker
+                label="Style"
+                value={productType}
+                onChange={(value) => {
+                  setProductType(value);
+                  if (product && value) setGenPaste(promptFromProduct(product, value));
+                }}
+              >
+                <option value={NO_STYLE}>Aucun · prompt tel quel</option>
+                {CREATIVE_TYPES.filter((item) => item.enabled).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </Picker>
               <Picker label="Ratio" value={ratio} onChange={(value) => setRatio(value as Ratio)}>
                 {RATIOS.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -828,7 +839,7 @@ export function StaticStudio() {
               value={genPaste}
               onChange={(e) => setGenPaste(e.target.value)}
               rows={2}
-              placeholder="Ton prompt. Pour en enchaîner plusieurs, sépare-les par une ligne ---"
+              placeholder="Ton prompt, envoyé tel quel (aucun style ajouté sauf si tu en choisis un). Plusieurs : sépare-les par une ligne ---"
               className="min-h-[38px] flex-1 resize-y rounded-xl bg-slate-50 px-2.5 py-2 text-[12px] leading-relaxed outline-none dark:bg-slate-800"
             />
             <button
@@ -848,9 +859,12 @@ export function StaticStudio() {
           </div>
 
           <p className="mt-1 text-[11px] text-slate-400">
-            {genCount === 1
-              ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
-              : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt.`}
+            {!genPaste.trim() && !activePrompts.length && (refs.length || pageRefs.length)
+              ? `Sans prompt : les références sont reproduites telles quelles × Batch ×${count}.`
+              : genCount === 1
+                ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
+                : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt.`}
+            {productType && styleInstructions(productType) ? ` Style « ${CREATIVE_TYPES.find((item) => item.id === productType)?.name} » ajouté au prompt.` : " Sans style : le prompt part tel quel."}
           </p>
         </div>
 
