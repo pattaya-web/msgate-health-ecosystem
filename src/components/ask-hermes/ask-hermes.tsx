@@ -32,6 +32,29 @@ const ACTION_MESSAGE: Record<QuickAction, string> = {
   variations: "Suggest 5 variations of this creative (text briefs only).",
 };
 
+/** Largeur du panneau : petit pour travailler à côté, moyen par défaut, plein écran pour lire longuement. Mémorisée par navigateur. */
+type PanelSize = "small" | "medium" | "full";
+const SIZE_KEY = "msgate.ask-hermes.size";
+const SIZES: Array<{ id: PanelSize; label: string; title: string }> = [
+  { id: "small", label: "Petit", title: "Fenêtre étroite : le CRM reste utilisable à côté" },
+  { id: "medium", label: "Moyen", title: "Fenêtre moyenne" },
+  { id: "full", label: "Plein écran", title: "Le panneau prend tout l'écran" },
+];
+const SIZE_CLASS: Record<PanelSize, string> = {
+  small: "sm:w-[360px]",
+  medium: "sm:w-[480px] xl:w-[560px]",
+  full: "sm:w-full",
+};
+function loadSize(): PanelSize {
+  if (typeof window === "undefined") return "medium";
+  try {
+    const stored = localStorage.getItem(SIZE_KEY);
+    return stored === "small" || stored === "full" ? stored : "medium";
+  } catch {
+    return "medium";
+  }
+}
+
 type ChipKey = "store" | "product" | "batch" | "creative" | "campaign" | "adset" | "ad";
 type Chip = { key: ChipKey; label: string };
 
@@ -81,6 +104,7 @@ function time(at: number) {
 
 export function AskHermes() {
   const [open, setOpen] = useState(false);
+  const [size, setSize] = useState<PanelSize>(loadSize);
   const chat = useHermesChat();
   const pageContext = useHermesPageContext();
   const [removed, setRemoved] = useState<Set<ChipKey>>(() => new Set());
@@ -123,6 +147,14 @@ export function AskHermes() {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIZE_KEY, size);
+    } catch {
+      // stockage indisponible : la taille ne survit pas au rechargement
+    }
+  }, [size]);
 
   useEffect(() => {
     if (!open) return;
@@ -272,8 +304,10 @@ export function AskHermes() {
       <aside
         aria-label="Ask Hermes"
         aria-hidden={!open}
+        data-size={size}
         className={cn(
-          "fixed inset-y-0 right-0 z-[60] flex w-full flex-col border-l border-slate-200 bg-white shadow-[-20px_0_60px_-30px_rgba(15,23,42,0.45)] transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] dark:border-slate-800 dark:bg-slate-900 sm:w-[440px] xl:w-[480px]",
+          "fixed inset-y-0 right-0 z-[60] flex w-full flex-col border-l border-slate-200 bg-white shadow-[-20px_0_60px_-30px_rgba(15,23,42,0.45)] transition-[transform,width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] dark:border-slate-800 dark:bg-slate-900",
+          SIZE_CLASS[size],
           open ? "translate-x-0" : "pointer-events-none translate-x-full"
         )}
         onDragOver={(event) => {
@@ -307,6 +341,23 @@ export function AskHermes() {
             <div className="text-[11px] text-slate-500">MGATE Operator</div>
           </div>
           <EnvBadge className="scale-90" />
+          <div className="hidden items-center rounded-md bg-slate-100 p-0.5 sm:flex dark:bg-slate-800" role="group" aria-label="Taille du panneau">
+            {SIZES.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                title={option.title}
+                aria-pressed={size === option.id}
+                onClick={() => setSize(option.id)}
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                  size === option.id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <button type="button" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100" title="Clear conversation" onClick={() => chat.clear()}>
             <Trash2 className="h-4 w-4" />
           </button>
@@ -327,6 +378,7 @@ export function AskHermes() {
             stickToBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 48;
           }}
         >
+          <div className={cn(size === "full" && "mx-auto w-full max-w-3xl")}>
           {!chat.ready ? null : chat.messages.length === 0 ? (
             <EmptyState
               onPick={(example) => {
@@ -342,6 +394,7 @@ export function AskHermes() {
               ))}
             </div>
           )}
+          </div>
           {dragging ? (
             <div className="pointer-events-none absolute inset-2 flex items-center justify-center rounded-xl border-2 border-dashed border-slate-400 bg-white/80 text-[13px] font-medium text-slate-600 dark:bg-slate-900/80 dark:text-slate-300">
               Drop the image to attach it
@@ -350,7 +403,7 @@ export function AskHermes() {
         </div>
 
         {/* Pied : contexte, pièces jointes, actions, composer */}
-        <div className="shrink-0 border-t border-slate-200 px-3 pb-3 pt-2 dark:border-slate-800">
+        <div className={cn("shrink-0 border-t border-slate-200 px-3 pb-3 pt-2 dark:border-slate-800", size === "full" && "[&>*]:mx-auto [&>*]:max-w-3xl")}>
           {chips.length || crmCandidate ? (
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               {chips.map((chip) => (
