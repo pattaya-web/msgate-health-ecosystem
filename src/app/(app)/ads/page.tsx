@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- fbcdn URLs are signed and short-lived, the optimizer cannot cache them. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -624,6 +625,19 @@ export default function AdsPage() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [panelAd, setPanelAd] = useState<string | null>(null);
+  const hermesAd = useMemo(() => {
+    if (!panelAd || !tree) return null;
+    for (const account of tree.accounts ?? []) {
+      for (const campaign of account.campaigns ?? []) {
+        for (const adset of campaign.adsets ?? []) {
+          const ad = adset.ads?.find((entry) => entry.id === panelAd);
+          if (ad) return { storeName: account.name, campaignId: campaign.id, campaignName: campaign.name, adsetId: adset.id, adsetName: adset.name, adId: ad.id, adName: ad.name };
+        }
+      }
+    }
+    return null;
+  }, [panelAd, tree]);
+  usePublishHermesContext("ads", hermesAd);
   const [showOther, setShowOther] = useState(false);
   const [autoDetect, setAutoDetect] = useState(true);
   const [agencyOpen, setAgencyOpen] = useState(false);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { Check, ChevronDown, Copy, ExternalLink, FileText, ImagePlus, Loader2, Monitor, Plus, Sparkles, Trash2, TriangleAlert, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import type { CheckItem, CheckStatus } from "@/lib/ecom-sites/checklist";
@@ -63,6 +64,8 @@ export function EcomSitesTab() {
   const [scores, setScores] = useState<Record<string, Score>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EcomSite | null>(null);
+  const hermesSite = sites.find((site) => site.id === selectedId) ?? null;
+  usePublishHermesContext("ecom-site", hermesSite ? { storeId: hermesSite.id, storeName: hermesSite.brandName } : null);
   const [checklist, setChecklist] = useState<CheckItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);

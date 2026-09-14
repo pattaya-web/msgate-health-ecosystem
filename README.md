@@ -53,6 +53,27 @@ L'agent Hermes lit le CRM par `POST /api/hermes/tools/<outil>` avec
 `Authorization: Bearer $HERMES_API_KEY`. Aucune écriture, aucun secret en
 sortie, un journal par appel. Détails et ajout d'outils : `src/hermes/README.md`.
 
+### Ask Hermes (le panneau dans le CRM)
+
+Le bouton « Ask Hermes » en bas à droite ouvre une conversation avec la même
+instance Hermes que Telegram, par l'API Server de Hermes (OpenAI-compatible,
+`gateway.api_server`, port 8642 par défaut). Le navigateur ne parle qu'au CRM
+(`POST /api/ask-hermes/chat`, session requise) ; le CRM relaie vers Hermes avec
+sa clé, jamais exposée. Chaque conversation porte un `X-Hermes-Session-Id`
+(Hermes garde la transcription) et un `X-Hermes-Session-Key` par opérateur
+(portée de mémoire long terme). Le contexte de la page (produit, lot, créa,
+pub, boutique) et, pour une créa du Creative Engine, ses métadonnées et son
+prompt exact partent dans un message system posé par-dessus celui de Hermes.
+Canal en lecture seule : ni génération d'image, ni action Meta/Phoenix/Airtable.
+
+Côté Hermes (`~/.hermes/.env`) : `API_SERVER_ENABLED=true`, `API_SERVER_KEY=…`,
+et `API_SERVER_HOST` si le CRM n'est pas sur la même machine. Côté CRM :
+
+- `HERMES_API_URL` — base de l'API Server, ex. `http://100.64.0.12:8642`
+- `HERMES_API_SERVER_KEY` — la valeur d'`API_SERVER_KEY` de Hermes
+
+Sans ces deux variables, le panneau s'affiche « not configured » et n'envoie rien.
+
 ## Variables d’environnement
 
 Voir `.env.example` :

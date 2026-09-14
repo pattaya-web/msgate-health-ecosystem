@@ -4,6 +4,7 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { AskHermes } from "@/components/ask-hermes/ask-hermes";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { NavProgress } from "@/components/layout/nav-progress";
 import { Sidebar, currentPage } from "@/components/layout/sidebar";
@@ -217,6 +218,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <MobileNav onOpenMenu={() => setMobileOpen(true)} />
+      <AskHermes />
     </div>
   );
 }

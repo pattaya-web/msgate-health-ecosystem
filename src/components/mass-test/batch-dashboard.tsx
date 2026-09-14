@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { CheckSquare, ChevronDown, Copy, Download, Loader2, Maximize2, Pencil, RefreshCw, Square, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,23 @@ export function BatchDashboard({ batches, onChange, focusBatchId }: { batches: T
   const [openStores, setOpenStores] = useState<Set<string>>(new Set());
   const [openBatches, setOpenBatches] = useState<Set<string>>(new Set(focusBatchId ? [focusBatchId] : []));
   const [preview, setPreview] = useState<{ batch: TestBatch; item: BatchItem } | null>(null);
+  /* Le dernier lot déplié : c'est « ce lot » pour Ask Hermes tant qu'aucune créa n'est ouverte. */
+  const [lastOpenedBatch, setLastOpenedBatch] = useState<string | null>(focusBatchId ?? null);
+  const hermesBatch = preview?.batch ?? (lastOpenedBatch && openBatches.has(lastOpenedBatch) ? batches.find((entry) => entry.id === lastOpenedBatch) ?? null : null);
+  usePublishHermesContext(
+    "mass-test-batch",
+    hermesBatch
+      ? {
+          storeName: hermesBatch.store,
+          productId: hermesBatch.productId,
+          productName: hermesBatch.productName,
+          productUrl: hermesBatch.productUrl,
+          batchId: hermesBatch.id,
+          batchNumber: hermesBatch.number,
+          ...(preview ? { creativeId: preview.item.id, creativeName: preview.item.name, ...(preview.item.file ? { creativeImageUrl: itemImageUrl(preview.batch.id, preview.item.file) } : {}) } : {}),
+        }
+      : null
+  );
   const [statusFilter, setStatusFilter] = useState<CreativeStatus | "all">("all");
   const [retrying, setRetrying] = useState<string | null>(null);
   /* Sélection multiple : des créas de plusieurs lots peuvent partir ensemble vers un dossier. */
@@ -248,7 +266,10 @@ export function BatchDashboard({ batches, onChange, focusBatchId }: { batches: T
                                   setOpenBatches((current) => {
                                     const next = new Set(current);
                                     if (next.has(batch.id)) next.delete(batch.id);
-                                    else next.add(batch.id);
+                                    else {
+                                      next.add(batch.id);
+                                      setLastOpenedBatch(batch.id);
+                                    }
                                     return next;
                                   })
                                 }

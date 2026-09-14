@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { FlaskConical, LayoutList } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/page-states";
@@ -49,6 +50,7 @@ export function MassTest() {
   }, []);
 
   const product = useMemo(() => products.find((item) => item.id === productId) ?? null, [products, productId]);
+  usePublishHermesContext("mass-test", product ? { storeName: product.store, productId: product.id, productName: product.name, productUrl: product.url } : null);
 
   return (
     <div>

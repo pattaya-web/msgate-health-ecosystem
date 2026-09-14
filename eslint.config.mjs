@@ -56,7 +56,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
   {
-    files: ["src/hermes/tools/**/*.ts", "src/hermes/registry.ts", "src/hermes/run.ts", "src/hermes/mcp.ts", "src/app/api/mcp/**/*.ts", "src/app/api/hermes/**/*.ts"],
+    files: ["src/hermes/tools/**/*.ts", "src/hermes/registry.ts", "src/hermes/run.ts", "src/hermes/mcp.ts", "src/app/api/mcp/**/*.ts", "src/app/api/hermes/**/*.ts", "src/lib/ask-hermes/**/*.ts", "src/app/api/ask-hermes/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
