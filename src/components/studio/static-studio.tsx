@@ -906,6 +906,14 @@ export function StaticStudio() {
             <textarea
               value={genPaste}
               onChange={(e) => setGenPaste(e.target.value)}
+              onPaste={(e) => {
+                // Une image dans le presse-papiers (capture, copie depuis le navigateur) devient une référence, sans passer par un fichier.
+                const files = [...(e.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
+                if (!files.length) return;
+                e.preventDefault();
+                void addRefs(files);
+                toast.success(`${files.length} image${files.length > 1 ? "s" : ""} ajoutée${files.length > 1 ? "s" : ""} aux références`);
+              }}
               rows={2}
               placeholder="Ton prompt, envoyé tel quel (aucun style ajouté sauf si tu en choisis un). Plusieurs : sépare-les par une ligne ---"
               className="min-h-[38px] flex-1 resize-y rounded-xl bg-slate-50 px-2.5 py-2 text-[12px] leading-relaxed outline-none dark:bg-slate-800"
