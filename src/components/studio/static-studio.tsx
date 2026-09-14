@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { CreativeBatch } from "@/components/studio/creative-batch";
+import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { cn } from "@/lib/utils";
 import { assetProxy, libraryFileUrl, pollStudioTask, saveStaticCreative, studioPost } from "@/lib/studio/client";
 import { STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-types";
@@ -129,6 +130,13 @@ export function StaticStudio() {
   const [productType, setProductType] = useState(NO_STYLE);
   const [pageLabel, setPageLabel] = useState("");
   const [mode, setMode] = useState<"batch" | "prompt">("batch");
+  /* La fiche chargée en prompt libre est « ce produit » pour Ask Hermes ; en mode lot, c'est CreativeBatch qui publie la sienne. */
+  usePublishHermesContext(
+    "static-studio-product",
+    mode === "prompt" && product
+      ? { pageType: "product", productName: product.name, ...(productUrl.trim() ? { productUrl: productUrl.trim() } : {}), ...(product.brand ? { storeName: product.brand } : {}) }
+      : null
+  );
   /** Créa ouverte en grand, et lot coché pour un export groupé. */
   const [zoom, setZoom] = useState<string | null>(null);
 

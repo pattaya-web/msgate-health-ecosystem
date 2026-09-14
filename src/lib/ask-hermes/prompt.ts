@@ -13,6 +13,7 @@ const PAGE_LABEL: Record<PageContext["pageType"], string> = {
   ads: "Meta ads (campaign tree)",
   "ads-uploader": "Ads uploader",
   "mass-test": "Studio › Mass test (Creative Engine)",
+  product: "Product view — a product is open on this page; « this product » / « the current product » is the one listed below",
   studio: "Studio",
   "studio-library": "Studio › Library",
   ugc: "UGC studio",

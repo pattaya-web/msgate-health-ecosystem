@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { PageHeader } from "@/components/shared/page-states";
 import { pollStudioTask } from "@/lib/studio/client";
 import type { VideoBatch } from "@/lib/studio/video-types";
@@ -62,6 +63,10 @@ export function ReproduceStudio() {
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [url, setUrl] = useState("");
   const [product, setProduct] = useState<ProductInput | null>(null);
+  usePublishHermesContext(
+    "reproduce-product",
+    product ? { pageType: "product", productName: product.name, ...(url.trim() ? { productUrl: url.trim() } : {}), ...(product.brand ? { storeName: product.brand } : {}) } : null
+  );
   const [fetching, setFetching] = useState(false);
   const [language, setLanguage] = useState<"en" | "fr">("en");
   const [resolution, setResolution] = useState<"720p" | "1080p">("720p");

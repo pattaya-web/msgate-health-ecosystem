@@ -12,6 +12,8 @@ export type PageType =
   | "ads"
   | "ads-uploader"
   | "mass-test"
+  /** Une fiche produit est ouverte sur la page (Mass test, studio statique, Reproduire) : « ce produit » désigne celle-là. */
+  | "product"
   | "studio"
   | "studio-library"
   | "ugc"

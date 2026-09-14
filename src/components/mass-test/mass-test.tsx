@@ -50,7 +50,7 @@ export function MassTest() {
   }, []);
 
   const product = useMemo(() => products.find((item) => item.id === productId) ?? null, [products, productId]);
-  usePublishHermesContext("mass-test", product ? { storeName: product.store, productId: product.id, productName: product.name, productUrl: product.url } : null);
+  usePublishHermesContext("mass-test", product ? { pageType: "product", storeName: product.store, productId: product.id, productName: product.name, productUrl: product.url } : null);
 
   return (
     <div>

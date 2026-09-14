@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Dices, Link2, Loader2, Shuffle, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
+import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import {
   CREATIVE_CATEGORIES,
   CREATIVE_TYPES,
@@ -77,6 +78,10 @@ export function CreativeBatch({
   const [url, setUrl] = useState("");
   const [fetching, setFetching] = useState(false);
   const [product, setProduct] = useState<FetchedProduct | null>(null);
+  usePublishHermesContext(
+    "creative-batch-product",
+    product ? { pageType: "product", productName: product.name, ...(url.trim() ? { productUrl: url.trim() } : {}), ...(product.brand ? { storeName: product.brand } : {}) } : null
+  );
   const [echoOn, setEchoOn] = useState(false);
   const [echoColor, setEchoColor] = useState("#2f6fd0");
 
