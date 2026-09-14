@@ -7,6 +7,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { NavProgress } from "@/components/layout/nav-progress";
 import { Sidebar, currentPage } from "@/components/layout/sidebar";
+import { EnvBadge } from "@/components/layout/env-badge";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { TimezoneClocks } from "@/components/layout/timezone-clocks";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -190,6 +191,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="hidden md:block">
               <TimezoneClocks />
             </div>
+
+            <EnvBadge className="mx-0.5" />
 
             <ThemeToggle />
 
