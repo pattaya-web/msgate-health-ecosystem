@@ -32,18 +32,22 @@ const ACTION_MESSAGE: Record<QuickAction, string> = {
   variations: "Suggest 5 variations of this creative (text briefs only).",
 };
 
-/** Largeur du panneau : petit pour travailler à côté, moyen par défaut, plein écran pour lire longuement. Mémorisée par navigateur. */
+/**
+ * Taille du panneau : « petit » et « moyen » sont des fenêtres flottantes en bas
+ * à droite (le CRM reste visible et utilisable autour), « plein écran » prend
+ * tout. Mémorisée par navigateur. Sur téléphone, toujours plein écran.
+ */
 type PanelSize = "small" | "medium" | "full";
 const SIZE_KEY = "msgate.ask-hermes.size";
 const SIZES: Array<{ id: PanelSize; label: string; title: string }> = [
-  { id: "small", label: "Petit", title: "Fenêtre étroite : le CRM reste utilisable à côté" },
-  { id: "medium", label: "Moyen", title: "Fenêtre moyenne" },
-  { id: "full", label: "Plein écran", title: "Le panneau prend tout l'écran" },
+  { id: "small", label: "S", title: "Petite fenêtre en bas à droite" },
+  { id: "medium", label: "M", title: "Fenêtre moyenne en bas à droite" },
+  { id: "full", label: "Plein", title: "Plein écran" },
 ];
 const SIZE_CLASS: Record<PanelSize, string> = {
-  small: "sm:w-[360px]",
-  medium: "sm:w-[480px] xl:w-[560px]",
-  full: "sm:w-full",
+  small: "sm:inset-auto sm:bottom-5 sm:right-5 sm:h-[540px] sm:max-h-[calc(100vh-40px)] sm:w-[380px] sm:rounded-2xl sm:border sm:border-slate-200 sm:shadow-2xl sm:dark:border-slate-700",
+  medium: "sm:inset-auto sm:bottom-5 sm:right-5 sm:h-[min(760px,calc(100vh-40px))] sm:w-[520px] sm:rounded-2xl sm:border sm:border-slate-200 sm:shadow-2xl sm:dark:border-slate-700",
+  full: "sm:inset-0",
 };
 function loadSize(): PanelSize {
   if (typeof window === "undefined") return "medium";
@@ -306,9 +310,9 @@ export function AskHermes() {
         aria-hidden={!open}
         data-size={size}
         className={cn(
-          "fixed inset-y-0 right-0 z-[60] flex w-full flex-col border-l border-slate-200 bg-white shadow-[-20px_0_60px_-30px_rgba(15,23,42,0.45)] transition-[transform,width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] dark:border-slate-800 dark:bg-slate-900",
+          "fixed inset-0 z-[60] flex flex-col overflow-hidden bg-white transition-[transform,opacity,width,height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] dark:bg-slate-900",
           SIZE_CLASS[size],
-          open ? "translate-x-0" : "pointer-events-none translate-x-full"
+          open ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-6 opacity-0"
         )}
         onDragOver={(event) => {
           if (imageFilesFrom(event.dataTransfer).length || event.dataTransfer.types.includes("Files")) {
@@ -333,14 +337,14 @@ export function AskHermes() {
           <div className="min-w-0 flex-1 leading-tight">
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-semibold tracking-[0.08em] text-slate-900 dark:text-slate-100">HERMES</span>
-              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500" title={statusTitle}>
-                <span className={cn("h-1.5 w-1.5 rounded-full", !status ? "bg-amber-400" : connected ? "bg-emerald-500" : "bg-rose-500")} />
+              <span className="inline-flex items-center gap-1 whitespace-nowrap text-[10px] text-slate-500" title={statusTitle}>
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", !status ? "bg-amber-400" : connected ? "bg-emerald-500" : "bg-rose-500")} />
                 {statusLabel}
               </span>
             </div>
-            <div className="text-[11px] text-slate-500">MGATE Operator</div>
+            <div className="truncate text-[11px] text-slate-500">MGATE Operator</div>
           </div>
-          <EnvBadge className="scale-90" />
+          <EnvBadge className={cn("scale-90", size === "small" && "hidden")} />
           <div className="hidden items-center rounded-md bg-slate-100 p-0.5 sm:flex dark:bg-slate-800" role="group" aria-label="Taille du panneau">
             {SIZES.map((option) => (
               <button
