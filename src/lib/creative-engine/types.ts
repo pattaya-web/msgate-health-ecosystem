@@ -87,7 +87,8 @@ export type ProductContext = {
   analysis: ProductAnalysis | null;
   suggestedAngles: Angle[];
   customAngles: Angle[];
-  engine: "claude" | "fallback";
+  /** Qui a écrit l'analyse : Claude via Kie, Hermes en secours, ou le repli déterministe (à refaire). */
+  engine: "claude" | "hermes" | "fallback";
   createdAt: string;
   updatedAt: string;
 };

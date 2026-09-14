@@ -1,5 +1,6 @@
 import { scrapeProduct } from "@/lib/meta/ad-copy";
 import { kieClaude } from "@/lib/studio/kie";
+import { askHermesForAnalysis, hermesAnalysisAvailable } from "@/lib/creative-engine/hermes-analysis";
 import { fetchProductFromUrl } from "@/lib/ugc/fetch-product";
 import type { ProductInput } from "@/lib/ugc/types";
 import { PRODUCT_CLASSES, type Angle, type CreativeEmphasis, type ProductAnalysis, type ProductClass } from "@/lib/creative-engine/types";
@@ -32,9 +33,76 @@ export type Analyzed = {
   pageText: string;
   analysis: ProductAnalysis;
   angles: Angle[];
-  engine: "claude" | "fallback";
+  engine: "claude" | "hermes" | "fallback";
   fallbackReason?: string;
 };
+
+/**
+ * Lecture stricte de la réponse d'un moteur (Kie ou Hermes) : les champs qui
+ * font la différence entre une vraie analyse et un remplissage sont exigés.
+ * Une réponse qui ne les porte pas est rejetée, jamais enregistrée.
+ */
+export class AnalysisValidationError extends Error {}
+
+function need(value: string, field: string, min = 1) {
+  if (value.length < min) throw new AnalysisValidationError(`champ « ${field} » manquant ou trop court`);
+  return value;
+}
+
+export function parseAnalysis(raw: string, sheet: ProductInput | null, pageText: string): { analysis: ProductAnalysis; angles: Angle[] } {
+  const json = extractJson(raw);
+  if (!json) throw new AnalysisValidationError("réponse illisible du moteur IA");
+  let parsed: { analysis?: Record<string, unknown>; angles?: Array<Record<string, unknown>> };
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new AnalysisValidationError("JSON invalide dans la réponse du moteur IA");
+  }
+  const a = parsed.analysis ?? {};
+  const guessed = classify(sheet, pageText);
+  const productClass = (PRODUCT_CLASSES as readonly string[]).includes(str(a.productClass)) ? (str(a.productClass) as ProductClass) : guessed.productClass;
+  const emphasisRaw = str(a.recommendedEmphasis).toLowerCase();
+  const recommendedEmphasis: CreativeEmphasis = emphasisRaw === "outcome" || emphasisRaw === "balanced" || emphasisRaw === "product" ? emphasisRaw : guessed.emphasis;
+  const analysis: ProductAnalysis = {
+    brand: str(a.brand) || sheet?.brand || "",
+    category: need(str(a.category), "category", 2),
+    productType: need(str(a.productType), "productType", 2),
+    productClass,
+    recommendedEmphasis,
+    price: str(a.price) || sheet?.price || "",
+    comparePrice: str(a.comparePrice) || sheet?.comparePrice || "",
+    offer: str(a.offer),
+    targetCustomer: need(str(a.targetCustomer), "targetCustomer", 5),
+    gender: str(a.gender),
+    ageRange: str(a.ageRange),
+    mainProblem: need(str(a.mainProblem), "mainProblem", 10),
+    benefits: strList(a.benefits),
+    desires: strList(a.desires),
+    objections: strList(a.objections),
+    mechanism: need(str(a.mechanism), "mechanism", 10),
+    features: strList(a.features, 8),
+    transformation: need(str(a.transformation), "transformation", 10),
+    differentiation: str(a.differentiation),
+    guarantee: str(a.guarantee),
+    tone: str(a.tone),
+    cta: str(a.cta),
+    claims: strList(a.claims, 8),
+  };
+  if (analysis.benefits.length < 2) throw new AnalysisValidationError("moins de deux bénéfices");
+  if (analysis.features.length < 2) throw new AnalysisValidationError("description physique / points visuels manquants (features)");
+  const angles: Angle[] = (parsed.angles ?? [])
+    .map((entry) => ({
+      id: uid("angle"),
+      name: str(entry.name),
+      why: str(entry.why),
+      hooks: strList(entry.hooks, 3),
+      source: "auto" as const,
+    }))
+    .filter((angle) => angle.name && angle.hooks.length)
+    .slice(0, 10);
+  if (angles.length < 3) throw new AnalysisValidationError("moins de trois angles proposés");
+  return { analysis, angles };
+}
 
 /** Angles génériques, formulés pour n'importe quel produit ; les accroches citent le produit. */
 /**
@@ -172,72 +240,47 @@ export async function analyzeProductUrl(url: string): Promise<Analyzed> {
     .filter(Boolean)
     .join("\n");
 
-  try {
-    const raw = await kieClaude(
-      `You are an elite direct-response strategist. Analyze THIS product page only — never assume the niche, never reuse another product. Then propose the 8 most compelling advertising ANGLES for it (an angle is WHY the customer should care, not HOW the ad looks). Angles must fit this exact product: a fashion item gets fit/silhouette/compliments/occasion, a gadget gets annoying-problem/instant-solution/demonstration, a skincare or digital protocol gets visible transformation/confidence/speed/clarity, and so on. For each angle give 3 short hooks (headlines, max 9 words, specific to this product, no generic "upgrade your life").
+  const prompt = `You are an elite direct-response strategist. Analyze THIS product page only — never assume the niche, never reuse another product. Then propose the 8 most compelling advertising ANGLES for it (an angle is WHY the customer should care, not HOW the ad looks). Angles must fit this exact product: a fashion item gets fit/silhouette/compliments/occasion, a gadget gets annoying-problem/instant-solution/demonstration, a skincare or digital protocol gets visible transformation/confidence/speed/clarity, and so on. For each angle give 3 short hooks (headlines, max 9 words, specific to this product, no generic "upgrade your life").
 
 ${facts}
 
 Also classify the product: "productClass" is one of PHYSICAL_PRODUCT, DIGITAL_INFORMATION_PRODUCT, DIGITAL_TRANSFORMATION_PRODUCT (a digital programme sold on the change it produces: protocol, blueprint, glow-up system, course promising a result), SERVICE, SOFTWARE, OTHER. And "recommendedEmphasis" is what should dominate the ads: "outcome" (the result — right for transformation products, courses, protocols, services), "balanced" (result and product equal — skincare bottles, shoes, apparel), or "product" (the item is the hero — gadgets, design-led objects, feature-driven products).
 
+"features" must hold 4 to 8 items describing the physical product itself and its key visual selling points (what it looks like, materials, size, colours, how it is held or used, what is in the box) — the image model relies on them. "mainProblem", "mechanism", "transformation" and "targetCustomer" must each be one full, specific sentence.
+
 Return ONLY JSON:
 {"analysis":{"brand":"","category":"","productType":"","productClass":"","recommendedEmphasis":"","price":"","comparePrice":"","offer":"","targetCustomer":"","gender":"","ageRange":"","mainProblem":"","benefits":[],"desires":[],"objections":[],"mechanism":"","features":[],"transformation":"","differentiation":"","guarantee":"","tone":"","cta":"","claims":[]},
- "angles":[{"name":"","why":"","hooks":["","",""]}]}`,
-      4000
-    );
-    const json = extractJson(raw);
-    if (!json) throw new Error("Réponse illisible du moteur IA");
-    const parsed = JSON.parse(json) as { analysis?: Record<string, unknown>; angles?: Array<Record<string, unknown>> };
-    const a = parsed.analysis ?? {};
-    const guessed = classify(sheet, pageText);
-    const productClass = (PRODUCT_CLASSES as readonly string[]).includes(str(a.productClass)) ? (str(a.productClass) as ProductClass) : guessed.productClass;
-    const emphasisRaw = str(a.recommendedEmphasis).toLowerCase();
-    const recommendedEmphasis: CreativeEmphasis = emphasisRaw === "outcome" || emphasisRaw === "balanced" || emphasisRaw === "product" ? emphasisRaw : guessed.emphasis;
-    const analysis: ProductAnalysis = {
-      brand: str(a.brand) || sheet?.brand || "",
-      category: str(a.category),
-      productType: str(a.productType),
-      productClass,
-      recommendedEmphasis,
-      price: str(a.price) || sheet?.price || "",
-      comparePrice: str(a.comparePrice) || sheet?.comparePrice || "",
-      offer: str(a.offer),
-      targetCustomer: str(a.targetCustomer),
-      gender: str(a.gender),
-      ageRange: str(a.ageRange),
-      mainProblem: str(a.mainProblem),
-      benefits: strList(a.benefits),
-      desires: strList(a.desires),
-      objections: strList(a.objections),
-      mechanism: str(a.mechanism),
-      features: strList(a.features, 8),
-      transformation: str(a.transformation),
-      differentiation: str(a.differentiation),
-      guarantee: str(a.guarantee),
-      tone: str(a.tone),
-      cta: str(a.cta),
-      claims: strList(a.claims, 8),
-    };
-    const angles: Angle[] = (parsed.angles ?? [])
-      .map((entry) => ({
-        id: uid("angle"),
-        name: str(entry.name),
-        why: str(entry.why),
-        hooks: strList(entry.hooks, 3),
-        source: "auto" as const,
-      }))
-      .filter((angle) => angle.name)
-      .slice(0, 10);
-    if (!angles.length) throw new Error("Aucun angle proposé");
+ "angles":[{"name":"","why":"","hooks":["","",""]}]}`;
+
+  // 1. Kie (Claude), chemin principal.
+  let kieReason = "";
+  try {
+    const raw = await kieClaude(prompt, 4000);
+    const { analysis, angles } = parseAnalysis(raw, sheet, pageText);
     return { sheet, pageText, analysis, angles, engine: "claude" };
   } catch (error) {
-    return {
-      sheet,
-      pageText,
-      analysis: fallbackAnalysis(sheet, pageText),
-      angles: genericAngles(name, sheet, /^DIGITAL_|^SOFTWARE$|^SERVICE$/.test(classify(sheet, pageText).productClass)),
-      engine: "fallback",
-      fallbackReason: error instanceof Error ? error.message : "Moteur IA indisponible",
-    };
+    kieReason = error instanceof Error ? error.message : "Moteur IA indisponible";
   }
+
+  // 2. Hermes, en secours seulement : même consigne, même lecture stricte.
+  let hermesReason = hermesAnalysisAvailable() ? "" : "Hermes non configuré";
+  if (!hermesReason) {
+    try {
+      const raw = await askHermesForAnalysis(prompt);
+      const { analysis, angles } = parseAnalysis(raw, sheet, pageText);
+      return { sheet, pageText, analysis, angles, engine: "hermes", fallbackReason: `Kie indisponible (${kieReason}) — analyse faite par Hermes` };
+    } catch (error) {
+      hermesReason = error instanceof Error ? error.message : "Hermes indisponible";
+    }
+  }
+
+  // 3. Repli déterministe, marqué comme tel : jamais enregistré par-dessus une vraie analyse.
+  return {
+    sheet,
+    pageText,
+    analysis: fallbackAnalysis(sheet, pageText),
+    angles: genericAngles(name, sheet, /^DIGITAL_|^SOFTWARE$|^SERVICE$/.test(classify(sheet, pageText).productClass)),
+    engine: "fallback",
+    fallbackReason: `Kie : ${kieReason} · Hermes : ${hermesReason}`,
+  };
 }

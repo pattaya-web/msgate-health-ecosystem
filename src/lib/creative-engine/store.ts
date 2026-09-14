@@ -133,6 +133,9 @@ export async function analyzeAndSaveProduct(url: string, store?: string) {
   const result = await analyzeProductUrl(clean);
   const items = await listProducts();
   const existing = items.find((item) => item.url === clean);
+  if (result.engine === "fallback" && existing) {
+    throw new Error(`Analyse IA indisponible (${result.fallbackReason ?? "moteurs muets"}) : l'analyse précédente de « ${existing.name} » est conservée.`);
+  }
   const host = new URL(clean).hostname.replace(/^www\./, "");
   const now = new Date().toISOString();
   const context: ProductContext = {
