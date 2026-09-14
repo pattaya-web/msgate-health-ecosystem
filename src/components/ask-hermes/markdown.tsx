@@ -103,7 +103,7 @@ function splitBlocks(source: string): Block[] {
 
 // Source d'une regex recréée à chaque appel : `inline` est récursif (gras dans une ligne) ; une instance
 // globale partagée verrait son lastIndex remis à zéro par l'appel interne et bouclerait sans fin.
-const INLINE_SOURCE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]\n]+\]\((?:https?:\/\/|\/)[^)\s]+\))|(https?:\/\/[^\s<>)]+)/.source;
+const INLINE_SOURCE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|((?<![\w])_[^_\n]+_(?![\w]))|(\[[^\]\n]+\]\((?:https?:\/\/|\/)[^)\s]+\))|(https?:\/\/[^\s<>)]+)/.source;
 
 function inline(text: string, keyPrefix: string): ReactNode[] {
   const out: ReactNode[] = [];
