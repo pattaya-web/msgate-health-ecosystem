@@ -27,7 +27,7 @@ const EXAMPLES = [
 const ACTION_MESSAGE: Record<QuickAction, string> = {
   analyze: "Analyze this creative.",
   original: "Give me the original prompt for this creative.",
-  reverse: "Reverse this creative: give me the most likely prompt used to create it.",
+  reverse: "Reverse Prompt: reconstruct a generation-ready prompt for this creative (the prompt is the main output, no analysis).",
   angle: "Find the advertising angle of this creative.",
   variations: "Suggest 5 variations of this creative (text briefs only).",
 };
