@@ -73,7 +73,7 @@ export function multiCreativeRisks(text: string) {
 }
 
 const NEGATIVE =
-  "NEGATIVE: no generic branding, no vague motivational lines, no excessive text, no artistic layouts that hide the argument, no corporate stock-photo feel, no watermark, no fake reviews with names or star ratings presented as verified, no clinical claims, no guaranteed results, no invented product functions, no competitor logos. All text real, correctly spelled English, professionally kerned.";
+  "NEGATIVE: no generic branding, no vague motivational lines, no excessive text, no artistic layouts that hide the argument, no corporate stock-photo feel, no watermark, no fake reviews with names or star ratings presented as verified, no clinical claims, no unverified page claim presented as a proven fact, no guaranteed results, no invented product functions, no competitor logos. All text real, correctly spelled English, professionally kerned.";
 
 function list(values: string[] | undefined, max = 4) {
   return (values ?? []).filter(Boolean).slice(0, max).join("; ");
@@ -95,6 +95,7 @@ export function productBlock(context: ProductContext) {
     a?.transformation ? `Transformation promised: ${a.transformation}.` : "",
     a?.differentiation ? `Differentiation: ${a.differentiation}.` : "",
     a?.guarantee ? `Guarantee: ${a.guarantee}.` : "",
+    a?.claims?.length ? `PAGE CLAIMS (as written on the product page, UNVERIFIED — medical, scientific, academic, performance or timing claims, "doctor-tested", "visible from week one", citations: quote them only as the page phrases them, never harden them into proven facts, never add clinical or guaranteed-result wording): ${list(a.claims, 6)}.` : "",
     a?.tone ? `Brand tone: ${a.tone}.` : "",
   ]
     .filter(Boolean)
