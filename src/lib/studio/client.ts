@@ -178,6 +178,7 @@ export async function saveStaticCreative(body: {
   resolution: "1K" | "2K";
   resultUrls: string[];
   referenceUrls?: string[];
+  media?: "image" | "video";
 }) {
   const res = await fetch("/api/studio/library", {
     method: "POST",

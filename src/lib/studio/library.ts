@@ -30,7 +30,7 @@ export function isCreativeId(id: string) {
 }
 
 export function isLibraryFile(name: string) {
-  return /^(result|ref)-\d+\.(png|jpe?g|webp|gif)$/i.test(name);
+  return /^(result|ref)-\d+\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i.test(name);
 }
 
 export function libraryFileUrl(id: string, file: string) {
@@ -115,6 +115,9 @@ function extFrom(type: string, fallback: string) {
   if (/webp/i.test(type)) return "webp";
   if (/gif/i.test(type)) return "gif";
   if (/png/i.test(type)) return "png";
+  if (/mp4/i.test(type)) return "mp4";
+  if (/webm/i.test(type)) return "webm";
+  if (/quicktime/i.test(type)) return "mov";
   return fallback;
 }
 
@@ -167,6 +170,7 @@ export async function saveStaticCreative(input: {
   resolution?: StaticCreative["resolution"];
   resultUrls: string[];
   referenceUrls?: string[];
+  media?: "image" | "video";
 }) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Prompt manquant");
@@ -200,6 +204,7 @@ export async function saveStaticCreative(input: {
     resolution: input.resolution || "1K",
     resultFiles,
     refFiles,
+    media: input.media ?? (resultFiles.some((file) => /\.(mp4|webm|mov)$/i.test(file)) ? "video" : "image"),
   };
   store.items.unshift(item);
   await persist();

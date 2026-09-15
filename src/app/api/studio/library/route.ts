@@ -18,7 +18,7 @@ export async function GET() {
   const statics = (await listStaticCreatives()).map((item) => ({
     ...item,
     source: "static" as const,
-    media: "image" as const,
+    media: item.media ?? ("image" as const),
   }));
 
   let ugc: Array<Record<string, unknown>> = [];
@@ -61,6 +61,7 @@ export async function POST(request: Request) {
       resolution?: "1K" | "2K";
       resultUrls?: string[];
       referenceUrls?: string[];
+      media?: "image" | "video";
     };
     const item = await saveStaticCreative({
       brief: body.brief,
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
       resolution: body.resolution,
       resultUrls: body.resultUrls || [],
       referenceUrls: body.referenceUrls,
+      media: body.media,
     });
     return NextResponse.json({ item });
   } catch (error) {

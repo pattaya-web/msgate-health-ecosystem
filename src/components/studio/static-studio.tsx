@@ -23,6 +23,7 @@ import { assetProxy, libraryFileUrl, pollStudioTask, saveStaticCreative, studioP
 import { STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-types";
 import { SendToDrive } from "@/components/drive/send-to-drive";
 import { DEFAULT_RATIO, RATIOS, isWideRatio, ratioAspect, type Ratio } from "@/lib/studio/ratios";
+import { DEFAULT_MODEL_FAMILY, MODEL_FAMILIES, modelFamily } from "@/lib/studio/models";
 import { CREATIVE_TYPES, buildCreativePrompt, type ProductCategory } from "@/lib/studio/creative-types";
 import { NO_STYLE, resolveFreePrompts, styleInstructions } from "@/lib/studio/free-prompt";
 import type { ProductInput } from "@/lib/ugc/types";
@@ -69,9 +70,12 @@ type Job = {
   /** Repris tel quel après un rechargement, pour pouvoir enregistrer. */
   brief: string;
   ratio: (typeof RATIOS)[number]["id"];
-  resolution: "1K" | "2K";
+  resolution: string;
   referenceUrls: string[];
   createdAt: string;
+  /** Famille du catalogue et nature du rendu ; absents sur les anciens rendus (GPT Image 2, image). */
+  model?: string;
+  kind?: "image" | "video";
 };
 
 function loadStoredJobs(): Job[] {
@@ -93,7 +97,11 @@ export function StaticStudio() {
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [promptsOpen, setPromptsOpen] = useState(true);
   const [ratio, setRatio] = useState<(typeof RATIOS)[number]["id"]>(DEFAULT_RATIO);
-  const [resolution, setResolution] = useState<"1K" | "2K">("1K");
+  const [resolution, setResolution] = useState<string>("1K");
+  /* Modèle du prompt libre : image par défaut (GPT Image 2), vidéo au choix ; la durée ne sert qu'aux vidéos. */
+  const [modelId, setModelId] = useState(DEFAULT_MODEL_FAMILY);
+  const [duration, setDuration] = useState(5);
+  const family = modelFamily(modelId) ?? MODEL_FAMILIES[0];
   const [count, setCount] = useState(1);
   const [busy, setBusy] = useState<"expand" | "gen" | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -223,9 +231,10 @@ export function StaticStudio() {
               brief: job.brief,
               prompt: job.prompt,
               ratio: job.ratio,
-              resolution: job.resolution,
+              resolution: job.resolution === "2K" ? "2K" : "1K",
               resultUrls: task.urls,
               referenceUrls: job.referenceUrls,
+              media: job.kind ?? "image",
             });
             saved = true;
           } catch (error) {
@@ -496,12 +505,16 @@ export function StaticStudio() {
         referenceUrls?: string[];
         skipped?: number;
         skippedReason?: string | null;
+        model?: string;
+        kind?: "image" | "video";
       }>({
         action: "image",
         prompts: list,
         ratio,
         resolution,
         referenceUrls,
+        model: modelId,
+        ...(family.kind === "video" ? { duration } : {}),
       });
       const savedRefs = body.referenceUrls?.length ? body.referenceUrls : referenceUrls;
       const stamp = Date.now();
@@ -521,6 +534,8 @@ export function StaticStudio() {
             resolution,
             referenceUrls: savedRefs,
             createdAt: new Date().toISOString(),
+            model: body.model ?? modelId,
+            kind: body.kind ?? family.kind,
           })),
           ...current,
         ].slice(0, MAX_KEPT_JOBS)
@@ -703,8 +718,8 @@ export function StaticStudio() {
             onProduct={(imageUrls) => setPageRefs(imageUrls.slice(0, 8))}
             ratio={ratio}
             onRatio={setRatio}
-            resolution={resolution}
-            onResolution={setResolution}
+            resolution={resolution === "2K" ? "2K" : "1K"}
+            onResolution={(value) => setResolution(value)}
             onLaunch={(prompts) => {
               /*
                * Le lot repasse par la zone de prompts : tout l'aval — envoi des
@@ -869,6 +884,33 @@ export function StaticStudio() {
 
             <div className="ml-auto flex items-center gap-1.5">
               <Picker
+                label="Modèle"
+                value={modelId}
+                onChange={(value) => {
+                  const next = modelFamily(value);
+                  if (!next) return;
+                  setModelId(value);
+                  if (next.ratios.length && !next.ratios.includes(ratio)) setRatio(next.ratios[0]);
+                  if (next.resolutions.length && !next.resolutions.includes(resolution)) setResolution(next.resolutions[0]);
+                  if (next.durations?.length && !next.durations.includes(duration)) setDuration(next.durations[0]);
+                }}
+              >
+                <optgroup label="Image">
+                  {MODEL_FAMILIES.filter((item) => item.kind === "image").map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}{item.imageModel ? "" : " · texte seul"}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Vidéo">
+                  {MODEL_FAMILIES.filter((item) => item.kind === "video").map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}{item.imageModel ? "" : " · texte seul"}
+                    </option>
+                  ))}
+                </optgroup>
+              </Picker>
+              <Picker
                 label="Style"
                 value={productType}
                 onChange={(value) => {
@@ -883,17 +925,33 @@ export function StaticStudio() {
                   </option>
                 ))}
               </Picker>
-              <Picker label="Ratio" value={ratio} onChange={(value) => setRatio(value as Ratio)}>
-                {RATIOS.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.id} · {item.hint}
-                  </option>
-                ))}
-              </Picker>
-              <Picker label="Taille" value={resolution} onChange={(value) => setResolution(value as "1K" | "2K")}>
-                <option value="1K">1K</option>
-                <option value="2K">2K</option>
-              </Picker>
+              {family.ratios.length ? (
+                <Picker label="Ratio" value={ratio} onChange={(value) => setRatio(value as Ratio)}>
+                  {RATIOS.filter((item) => family.ratios.includes(item.id)).map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.id} · {item.hint}
+                    </option>
+                  ))}
+                </Picker>
+              ) : null}
+              {family.resolutions.length ? (
+                <Picker label="Taille" value={resolution} onChange={(value) => setResolution(value)}>
+                  {family.resolutions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </Picker>
+              ) : null}
+              {family.kind === "video" && family.durations?.length ? (
+                <Picker label="Durée" value={String(duration)} onChange={(value) => setDuration(Number(value))}>
+                  {family.durations.map((item) => (
+                    <option key={item} value={item}>
+                      {item} s
+                    </option>
+                  ))}
+                </Picker>
+              ) : null}
               <Picker label="Batch" value={String(count)} onChange={(value) => setCount(Number(value))}>
                 {COUNTS.map((n) => (
                   <option key={n} value={n}>
@@ -949,6 +1007,9 @@ export function StaticStudio() {
                 ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
                 : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt.`}
             {productType && styleInstructions(productType) ? ` Style « ${CREATIVE_TYPES.find((item) => item.id === productType)?.name} » ajouté au prompt.` : " Sans style : le prompt part tel quel."}
+            {` Modèle : ${family.label}${family.kind === "video" ? ` (vidéo ${duration} s)` : ""}.`}
+            {refs.length && !family.imageModel ? " Ce modèle ne prend pas de référence : retire-les ou change de modèle." : ""}
+            {family.note ? ` ${family.note}` : ""}
           </p>
         </div>
 
@@ -1048,15 +1109,19 @@ export function StaticStudio() {
                           title={selectMode ? (chosen ? "Retirer" : "Sélectionner") : "Voir en grand"}
                           className="block h-full w-full"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={src}
-                            alt=""
-                            className={cn(
-                              "h-full w-full object-cover transition-opacity",
-                              selectMode && !chosen && "opacity-60"
-                            )}
-                          />
+                          {job.kind === "video" ? (
+                            <video src={src} muted playsInline loop autoPlay preload="metadata" className={cn("h-full w-full object-cover transition-opacity", selectMode && !chosen && "opacity-60")} />
+                          ) : (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={src}
+                              alt=""
+                              className={cn(
+                                "h-full w-full object-cover transition-opacity",
+                                selectMode && !chosen && "opacity-60"
+                              )}
+                            />
+                          )}
                         </button>
                         {selectMode ? (
                           <span
@@ -1163,8 +1228,12 @@ export function StaticStudio() {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={zoom} alt="" className="max-h-[85vh] w-auto max-w-full object-contain" />
+                {job?.kind === "video" ? (
+                  <video src={zoom} controls autoPlay playsInline className="max-h-[85vh] w-auto max-w-full" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={zoom} alt="" className="max-h-[85vh] w-auto max-w-full object-contain" />
+                )}
               </div>
 
               <div className="flex w-full shrink-0 flex-col gap-3 overflow-y-auto p-4 md:w-[340px]">
@@ -1204,15 +1273,17 @@ export function StaticStudio() {
                     <CheckSquare className="h-3.5 w-3.5" />
                     {picked.includes(zoom) ? "Sélectionnée" : "Sélectionner"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => void copyImage(zoom)}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                    Copier l&apos;image
-                  </button>
-                  <SendToDrive url={zoom} name={`crea-${job?.id ?? "studio"}.png`} />
+                  {job?.kind !== "video" ? (
+                    <button
+                      type="button"
+                      onClick={() => void copyImage(zoom)}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copier l&apos;image
+                    </button>
+                  ) : null}
+                  <SendToDrive url={zoom} name={`crea-${job?.id ?? "studio"}.${job?.kind === "video" ? "mp4" : "png"}`} />
                   <a
                     href={zoom}
                     download

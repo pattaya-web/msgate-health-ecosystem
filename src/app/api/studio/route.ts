@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { expandBrief } from "@/lib/studio/expand";
+import { modelFamily, resolveModel } from "@/lib/studio/models";
 import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
 import type { Ratio } from "@/lib/studio/ratios";
 import { expandVoiceScripts } from "@/lib/studio/vo-scripts";
@@ -36,6 +37,10 @@ export async function POST(request: Request) {
       referenceDataUrl?: string;
       prompt?: string;
       prompts?: string[];
+      /** Famille du catalogue (src/lib/studio/models.ts) ; gpt-image-2 par défaut. */
+      model?: string;
+      /** Durée en secondes pour une famille vidéo. */
+      duration?: number;
       count?: number;
       ratio?: Ratio;
       resolution?: Resolution;
@@ -82,6 +87,10 @@ export async function POST(request: Request) {
        * gagner à démarrer en un dixième de seconde puisque chaque rendu prend
        * ensuite une minute.
        */
+      const family = modelFamily(body.model);
+      if (!family) return NextResponse.json({ error: "Modèle inconnu" }, { status: 400 });
+      const resolved = resolveModel(family, referenceUrls);
+      if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 400 });
       const jobs: Array<{ prompt: string; taskId: string }> = [];
       const failures: string[] = [];
 
@@ -91,18 +100,16 @@ export async function POST(request: Request) {
         let created: string | null = null;
         for (let attempt = 0; attempt < 4 && !created; attempt += 1) {
           try {
-            created = referenceUrls.length
-              ? await createKieTask("gpt-image-2-image-to-image", {
-                  prompt,
-                  input_urls: referenceUrls,
-                  aspect_ratio: body.ratio || "3:4",
-                  resolution: body.resolution || "1K",
-                })
-              : await createKieTask("gpt-image-2-text-to-image", {
-                  prompt,
-                  aspect_ratio: body.ratio || "3:4",
-                  resolution: body.resolution || "1K",
-                });
+            created = await createKieTask(
+              resolved.model,
+              family.build({
+                prompt,
+                ratio: (body.ratio || "3:4") as Ratio,
+                resolution: body.resolution || family.resolutions[0] || "",
+                referenceUrls: referenceUrls.slice(0, family.maxRefs || 8),
+                duration: body.duration,
+              })
+            );
           } catch (error) {
             const message = error instanceof Error ? error.message : "";
             // Une limite de cadence se traverse en patientant ; le reste, non.
@@ -130,6 +137,9 @@ export async function POST(request: Request) {
         referenceUrls,
         skipped: failures.length,
         skippedReason: failures[0] || null,
+        model: family.id,
+        kieModel: resolved.model,
+        kind: family.kind,
       });
     }
 
