@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ExternalLink, ImageIcon, Link2, Loader2, Package, RefreshCw, Sparkles, Wand2 } from "lucide-react";
+import { avoidList, patchPlan, PlanCards, requestPlan, type PlanResult } from "@/components/studio/brief-planner";
 import { toast } from "sonner";
 import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { GenerationStatus, type GenerationState, type LaunchedBatch } from "@/components/ask-hermes/generate-dialog";
@@ -9,7 +10,7 @@ import { engineGet, enginePost, itemImageUrl, panel } from "@/components/mass-te
 import { PageHeader } from "@/components/shared/page-states";
 import type { ProductImageCandidate } from "@/lib/creative-engine/product-images";
 import { primaryReference, type ProductContext, type TestBatch } from "@/lib/creative-engine/types";
-import { isPromptsOnly, parseRequestedCount, parseRequestedRatio, type CreativePlan, type PlannedCreative } from "@/lib/creative-engine/workspace-plan";
+import { isPromptsOnly, parseRequestedCount, parseRequestedRatio } from "@/lib/creative-engine/workspace-plan";
 import { composeWorkspacePrompt } from "@/lib/creative-engine/workspace-prompt";
 import { RATIOS, ratioAspect, type Ratio } from "@/lib/studio/ratios";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,7 @@ export function ProductWorkspace() {
   const [ratio, setRatio] = useState<Ratio>("3:4");
   const [resolution, setResolution] = useState<"1K" | "2K">("1K");
   const [useReference, setUseReference] = useState(true);
-  const [plan, setPlan] = useState<(CreativePlan & { engine: string }) | null>(null);
+  const [plan, setPlan] = useState<PlanResult | null>(null);
   const [planning, setPlanning] = useState(false);
   const [rewriting, setRewriting] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
@@ -226,10 +227,10 @@ export function ProductWorkspace() {
     setPlanning(true);
     setPreviewOpen(false);
     try {
-      const data = await enginePost<{ plan: CreativePlan & { engine: string } }>({ action: "workspace-plan", productId: active.id, brief, count, ratio: wantedRatio ?? ratio, hasReference: referenceMode });
-      setPlan(data.plan);
-      setSelected(new Set(data.plan.creatives.map((creative) => creative.index)));
-      toast.success(`${data.plan.creatives.length} créa${data.plan.creatives.length > 1 ? "s" : ""} planifiée${data.plan.creatives.length > 1 ? "s" : ""} par ${data.plan.engine === "hermes" ? "Hermes" : "Claude"}`);
+      const fresh = await requestPlan({ productId: active.id, brief, count, ratio: wantedRatio ?? ratio, hasReference: referenceMode });
+      setPlan(fresh);
+      setSelected(new Set(fresh.creatives.map((creative) => creative.index)));
+      toast.success(`${fresh.creatives.length} créa${fresh.creatives.length > 1 ? "s" : ""} planifiée${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}`);
     } catch (error) {
       setPlan(null);
       toast.error(error instanceof Error ? error.message : "Planification impossible");
@@ -242,11 +243,9 @@ export function ProductWorkspace() {
     if (!active || !plan) return;
     setRewriting(index);
     try {
-      const avoid = plan.creatives.filter((creative) => creative.index !== index).map((creative) => creative.concept || creative.angle).filter(Boolean);
-      const data = await enginePost<{ plan: CreativePlan }>({ action: "workspace-plan", productId: active.id, brief, count: 1, ratio, hasReference: referenceMode, avoid });
-      const fresh = data.plan.creatives[0];
+      const fresh = (await requestPlan({ productId: active.id, brief, count: 1, ratio, hasReference: referenceMode, avoid: avoidList(plan, index) })).creatives[0];
       if (!fresh) throw new Error("Aucune créa renvoyée");
-      setPlan((current) => (current ? { ...current, creatives: current.creatives.map((creative) => (creative.index === index ? { ...fresh, index } : creative)) } : current));
+      setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Réécriture impossible");
     } finally {
@@ -255,7 +254,7 @@ export function ProductWorkspace() {
   }
 
   function editPrompt(index: number, value: string) {
-    setPlan((current) => (current ? { ...current, creatives: current.creatives.map((creative) => (creative.index === index ? { ...creative, prompt: value } : creative)) } : current));
+    setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current));
   }
 
   async function confirmGeneration() {
@@ -296,7 +295,6 @@ export function ProductWorkspace() {
   const visible = (images ?? []).filter((image) => showJunk || !image.junk);
   const hidden = (images ?? []).filter((image) => image.junk).length;
   const thumb = primary?.url ?? active?.imageUrls[0] ?? null;
-  const planned = plan?.creatives ?? [];
 
   return (
     <div>
@@ -535,45 +533,16 @@ export function ProductWorkspace() {
           </section>
 
           {mode === "auto" && plan ? (
-            <section className={panel} data-plan>
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <div className="text-[12px] font-semibold text-slate-900 dark:text-slate-100" data-plan-count>
-                  Batch : {planned.length} créa{planned.length > 1 ? "s" : ""} = {planned.length} image{planned.length > 1 ? "s" : ""}
-                </div>
-                <span className="text-[10.5px] text-slate-400">planifié par {plan.engine === "hermes" ? "Hermes" : "Claude"} · {plan.ratio}</span>
-                <div className="ml-auto flex items-center gap-1.5 text-[11px]">
-                  <button type="button" onClick={() => setSelected(new Set(planned.map((creative) => creative.index)))} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Tout sélectionner</button>
-                  <button type="button" onClick={() => setSelected(new Set())} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Tout désélectionner</button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {planned.map((creative: PlannedCreative) => (
-                  <article key={creative.index} className={cn("rounded-xl border p-2.5", selected.has(creative.index) ? "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900" : "border-slate-200 bg-slate-50 opacity-70 dark:border-slate-800 dark:bg-slate-900/40")} data-creative-card={creative.index}>
-                    <div className="flex items-start gap-2">
-                      <input type="checkbox" className="mt-1" checked={selected.has(creative.index)} onChange={(event) => setSelected((current) => { const next = new Set(current); if (event.target.checked) next.add(creative.index); else next.delete(creative.index); return next; })} aria-label={`Créa ${creative.index}`} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 text-[11px]">
-                          <span className="font-semibold uppercase tracking-wide text-slate-500">Creative {String(creative.index).padStart(2, "0")}</span>
-                          {creative.angle ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200" data-angle>{creative.angle}</span> : null}
-                          <button type="button" disabled={rewriting !== null} onClick={() => void rewriteOne(creative.index)} className="ml-auto inline-flex items-center gap-1 text-[10.5px] text-slate-500 hover:text-slate-800 disabled:opacity-50 dark:hover:text-slate-200" title="Demander un autre concept pour cette créa">
-                            {rewriting === creative.index ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Réécrire
-                          </button>
-                        </div>
-                        {creative.concept ? <div className="mt-0.5 text-[11.5px] text-slate-700 dark:text-slate-300" data-concept>{creative.concept}</div> : null}
-                        {creative.hook ? <div className="text-[11px] text-slate-500">Hook : « {creative.hook} »</div> : null}
-                        <textarea value={creative.prompt} onChange={(event) => editPrompt(creative.index, event.target.value)} rows={3} className="mt-1.5 w-full resize-y rounded-lg bg-slate-50 px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none dark:bg-slate-800" data-creative-prompt />
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <button type="button" disabled={!selected.size} onClick={() => setPreviewOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900" data-generate-selected>
-                  <Wand2 className="h-3.5 w-3.5" />
-                  Générer la sélection ({selected.size})
-                </button>
-              </div>
-            </section>
+            <PlanCards
+              plan={plan}
+              selected={selected}
+              onSelect={setSelected}
+              onEdit={editPrompt}
+              onRewrite={(index) => void rewriteOne(index)}
+              rewriting={rewriting}
+              actionLabel={(n) => `Générer la sélection (${n})`}
+              onAction={() => setPreviewOpen(true)}
+            />
           ) : null}
 
           {previewOpen && active && drafts.length ? (

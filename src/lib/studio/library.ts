@@ -171,6 +171,8 @@ export async function saveStaticCreative(input: {
   resultUrls: string[];
   referenceUrls?: string[];
   media?: "image" | "video";
+  origin?: StaticCreative["origin"];
+  productName?: string;
 }) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Prompt manquant");
@@ -205,6 +207,8 @@ export async function saveStaticCreative(input: {
     resultFiles,
     refFiles,
     media: input.media ?? (resultFiles.some((file) => /\.(mp4|webm|mov)$/i.test(file)) ? "video" : "image"),
+    ...(input.origin ? { origin: input.origin } : {}),
+    ...(input.productName ? { productName: input.productName } : {}),
   };
   store.items.unshift(item);
   await persist();

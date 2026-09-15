@@ -11,12 +11,15 @@ import {
   Loader2,
   RefreshCw,
   Sparkles,
+  Wand2,
   X,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { CreativeBatch } from "@/components/studio/creative-batch";
+import { avoidList, patchPlan, PlanCards, requestPlan, type PlanResult } from "@/components/studio/brief-planner";
+import { isPromptsOnly, parseRequestedCount, parseRequestedRatio } from "@/lib/creative-engine/workspace-plan";
 import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { cn } from "@/lib/utils";
 import { assetProxy, libraryFileUrl, pollStudioTask, saveStaticCreative, studioPost } from "@/lib/studio/client";
@@ -78,7 +81,39 @@ type Job = {
   /** Famille du catalogue et nature du rendu ; absents sur les anciens rendus (GPT Image 2, image). */
   model?: string;
   kind?: "image" | "video";
+  /** Rendu fait ailleurs (espace produit, Ask Hermes) et rangé en bibliothèque : il s'affiche ici aussi. */
+  origin?: "product-workspace" | "ask-hermes";
+  productName?: string;
 };
+
+/** Rendus d'autres écrans retirés de la grille par « Vider les terminées » : ils ne reviennent pas au prochain chargement. */
+const DISMISSED_KEY = "msgate.studio.dismissed";
+
+function loadDismissed(): string[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DISMISSED_KEY) || "[]") as string[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function jobFromLibrary(item: StaticCreative): Job {
+  return {
+    id: item.id,
+    prompt: item.prompt,
+    urls: item.resultFiles.map((file) => libraryFileUrl(item.id, file)),
+    status: "ok",
+    saved: true,
+    brief: item.brief,
+    ratio: item.ratio,
+    resolution: item.resolution,
+    referenceUrls: (item.refFiles ?? []).map((file) => libraryFileUrl(item.id, file)),
+    createdAt: item.createdAt,
+    ...(item.origin && item.origin !== "studio" ? { origin: item.origin } : {}),
+    ...(item.productName ? { productName: item.productName } : {}),
+  };
+}
 
 function loadStoredJobs(): Job[] {
   try {
@@ -111,6 +146,16 @@ export function StaticStudio() {
   const watching = useRef<Set<string>>(new Set());
   const [refs, setRefs] = useState<RefImage[]>([]);
   const [genPaste, setGenPaste] = useState("");
+  /* Prompt libre : en « Auto · brief », le texte est un brief que Hermes découpe en N prompts distincts ; en « Prompt exact », il part tel quel. */
+  const [promptMode, setPromptMode] = useState<"auto" | "exact">("auto");
+  const [plan, setPlan] = useState<PlanResult | null>(null);
+  const [planSelected, setPlanSelected] = useState<Set<number>>(() => new Set());
+  const [planning, setPlanning] = useState(false);
+  const [rewriting, setRewriting] = useState<number | null>(null);
+  const [countOverride, setCountOverride] = useState<number | null>(null);
+  const detectedCount = useMemo(() => parseRequestedCount(genPaste), [genPaste]);
+  const planCount = countOverride ?? detectedCount;
+  const promptsOnly = useMemo(() => isPromptsOnly(genPaste), [genPaste]);
   /** Référence ouverte en grand, et index en cours de glisser pour réordonner. */
   const [refZoom, setRefZoom] = useState<RefImage | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -219,6 +264,30 @@ export function StaticStudio() {
           : job
       )
     );
+  }, []);
+
+  /*
+   * Les créas générées depuis l'espace produit ou Ask Hermes sont rangées en
+   * bibliothèque avec leur origine : elles apparaissent ici aussi, et y
+   * restent tant qu'on ne les a pas vidées.
+   */
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/studio/library", { cache: "no-store", signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ items?: StaticCreative[] }>) : { items: [] }))
+      .then((body) => {
+        const dismissed = new Set(loadDismissed());
+        const foreign = (body.items ?? []).filter((item) => (item.origin === "product-workspace" || item.origin === "ask-hermes") && (item.media ?? "image") === "image" && item.resultFiles?.length && !dismissed.has(item.id));
+        if (!foreign.length) return;
+        setJobs((current) => {
+          const known = new Set(current.map((job) => job.id));
+          const fresh = foreign.filter((item) => !known.has(item.id)).map(jobFromLibrary);
+          if (!fresh.length) return current;
+          return [...current, ...fresh].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, MAX_KEPT_JOBS);
+        });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -571,7 +640,71 @@ export function StaticStudio() {
   }
 
   function clearFinished() {
-    setJobs((current) => current.filter((job) => job.status === "run"));
+    setJobs((current) => {
+      const gone = current.filter((job) => job.status !== "run" && job.origin).map((job) => job.id);
+      if (gone.length) {
+        try {
+          window.localStorage.setItem(DISMISSED_KEY, JSON.stringify([...new Set([...loadDismissed(), ...gone])].slice(-300)));
+        } catch {
+          // sans stockage, ces rendus reviendront au prochain chargement
+        }
+      }
+      return current.filter((job) => job.status === "run");
+    });
+  }
+
+  /** Auto · brief : le texte est un brief, Hermes le découpe en N prompts distincts, montrés avant de générer. */
+  async function planFromBrief() {
+    if (!genPaste.trim()) {
+      toast.error("Écris ton brief (« Create 5 ads… »)");
+      return;
+    }
+    const wantedRatio = parseRequestedRatio(genPaste);
+    if (wantedRatio && family.ratios.includes(wantedRatio as Ratio) && wantedRatio !== ratio) setRatio(wantedRatio as Ratio);
+    setPlanning(true);
+    try {
+      const fresh = await requestPlan({
+        brief: genPaste,
+        count: planCount,
+        ratio: wantedRatio ?? ratio,
+        hasReference: refs.length > 0,
+        product: product ? { name: product.name, ...(product.brand ? { store: product.brand } : {}), ...(productUrl.trim() ? { url: productUrl.trim() } : {}), ...(product.price ? { price: product.price } : {}) } : null,
+      });
+      setPlan(fresh);
+      setPlanSelected(new Set(fresh.creatives.map((creative) => creative.index)));
+      toast.success(`${fresh.creatives.length} prompt${fresh.creatives.length > 1 ? "s" : ""} planifié${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}`);
+    } catch (error) {
+      setPlan(null);
+      toast.error(error instanceof Error ? error.message : "Planification impossible");
+    } finally {
+      setPlanning(false);
+    }
+  }
+
+  async function rewritePlanned(index: number) {
+    if (!plan) return;
+    setRewriting(index);
+    try {
+      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: refs.length > 0, product: product ? { name: product.name } : null, avoid: avoidList(plan, index) })).creatives[0];
+      if (!fresh) throw new Error("Aucune créa renvoyée");
+      setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Réécriture impossible");
+    } finally {
+      setRewriting(null);
+    }
+  }
+
+  /** Les prompts cochés remplacent le brief (un par ligne ---) et partent par le bouton Générer habituel : une image chacun. */
+  function usePlannedPrompts() {
+    if (!plan) return;
+    const chosen = plan.creatives.filter((creative) => planSelected.has(creative.index)).map((creative) => creative.prompt.trim()).filter(Boolean);
+    if (!chosen.length) return;
+    setGenPaste(chosen.join("\n---\n"));
+    setCount(1);
+    setPromptMode("exact");
+    setPlan(null);
+    toast.success(`${chosen.length} prompt${chosen.length > 1 ? "s" : ""} prêt${chosen.length > 1 ? "s" : ""} — clique Générer pour lancer ${chosen.length} image${chosen.length > 1 ? "s" : ""}`);
   }
 
   /**
@@ -986,7 +1119,10 @@ export function StaticStudio() {
           <div className="mt-2 flex items-start gap-2">
             <textarea
               value={genPaste}
-              onChange={(e) => setGenPaste(e.target.value)}
+              onChange={(e) => {
+                setGenPaste(e.target.value);
+                setCountOverride(null);
+              }}
               onPaste={(e) => {
                 // Une image dans le presse-papiers (capture, copie depuis le navigateur) devient une référence, sans passer par un fichier.
                 const files = [...(e.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
@@ -996,27 +1132,66 @@ export function StaticStudio() {
                 toast.success(`${files.length} image${files.length > 1 ? "s" : ""} ajoutée${files.length > 1 ? "s" : ""} aux références`);
               }}
               rows={2}
-              placeholder="Ton prompt, envoyé tel quel (aucun style ajouté sauf si tu en choisis un). Plusieurs : sépare-les par une ligne ---"
+              placeholder={promptMode === "auto" ? "Ton brief, comme à Hermes : « Create 5 ultra realistic static ads, iPhone candid, ratio 3:4… » — chaque créa aura son prompt" : "Ton prompt, envoyé tel quel (aucun style ajouté sauf si tu en choisis un). Plusieurs : sépare-les par une ligne ---"}
               className="min-h-[38px] flex-1 resize-y rounded-xl bg-slate-50 px-2.5 py-2 text-[12px] leading-relaxed outline-none dark:bg-slate-800"
+              data-free-prompt
             />
-            <button
-              type="button"
-              onClick={() => void generate()}
-              disabled={busy !== null}
-              title="Lancer la génération"
-              className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-medium text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
-            >
-              {busy === "gen" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Zap className="h-3.5 w-3.5" />
-              )}
-              Générer
-            </button>
+            {promptMode === "auto" ? (
+              <button
+                type="button"
+                onClick={() => void planFromBrief()}
+                disabled={busy !== null || planning || !genPaste.trim()}
+                title="Hermes découpe le brief en N prompts distincts, montrés avant de générer"
+                className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-medium text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
+                data-plan-brief
+              >
+                {planning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                {planning ? "Planification…" : `Planifier ${planCount} créa${planCount > 1 ? "s" : ""}`}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void generate()}
+                disabled={busy !== null}
+                title="Lancer la génération"
+                className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-medium text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
+              >
+                {busy === "gen" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Zap className="h-3.5 w-3.5" />
+                )}
+                Générer
+              </button>
+            )}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Mode du prompt">
+              {(
+                [
+                  ["auto", "Auto · brief"],
+                  ["exact", "Prompt exact"],
+                ] as const
+              ).map(([id, label]) => (
+                <button key={id} type="button" aria-pressed={promptMode === id} onClick={() => { setPromptMode(id); if (id === "exact") setPlan(null); }} className={cn("rounded px-2 py-0.5 text-[10.5px] font-medium", promptMode === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")} data-prompt-mode={id}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {promptMode === "auto" ? (
+              <label className="flex items-center gap-1.5 text-[11px] text-slate-500" title="Nombre d'images lu dans le brief ; modifiable">
+                <span className="font-semibold uppercase tracking-wide">Créas</span>
+                <input type="number" min={1} max={30} value={planCount} onChange={(event) => setCountOverride(Math.min(30, Math.max(1, Number(event.target.value) || 1)))} className="w-14 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800" data-plan-count-input />
+                <span className="text-[10px] text-slate-400">{countOverride === null ? "détecté" : "modifié"}</span>
+              </label>
+            ) : null}
           </div>
 
           <p className="mt-1 text-[11px] text-slate-400">
-            {!genPaste.trim() && !activePrompts.length && refs.length
+            {promptMode === "auto"
+              ? `Auto · brief : « Create 5 ads… » donne ${planCount} prompt${planCount > 1 ? "s" : ""} distinct${planCount > 1 ? "s" : ""} par Hermes, ${planCount} image${planCount > 1 ? "s" : ""}, à relire avant de générer.${promptsOnly ? " « Prompts only » lu : rien ne part sans ton clic." : ""}${product ? ` Produit : ${product.name}.` : ""}${refs.length ? " Les références partent avec chaque prompt." : ""} `
+              : null}
+            {promptMode === "exact" && !genPaste.trim() && !activePrompts.length && refs.length
               ? `Sans prompt : les références sont reproduites telles quelles × Batch ×${count}.`
               : genCount === 1
                 ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
@@ -1027,6 +1202,19 @@ export function StaticStudio() {
             {family.note ? ` ${family.note}` : ""}
           </p>
         </div>
+
+        {mode === "prompt" && promptMode === "auto" && plan ? (
+          <PlanCards
+            plan={plan}
+            selected={planSelected}
+            onSelect={setPlanSelected}
+            onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}
+            onRewrite={(index) => void rewritePlanned(index)}
+            rewriting={rewriting}
+            actionLabel={(n) => `Utiliser ces ${n} prompt${n > 1 ? "s" : ""}`}
+            onAction={usePlannedPrompts}
+          />
+        ) : null}
 
         <div className="min-h-[48vh] rounded-2xl bg-slate-50/80 p-2 ring-1 ring-slate-900/[0.04] dark:bg-slate-950/40">
           <div className="mb-2 flex items-center justify-between gap-2 px-1">
@@ -1163,6 +1351,7 @@ export function StaticStudio() {
                       download
                       className="block px-2 py-1.5 text-center text-[10px] font-medium text-slate-500"
                     >
+                      {job.origin ? <span className="mr-1 rounded bg-slate-100 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800" data-origin={job.origin} title={job.productName ?? ""}>{job.origin === "product-workspace" ? "Produit" : "Hermes"}</span> : null}
                       Télécharger
                     </a>
                   ) : null}

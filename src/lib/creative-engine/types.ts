@@ -372,6 +372,8 @@ export type BatchItem = CreativeSpec & {
   generatedAt: string | null;
   /** Le texte tapé par l'opérateur, avant les ajouts (produit, fidélité) — pour les lots de l'espace produit. */
   userPrompt?: string;
+  /** Fiche de la bibliothèque du studio où ce rendu a été rangé (espace produit, Ask Hermes). */
+  libraryId?: string;
   /** Pour « variations depuis un winner » : la créa d'origine. */
   parentId?: string | null;
 };

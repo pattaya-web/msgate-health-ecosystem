@@ -67,6 +67,8 @@ type Body = {
   count?: number;
   hasReference?: boolean;
   avoid?: string[];
+  /** Prompt libre : la fiche lue, quand il n'y a pas de produit du moteur. */
+  product?: { name?: string; store?: string; url?: string; price?: string } | null;
   url?: string;
   store?: string;
   productId?: string;
@@ -137,8 +139,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ images: await extractProductImages(url, product?.imageUrls ?? []) });
       }
       case "workspace-plan": {
-        const product = body.productId ? (await listProducts()).find((item) => item.id === body.productId) : null;
-        if (!product) return NextResponse.json({ error: "Produit manquant" }, { status: 400 });
+        const stored = body.productId ? (await listProducts()).find((item) => item.id === body.productId) : null;
+        if (body.productId && !stored) return NextResponse.json({ error: "Produit introuvable" }, { status: 400 });
+        const sheet = body.product?.name?.trim() ? { name: body.product.name.trim().slice(0, 200), store: body.product.store?.trim().slice(0, 100), url: body.product.url?.trim().slice(0, 500), price: body.product.price?.trim().slice(0, 40) } : null;
+        const product = stored ?? sheet;
         if (!body.brief?.trim()) return NextResponse.json({ error: "Brief manquant" }, { status: 400 });
         const plan = await planWorkspaceBatch({
           brief: body.brief,

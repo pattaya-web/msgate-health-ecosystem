@@ -3,6 +3,7 @@ import path from "path";
 import { persistBytes, persistJson, readMirror, readMirrorBytes } from "@/lib/storage";
 import { saveFile as saveDriveFile } from "@/lib/drive/store";
 import { CREATIVE_TYPES } from "@/lib/studio/creative-types";
+import { saveStaticCreative } from "@/lib/studio/library";
 import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from "@/lib/studio/kie";
 import type { Ratio } from "@/lib/studio/ratios";
 import { analyzeProductUrl, classify, inferGender } from "@/lib/creative-engine/analysis";
@@ -536,6 +537,25 @@ export async function refreshBatch(batchId: string) {
               await writeFile(path.join(dir, file), data);
             });
             item.file = file;
+            // Les rendus de l'espace produit et d'Ask Hermes vivent aussi dans Creatives : la bibliothèque du studio les reçoit, une fois.
+            if ((batch.source === "product-workspace" || batch.source === "ask-hermes") && !item.libraryId) {
+              try {
+                const saved = await saveStaticCreative({
+                  brief: item.userPrompt || batch.instructions || batch.productName,
+                  prompt: item.prompt,
+                  ratio: batch.ratio,
+                  resolution: batch.resolution,
+                  resultUrls: [`data:image/png;base64,${data.toString("base64")}`],
+                  referenceUrls: batch.primaryReferenceUrl ? [batch.primaryReferenceUrl] : [],
+                  media: "image",
+                  origin: batch.source,
+                  productName: batch.productName,
+                });
+                item.libraryId = saved.id;
+              } catch {
+                // la bibliothèque n'est qu'une copie : le rendu reste dans le lot
+              }
+            }
           }
         } catch {
           // l'URL Kie reste utilisable un moment ; le prochain passage réessaiera

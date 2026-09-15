@@ -13,6 +13,9 @@ export type StaticCreative = {
   source?: CreativeSource;
   /** Une vidéo se lit avec <video>, pas avec <img>. */
   media?: "image" | "video";
+  /** Écran d'origine : absent = studio static ; l'espace produit et Ask Hermes rangent aussi leurs rendus ici. */
+  origin?: "studio" | "product-workspace" | "ask-hermes";
+  productName?: string;
   brief: string;
   prompt: string;
   ratio: Ratio;

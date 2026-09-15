@@ -12,11 +12,14 @@ import { MAX_PLANNED_CREATIVES, validatePlan, type CreativePlan } from "./worksp
  * unique fabriqué en douce à partir du brief.
  */
 
+/** Ce qu'on sait du produit : une fiche du moteur (avec analyse), une fiche lue en prompt libre, ou rien. */
+export type PlanProduct = Pick<ProductContext, "name"> & Partial<Pick<ProductContext, "id" | "store" | "url" | "analysis">> & { price?: string };
+
 export type PlanInput = {
   brief: string;
   count: number;
   ratio: string;
-  product: ProductContext;
+  product: PlanProduct | null;
   hasReference: boolean;
   /** Concepts déjà retenus, à éviter quand on réécrit une seule créa. */
   avoid?: string[];
@@ -26,9 +29,9 @@ const SYSTEM =
   "You are the creative planner of the MSGate CRM Creative Engine. You turn an operator's brief into distinct static-ad concepts, each with a generation-ready image prompt. Answer with the requested JSON object ONLY: no prose, no markdown fences. Read-only task: do not browse, do not call tools that write or generate anything.";
 
 export function planPrompt(input: PlanInput): string {
-  const a = input.product.analysis;
-  const facts = [
-    `PRODUCT: ${input.product.name}${input.product.store ? ` by ${input.product.store}` : ""} (CRM id ${input.product.id}) — ${input.product.url}`,
+  const a = input.product?.analysis;
+  const facts = input.product ? [
+    `PRODUCT: ${input.product.name}${input.product.store ? ` by ${input.product.store}` : ""}${input.product.id ? ` (CRM id ${input.product.id})` : ""}${input.product.url ? ` — ${input.product.url}` : ""}${input.product.price ? ` — price ${input.product.price}` : ""}`,
     a?.productType || a?.category ? `- type: ${[a?.productType, a?.category ? `(${a.category})` : ""].filter(Boolean).join(" ")}` : "",
     a?.targetCustomer ? `- target customer: ${a.targetCustomer}` : "",
     a?.mainProblem ? `- main problem: ${a.mainProblem}` : "",
@@ -41,7 +44,9 @@ export function planPrompt(input: PlanInput): string {
       : "- no product photo is attached: describe the product consistently from the facts above",
   ]
     .filter(Boolean)
-    .join("\n");
+    .join("\n") : input.hasReference
+      ? "NO PRODUCT SHEET: the brief describes the subject. Reference image(s) are attached at generation time as the visual source of truth: every prompt shows exactly what they show, never a redesigned or imagined version."
+      : "NO PRODUCT SHEET: the brief is the only source. Describe the subject consistently across creatives.";
   const avoid = input.avoid?.length ? `\nAlready used concepts, do NOT repeat them: ${input.avoid.map((entry) => `« ${entry} »`).join(", ")}.` : "";
   return `Plan ${input.count} static ad creative${input.count > 1 ? "s" : ""} from the operator's brief. Each creative is ONE future image (never a collage or several ads in one image), format ${input.ratio}.
 
