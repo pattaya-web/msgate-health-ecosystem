@@ -5,10 +5,11 @@ import { Check, ExternalLink, ImageIcon, Link2, Loader2, Package, RefreshCw, Spa
 import { toast } from "sonner";
 import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { GenerationStatus, type GenerationState, type LaunchedBatch } from "@/components/ask-hermes/generate-dialog";
-import { engineGet, enginePost, panel } from "@/components/mass-test/engine-client";
+import { engineGet, enginePost, itemImageUrl, panel } from "@/components/mass-test/engine-client";
 import { PageHeader } from "@/components/shared/page-states";
 import type { ProductImageCandidate } from "@/lib/creative-engine/product-images";
-import { primaryReference, type ProductContext } from "@/lib/creative-engine/types";
+import { primaryReference, type ProductContext, type TestBatch } from "@/lib/creative-engine/types";
+import { isPromptsOnly, parseRequestedCount, parseRequestedRatio, type CreativePlan, type PlannedCreative } from "@/lib/creative-engine/workspace-plan";
 import { composeWorkspacePrompt } from "@/lib/creative-engine/workspace-prompt";
 import { RATIOS, ratioAspect, type Ratio } from "@/lib/studio/ratios";
 import { cn } from "@/lib/utils";
@@ -16,9 +17,10 @@ import { cn } from "@/lib/utils";
 /**
  * L'espace de création centré produit : un produit actif (du store du Creative
  * Engine), ses photos lues sur sa page, une référence visuelle principale
- * choisie et persistée, et un prompt court qui n'a plus à répéter le produit.
- * La génération passe par la route confirmée du moteur, avec la référence
- * réellement jointe au modèle image-to-image.
+ * choisie et persistée, un brief en langage naturel que le planificateur
+ * (Hermes) transforme en N créas distinctes, et une génération confirmée qui
+ * joint réellement la référence au modèle image-to-image. Les rendus du produit
+ * s'affichent en bas, chacun dans son ratio.
  */
 
 const ACTIVE_KEY = "msgate.product-workspace.active";
@@ -38,8 +40,11 @@ function loadActive(): string | null {
   }
 }
 
+const RATIO_IDS = RATIOS.map((entry) => entry.id) as string[];
+
 export function ProductWorkspace() {
   const [products, setProducts] = useState<ProductContext[]>([]);
+  const [batches, setBatches] = useState<TestBatch[]>([]);
   const [activeId, setActiveId] = useState<string | null>(loadActive);
   const [url, setUrl] = useState("");
   const [loadingProduct, setLoadingProduct] = useState(false);
@@ -47,21 +52,31 @@ export function ProductWorkspace() {
   const [imagesError, setImagesError] = useState<string | null>(null);
   const [showJunk, setShowJunk] = useState(false);
   const [settingRef, setSettingRef] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
+  const [brief, setBrief] = useState("");
+  const [mode, setMode] = useState<"auto" | "exact">("auto");
+  const [countOverride, setCountOverride] = useState<number | null>(null);
   const [ratio, setRatio] = useState<Ratio>("3:4");
   const [resolution, setResolution] = useState<"1K" | "2K">("1K");
   const [useReference, setUseReference] = useState(true);
+  const [plan, setPlan] = useState<(CreativePlan & { engine: string }) | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [rewriting, setRewriting] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [previewOpen, setPreviewOpen] = useState(false);
   const [launching, setLaunching] = useState(false);
   const [generation, setGeneration] = useState<GenerationState | null>(null);
 
   const active = useMemo(() => products.find((product) => product.id === activeId) ?? null, [products, activeId]);
   const primary = active ? primaryReference(active) : null;
+  const detectedCount = useMemo(() => parseRequestedCount(brief), [brief]);
+  const count = mode === "exact" ? 1 : countOverride ?? detectedCount;
+  const promptsOnly = useMemo(() => isPromptsOnly(brief), [brief]);
 
   const reload = useCallback(async () => {
     const data = await engineGet();
     setProducts(data.products);
-    return data.products;
+    setBatches(data.batches);
+    return data;
   }, []);
 
   useEffect(() => {
@@ -73,11 +88,13 @@ export function ProductWorkspace() {
     }
   }, [activeId]);
 
-  /* Changer de produit vide tout ce qui appartenait au précédent : galerie, aperçu, lot suivi. */
+  /* Changer de produit vide tout ce qui appartenait au précédent : galerie, plan, aperçu, lot suivi. */
   const loadImages = useCallback(async (product: ProductContext) => {
     setImages(null);
     setImagesError(null);
     setShowJunk(false);
+    setPlan(null);
+    setSelected(new Set());
     setPreviewOpen(false);
     setGeneration(null);
     try {
@@ -96,6 +113,7 @@ export function ProductWorkspace() {
       if (product) void loadImages(product);
       else {
         setImages(null);
+        setPlan(null);
         setPreviewOpen(false);
         setGeneration(null);
       }
@@ -106,15 +124,29 @@ export function ProductWorkspace() {
   useEffect(() => {
     const timer = setTimeout(() => {
       reload()
-        .then((list) => {
+        .then((data) => {
           const stored = loadActive();
-          const product = stored ? list.find((entry) => entry.id === stored) : null;
+          const product = stored ? data.products.find((entry) => entry.id === stored) : null;
           if (product) void loadImages(product);
         })
         .catch((error) => toast.error(error instanceof Error ? error.message : "Produits illisibles"));
     }, 0);
     return () => clearTimeout(timer);
   }, [reload, loadImages]);
+
+  /* Tant qu'un lot de ce produit tourne, les rendus du bas se rafraîchissent. */
+  const productBatches = useMemo(() => (active ? batches.filter((batch) => batch.source === "product-workspace" && batch.productId === active.id) : []), [batches, active]);
+  const pendingBatch = productBatches.some((batch) => batch.items.some((item) => item.state === "pending"));
+  useEffect(() => {
+    if (!pendingBatch) return;
+    const timer = setInterval(() => {
+      const running = productBatches.filter((batch) => batch.items.some((item) => item.state === "pending"));
+      Promise.all(running.map((batch) => enginePost({ action: "refresh", batchId: batch.id })))
+        .then(() => reload())
+        .catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [pendingBatch, productBatches, reload]);
 
   usePublishHermesContext(
     "product-workspace",
@@ -136,16 +168,16 @@ export function ProductWorkspace() {
     setLoadingProduct(true);
     try {
       const data = await enginePost<{ product: ProductContext; fallbackReason?: string }>({ action: "analyze", url: clean });
-      const list = await reload();
-      selectProduct(data.product.id, list);
+      const fresh = await reload();
+      selectProduct(data.product.id, fresh.products);
       setUrl("");
       toast.success(data.fallbackReason ? `${data.product.name} chargé · ${data.fallbackReason}` : `${data.product.name} chargé et analysé`);
     } catch (error) {
       // Le moteur refuse d'écraser une analyse existante par un repli : le produit existe déjà, on l'active.
-      const list = await reload().catch(() => products);
-      const existing = list.find((product) => product.url === clean || product.url === clean.split("?")[0]);
+      const fresh = await reload().catch(() => ({ products, batches }));
+      const existing = fresh.products.find((product) => product.url === clean || product.url === clean.split("?")[0]);
       if (existing) {
-        selectProduct(existing.id, list);
+        selectProduct(existing.id, fresh.products);
         setUrl("");
         toast.warning(error instanceof Error ? error.message : "Analyse indisponible, produit existant activé");
       } else toast.error(error instanceof Error ? error.message : "Page produit illisible");
@@ -170,13 +202,64 @@ export function ProductWorkspace() {
     }
   }
 
-  const facts = active ? { name: active.name, store: active.store, category: active.analysis?.category, productType: active.analysis?.productType, features: active.analysis?.features } : null;
+  const facts = useMemo(() => (active ? { name: active.name, store: active.store, category: active.analysis?.category, productType: active.analysis?.productType, features: active.analysis?.features } : null), [active]);
   const referenceMode = Boolean(useReference && primary);
-  const finalPrompt = facts && prompt.trim() ? composeWorkspacePrompt({ userPrompt: prompt, product: facts, hasReference: referenceMode }) : "";
   const model = referenceMode ? IMAGE_MODEL : TEXT_MODEL;
 
+  /** Les créas qui partiront : en mode exact, le texte tel quel ; en mode auto, les cartes cochées du plan. */
+  const drafts = useMemo<Array<{ index: number; userPrompt: string; angle?: string; hook?: string; label?: string; final: string }>>(() => {
+    if (!facts) return [];
+    if (mode === "exact") return brief.trim() ? [{ index: 1, userPrompt: brief.trim(), label: "exact prompt", final: composeWorkspacePrompt({ userPrompt: brief, product: facts, hasReference: referenceMode }) }] : [];
+    return (plan?.creatives ?? [])
+      .filter((creative) => selected.has(creative.index))
+      .map((creative) => ({ index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: composeWorkspacePrompt({ userPrompt: creative.prompt, product: facts, hasReference: referenceMode }) }));
+  }, [facts, mode, brief, plan, selected, referenceMode]);
+
+  async function prepare() {
+    if (!active || !brief.trim()) return;
+    if (mode === "exact") {
+      setPreviewOpen(true);
+      return;
+    }
+    const wantedRatio = parseRequestedRatio(brief);
+    if (wantedRatio && RATIO_IDS.includes(wantedRatio) && wantedRatio !== ratio) setRatio(wantedRatio as Ratio);
+    setPlanning(true);
+    setPreviewOpen(false);
+    try {
+      const data = await enginePost<{ plan: CreativePlan & { engine: string } }>({ action: "workspace-plan", productId: active.id, brief, count, ratio: wantedRatio ?? ratio, hasReference: referenceMode });
+      setPlan(data.plan);
+      setSelected(new Set(data.plan.creatives.map((creative) => creative.index)));
+      toast.success(`${data.plan.creatives.length} créa${data.plan.creatives.length > 1 ? "s" : ""} planifiée${data.plan.creatives.length > 1 ? "s" : ""} par ${data.plan.engine === "hermes" ? "Hermes" : "Claude"}`);
+    } catch (error) {
+      setPlan(null);
+      toast.error(error instanceof Error ? error.message : "Planification impossible");
+    } finally {
+      setPlanning(false);
+    }
+  }
+
+  async function rewriteOne(index: number) {
+    if (!active || !plan) return;
+    setRewriting(index);
+    try {
+      const avoid = plan.creatives.filter((creative) => creative.index !== index).map((creative) => creative.concept || creative.angle).filter(Boolean);
+      const data = await enginePost<{ plan: CreativePlan }>({ action: "workspace-plan", productId: active.id, brief, count: 1, ratio, hasReference: referenceMode, avoid });
+      const fresh = data.plan.creatives[0];
+      if (!fresh) throw new Error("Aucune créa renvoyée");
+      setPlan((current) => (current ? { ...current, creatives: current.creatives.map((creative) => (creative.index === index ? { ...fresh, index } : creative)) } : current));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Réécriture impossible");
+    } finally {
+      setRewriting(null);
+    }
+  }
+
+  function editPrompt(index: number, value: string) {
+    setPlan((current) => (current ? { ...current, creatives: current.creatives.map((creative) => (creative.index === index ? { ...creative, prompt: value } : creative)) } : current));
+  }
+
   async function confirmGeneration() {
-    if (!active || !finalPrompt) return;
+    if (!active || !drafts.length) return;
     setLaunching(true);
     try {
       const response = await fetch("/api/creative-engine/from-prompts", {
@@ -185,7 +268,7 @@ export function ProductWorkspace() {
         body: JSON.stringify({
           confirm: "generate",
           source: "product-workspace",
-          prompts: [{ prompt: finalPrompt, userPrompt: prompt.trim(), label: "product workspace" }],
+          prompts: drafts.map((draft) => ({ prompt: draft.final, userPrompt: mode === "exact" ? draft.userPrompt : brief.trim(), angle: draft.angle, hook: draft.hook, label: draft.label })),
           productId: active.id,
           productName: active.name,
           productUrl: active.url,
@@ -201,7 +284,8 @@ export function ProductWorkspace() {
       if (!response.ok || !payload.batch) throw new Error(payload.error || `Erreur ${response.status}`);
       setGeneration(launched(payload.batch));
       setPreviewOpen(false);
-      toast.success(`Lot #${String(payload.batch.number).padStart(3, "0")} lancé`);
+      toast.success(`Lot #${String(payload.batch.number).padStart(3, "0")} lancé · ${payload.batch.items.length} image${payload.batch.items.length > 1 ? "s" : ""}`);
+      void reload();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Génération impossible");
     } finally {
@@ -212,10 +296,11 @@ export function ProductWorkspace() {
   const visible = (images ?? []).filter((image) => showJunk || !image.junk);
   const hidden = (images ?? []).filter((image) => image.junk).length;
   const thumb = primary?.url ?? active?.imageUrls[0] ?? null;
+  const planned = plan?.creatives ?? [];
 
   return (
     <div>
-      <PageHeader title="Espace produit" description="Un produit, sa vraie photo comme référence, et un prompt court : le moteur sait déjà de quoi tu parles." />
+      <PageHeader title="Espace produit" description="Un produit, sa vraie photo comme référence, et un brief : « Create 5 ads… » donne cinq créas distinctes, une image chacune." />
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {/* ------------------------------------------------ Produit actif + références */}
@@ -356,7 +441,21 @@ export function ProductWorkspace() {
         {/* ------------------------------------------------ Créer */}
         <div className="space-y-3">
           <section className={panel} data-create>
-            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Créer</div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Créer</div>
+              <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Mode">
+                {(
+                  [
+                    ["auto", "Auto · brief"],
+                    ["exact", "Prompt exact"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button key={id} type="button" aria-pressed={mode === id} onClick={() => { setMode(id); setPreviewOpen(false); }} className={cn("rounded px-2 py-0.5 text-[10.5px] font-medium", mode === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")} data-mode={id}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {active ? (
               <div className="mb-2 flex items-center gap-3 rounded-xl bg-slate-50 p-2 text-[11.5px] dark:bg-slate-800/60" data-context-bar>
                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-slate-200 dark:bg-slate-700">
@@ -373,23 +472,32 @@ export function ProductWorkspace() {
                 </div>
               </div>
             ) : (
-              <p className="mb-2 text-[12px] text-slate-500">Active un produit à gauche : le prompt agira sur lui.</p>
+              <p className="mb-2 text-[12px] text-slate-500">Active un produit à gauche : le brief agira sur lui.</p>
             )}
             <textarea
-              value={prompt}
+              value={brief}
               onChange={(event) => {
-                setPrompt(event.target.value);
+                setBrief(event.target.value);
+                setCountOverride(null);
                 setPreviewOpen(false);
               }}
-              rows={4}
+              rows={5}
               disabled={!active}
-              placeholder='Ex. « Create a candid iPhone 15 photo of a woman using this product in her bedroom. » — inutile de redire le produit, sa marque ou sa photo.'
+              placeholder={mode === "auto" ? 'Ex. « Create 5 ultra realistic static ads for this product. Style: iPhone 15 candid, ultra native, organic. Ratio 3:4. Make the real product clearly visible. » — inutile de redire le produit, sa marque ou sa photo.' : "Ton prompt exact, envoyé tel quel pour une image (produit et fidélité ajoutés automatiquement)."}
               className="w-full resize-y rounded-xl bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed outline-none disabled:opacity-60 dark:bg-slate-800"
+              data-brief
             />
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+              {mode === "auto" ? (
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-500" title="Nombre d'images lu dans le brief ; modifiable">
+                  <span className="font-semibold uppercase tracking-wide">Créas</span>
+                  <input type="number" min={1} max={30} value={count} onChange={(event) => setCountOverride(Math.min(30, Math.max(1, Number(event.target.value) || 1)))} className="w-14 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800" data-count />
+                  <span className="text-[10px] text-slate-400">{countOverride === null ? "détecté" : "modifié"}</span>
+                </label>
+              ) : null}
               <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
                 <span className="font-semibold uppercase tracking-wide">Ratio</span>
-                <select value={ratio} onChange={(event) => setRatio(event.target.value as Ratio)} className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800">
+                <select value={ratio} onChange={(event) => setRatio(event.target.value as Ratio)} className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800" data-ratio>
                   {RATIOS.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.id} · {item.hint}
@@ -410,20 +518,65 @@ export function ProductWorkspace() {
               </label>
               <button
                 type="button"
-                disabled={!active || !prompt.trim()}
-                onClick={() => setPreviewOpen(true)}
+                disabled={!active || !brief.trim() || planning}
+                onClick={() => void prepare()}
                 className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900"
+                data-prepare
               >
-                <Wand2 className="h-3.5 w-3.5" />
-                Préparer la génération
+                {planning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                {mode === "auto" ? (planning ? "Planification…" : `Planifier ${count} créa${count > 1 ? "s" : ""}`) : "Préparer la génération"}
               </button>
             </div>
             <p className="mt-1.5 text-[11px] text-slate-400">
-              {primary ? (referenceMode ? "La référence principale part avec le prompt (image-to-image)." : "Référence désactivée : génération texte seul, le produit ne sera pas fidèle.") : "Sans référence principale, la génération est en texte seul : le modèle inventera l'apparence du produit."}
+              {mode === "auto" ? `${count} créa${count > 1 ? "s" : ""} = ${count} image${count > 1 ? "s" : ""} distincte${count > 1 ? "s" : ""}. ` : ""}
+              {promptsOnly ? "« Prompts only » lu dans le brief : rien ne sera généré sans ton clic. " : ""}
+              {primary ? (referenceMode ? "La référence principale part avec chaque prompt (image-to-image)." : "Référence désactivée : génération texte seul, le produit ne sera pas fidèle.") : "Sans référence principale, la génération est en texte seul : le modèle inventera l'apparence du produit."}
             </p>
           </section>
 
-          {previewOpen && active ? (
+          {mode === "auto" && plan ? (
+            <section className={panel} data-plan>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <div className="text-[12px] font-semibold text-slate-900 dark:text-slate-100" data-plan-count>
+                  Batch : {planned.length} créa{planned.length > 1 ? "s" : ""} = {planned.length} image{planned.length > 1 ? "s" : ""}
+                </div>
+                <span className="text-[10.5px] text-slate-400">planifié par {plan.engine === "hermes" ? "Hermes" : "Claude"} · {plan.ratio}</span>
+                <div className="ml-auto flex items-center gap-1.5 text-[11px]">
+                  <button type="button" onClick={() => setSelected(new Set(planned.map((creative) => creative.index)))} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Tout sélectionner</button>
+                  <button type="button" onClick={() => setSelected(new Set())} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Tout désélectionner</button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {planned.map((creative: PlannedCreative) => (
+                  <article key={creative.index} className={cn("rounded-xl border p-2.5", selected.has(creative.index) ? "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900" : "border-slate-200 bg-slate-50 opacity-70 dark:border-slate-800 dark:bg-slate-900/40")} data-creative-card={creative.index}>
+                    <div className="flex items-start gap-2">
+                      <input type="checkbox" className="mt-1" checked={selected.has(creative.index)} onChange={(event) => setSelected((current) => { const next = new Set(current); if (event.target.checked) next.add(creative.index); else next.delete(creative.index); return next; })} aria-label={`Créa ${creative.index}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 text-[11px]">
+                          <span className="font-semibold uppercase tracking-wide text-slate-500">Creative {String(creative.index).padStart(2, "0")}</span>
+                          {creative.angle ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200" data-angle>{creative.angle}</span> : null}
+                          <button type="button" disabled={rewriting !== null} onClick={() => void rewriteOne(creative.index)} className="ml-auto inline-flex items-center gap-1 text-[10.5px] text-slate-500 hover:text-slate-800 disabled:opacity-50 dark:hover:text-slate-200" title="Demander un autre concept pour cette créa">
+                            {rewriting === creative.index ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Réécrire
+                          </button>
+                        </div>
+                        {creative.concept ? <div className="mt-0.5 text-[11.5px] text-slate-700 dark:text-slate-300" data-concept>{creative.concept}</div> : null}
+                        {creative.hook ? <div className="text-[11px] text-slate-500">Hook : « {creative.hook} »</div> : null}
+                        <textarea value={creative.prompt} onChange={(event) => editPrompt(creative.index, event.target.value)} rows={3} className="mt-1.5 w-full resize-y rounded-lg bg-slate-50 px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none dark:bg-slate-800" data-creative-prompt />
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <button type="button" disabled={!selected.size} onClick={() => setPreviewOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900" data-generate-selected>
+                  <Wand2 className="h-3.5 w-3.5" />
+                  Générer la sélection ({selected.size})
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {previewOpen && active && drafts.length ? (
             <section className={cn(panel, "ring-2 ring-slate-900/20 dark:ring-slate-100/20")} data-preview>
               <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Aperçu avant génération · aucun crédit dépensé avant confirmation</div>
               <dl className="grid grid-cols-[130px_1fr] gap-x-3 gap-y-1.5 text-[12px]">
@@ -441,26 +594,32 @@ export function ProductWorkspace() {
                     <span className="text-slate-500">aucune</span>
                   )}
                 </dd>
-                <dt className="text-slate-500">User prompt</dt>
-                <dd className="whitespace-pre-wrap text-slate-800 dark:text-slate-200" data-preview-user-prompt>{prompt.trim()}</dd>
-                <dt className="text-slate-500">Final generation prompt</dt>
-                <dd>
-                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-2 font-mono text-[11px] leading-relaxed text-slate-800 dark:bg-slate-800 dark:text-slate-200" data-preview-final-prompt>{finalPrompt}</pre>
-                </dd>
-                <dt className="text-slate-500">Ratio</dt>
-                <dd>{ratio} · {resolution}</dd>
+                <dt className="text-slate-500">Images</dt>
+                <dd data-preview-count={drafts.length}>{drafts.length} image{drafts.length > 1 ? "s" : ""} · {ratio} · {resolution}</dd>
                 <dt className="text-slate-500">Model</dt>
                 <dd className="font-mono text-[11px]" data-preview-model={model}>{model}</dd>
                 <dt className="text-slate-500">Reference mode</dt>
                 <dd data-preview-reference-mode={referenceMode ? "image" : "text"}>{referenceMode ? "Image reference enabled" : "Image reference disabled (text-to-image)"}</dd>
               </dl>
+              <div className="mt-2 max-h-80 space-y-2 overflow-y-auto">
+                {drafts.map((draft, position) => (
+                  <div key={draft.index} className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800" data-preview-draft={draft.index}>
+                    <div className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">
+                      {mode === "exact" ? "User prompt" : `Creative ${String(position + 1).padStart(2, "0")}${draft.angle ? ` · ${draft.angle}` : ""}`}
+                    </div>
+                    <div className="mt-0.5 whitespace-pre-wrap text-[11.5px] text-slate-800 dark:text-slate-200" data-preview-user-prompt>{draft.userPrompt}</div>
+                    <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Final generation prompt</div>
+                    <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-white p-2 font-mono text-[10.5px] leading-relaxed text-slate-700 dark:bg-slate-900 dark:text-slate-300" data-preview-final-prompt>{draft.final}</pre>
+                  </div>
+                ))}
+              </div>
               <div className="mt-3 flex items-center justify-end gap-2">
                 <button type="button" onClick={() => setPreviewOpen(false)} disabled={launching} className="rounded-lg px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">
                   Annuler
                 </button>
                 <button type="button" onClick={() => void confirmGeneration()} disabled={launching} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-60 dark:bg-white dark:text-slate-900">
                   {launching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  Confirmer la génération
+                  Confirmer la génération ({drafts.length})
                 </button>
               </div>
             </section>
@@ -469,11 +628,49 @@ export function ProductWorkspace() {
           {generation ? (
             <section className={panel}>
               <GenerationStatus generation={generation} onUpdate={setGeneration} onDismiss={() => setGeneration(null)} />
-              <div className={cn("mx-auto max-w-[200px] overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-800", ratioAspect(generation.batch.ratio))} aria-hidden />
             </section>
           ) : null}
         </div>
       </div>
+
+      {/* ------------------------------------------------ Résultats du produit : 4 par ligne, chacun dans son ratio */}
+      {active && productBatches.length ? (
+        <section className={cn(panel, "mt-3")} data-results>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Résultats · {active.name}</div>
+            <span className="text-[11px] text-slate-500">{productBatches.reduce((sum, batch) => sum + batch.items.length, 0)} image{productBatches.reduce((sum, batch) => sum + batch.items.length, 0) > 1 ? "s" : ""} sur {productBatches.length} lot{productBatches.length > 1 ? "s" : ""}</span>
+          </div>
+          <div className="grid grid-cols-2 items-start gap-2 md:grid-cols-4">
+            {productBatches.flatMap((batch) =>
+              batch.items.map((item) => {
+                const src = item.file ? itemImageUrl(batch.id, item.file, item.name) : null;
+                return (
+                  <article key={item.id} className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-900/[0.06] dark:bg-slate-900" data-result-item data-result-ratio={batch.ratio}>
+                    <div className={cn("relative bg-slate-100 dark:bg-slate-800", ratioAspect(batch.ratio))}>
+                      {src ? (
+                        <a href={src} target="_blank" rel="noreferrer" title={item.userPrompt ?? item.prompt}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        </a>
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[11px] text-slate-400">
+                          {item.state === "fail" ? <span className="px-2 text-center text-rose-500">{item.error ?? "échec"}</span> : <Loader2 className="h-5 w-5 animate-spin" />}
+                        </div>
+                      )}
+                    </div>
+                    <div className="truncate px-2 py-1 text-[10px] text-slate-500" title={item.name}>
+                      #{String(batch.number).padStart(3, "0")} · {batch.ratio}{item.angleName && item.angleName !== "Ask Hermes" ? ` · ${item.angleName}` : ""}
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </div>
+          <a href={`/studio/mass-test?batch=${productBatches[0].id}`} className="mt-2 inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+            <ExternalLink className="h-3 w-3" /> Ouvrir dans Mass test (statuts, relance, Drive)
+          </a>
+        </section>
+      ) : null}
     </div>
   );
 }

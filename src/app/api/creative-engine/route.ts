@@ -20,6 +20,7 @@ import {
   type GenerateSpec,
 } from "@/lib/creative-engine/store";
 import { extractProductImages } from "@/lib/creative-engine/product-images";
+import { planWorkspaceBatch } from "@/lib/creative-engine/workspace-writer";
 import type { ProductReferenceType } from "@/lib/creative-engine/types";
 import type { CreativeEmphasis, CreativeStatus, FamilyMixSetting, ReferenceStrength } from "@/lib/creative-engine/types";
 
@@ -58,9 +59,14 @@ type Body = {
     | "batch-delete"
     | "product-images"
     | "product-reference"
-    | "product-reference-clear";
+    | "product-reference-clear"
+    | "workspace-plan";
   referenceType?: ProductReferenceType;
   referenceUrl?: string;
+  brief?: string;
+  count?: number;
+  hasReference?: boolean;
+  avoid?: string[];
   url?: string;
   store?: string;
   productId?: string;
@@ -129,6 +135,20 @@ export async function POST(request: Request) {
         const url = product?.url ?? body.url;
         if (!url) return NextResponse.json({ error: "Produit ou URL manquant" }, { status: 400 });
         return NextResponse.json({ images: await extractProductImages(url, product?.imageUrls ?? []) });
+      }
+      case "workspace-plan": {
+        const product = body.productId ? (await listProducts()).find((item) => item.id === body.productId) : null;
+        if (!product) return NextResponse.json({ error: "Produit manquant" }, { status: 400 });
+        if (!body.brief?.trim()) return NextResponse.json({ error: "Brief manquant" }, { status: 400 });
+        const plan = await planWorkspaceBatch({
+          brief: body.brief,
+          count: body.count ?? 1,
+          ratio: body.ratio || "3:4",
+          product,
+          hasReference: Boolean(body.hasReference),
+          avoid: (body.avoid ?? []).map(String).slice(0, 30),
+        });
+        return NextResponse.json({ plan });
       }
       case "product-reference":
         if (!body.productId || !body.referenceUrl) return NextResponse.json({ error: "Produit ou image manquant" }, { status: 400 });

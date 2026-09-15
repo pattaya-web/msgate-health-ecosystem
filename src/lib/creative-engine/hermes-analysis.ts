@@ -14,7 +14,15 @@ export function hermesAnalysisAvailable() {
   return hermesChatConfig() !== null;
 }
 
-export async function askHermesForAnalysis(prompt: string): Promise<string> {
+const ANALYSIS_SYSTEM =
+  "You are the product-analysis engine of the MSGate CRM Creative Engine. The product page has already been read; everything you need is in the message. Answer with the requested JSON object ONLY: no prose before or after, no markdown fences. Infer category, product type, class and every field from the page content itself, never from assumptions about the niche. This is a read-only task: do not browse, do not call tools that write or generate anything.";
+
+export function askHermesForAnalysis(prompt: string): Promise<string> {
+  return askHermesText(prompt, ANALYSIS_SYSTEM);
+}
+
+/** Un tour texte, sans streaming, avec une consigne système : rend le texte brut de Hermes. */
+export async function askHermesText(prompt: string, system: string): Promise<string> {
   const config = hermesChatConfig();
   if (!config) throw new Error("Hermes non configuré (HERMES_API_URL / HERMES_API_SERVER_KEY)");
   const controller = new AbortController();
@@ -32,11 +40,7 @@ export async function askHermesForAnalysis(prompt: string): Promise<string> {
         model: "hermes-agent",
         stream: false,
         messages: [
-          {
-            role: "system",
-            content:
-              "You are the product-analysis engine of the MSGate CRM Creative Engine. The product page has already been read; everything you need is in the message. Answer with the requested JSON object ONLY: no prose before or after, no markdown fences. Infer category, product type, class and every field from the page content itself, never from assumptions about the niche. This is a read-only task: do not browse, do not call tools that write or generate anything.",
-          },
+          { role: "system", content: system },
           { role: "user", content: prompt },
         ],
       }),

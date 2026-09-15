@@ -1,0 +1,83 @@
+import { askHermesText, hermesAnalysisAvailable } from "@/lib/creative-engine/hermes-analysis";
+import { kieClaude } from "@/lib/studio/kie";
+import type { ProductContext } from "./types";
+import { MAX_PLANNED_CREATIVES, validatePlan, type CreativePlan } from "./workspace-plan";
+
+/**
+ * Le planificateur de l'espace produit : un brief en langage naturel
+ * (« Create 5 ultra realistic static ads… ») devient N concepts distincts,
+ * chacun avec son prompt de génération, en JSON strict. Hermes en premier
+ * (mêmes skills et mémoire que sur Telegram), Claude via Kie en secours. Rien
+ * n'est généré ici, et un plan illisible est une erreur, jamais un prompt
+ * unique fabriqué en douce à partir du brief.
+ */
+
+export type PlanInput = {
+  brief: string;
+  count: number;
+  ratio: string;
+  product: ProductContext;
+  hasReference: boolean;
+  /** Concepts déjà retenus, à éviter quand on réécrit une seule créa. */
+  avoid?: string[];
+};
+
+const SYSTEM =
+  "You are the creative planner of the MSGate CRM Creative Engine. You turn an operator's brief into distinct static-ad concepts, each with a generation-ready image prompt. Answer with the requested JSON object ONLY: no prose, no markdown fences. Read-only task: do not browse, do not call tools that write or generate anything.";
+
+export function planPrompt(input: PlanInput): string {
+  const a = input.product.analysis;
+  const facts = [
+    `PRODUCT: ${input.product.name}${input.product.store ? ` by ${input.product.store}` : ""} (CRM id ${input.product.id}) — ${input.product.url}`,
+    a?.productType || a?.category ? `- type: ${[a?.productType, a?.category ? `(${a.category})` : ""].filter(Boolean).join(" ")}` : "",
+    a?.targetCustomer ? `- target customer: ${a.targetCustomer}` : "",
+    a?.mainProblem ? `- main problem: ${a.mainProblem}` : "",
+    a?.mechanism ? `- mechanism: ${a.mechanism}` : "",
+    a?.benefits?.length ? `- benefits: ${a.benefits.slice(0, 4).join(" | ")}` : "",
+    a?.features?.length ? `- physical description / visual points: ${a.features.slice(0, 5).join(" | ")}` : "",
+    a?.transformation ? `- transformation: ${a.transformation}` : "",
+    input.hasReference
+      ? "- a real photo of the product is attached at generation time as the visual source of truth: every prompt shows THIS exact product, never a redesigned or imagined one"
+      : "- no product photo is attached: describe the product consistently from the facts above",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const avoid = input.avoid?.length ? `\nAlready used concepts, do NOT repeat them: ${input.avoid.map((entry) => `« ${entry} »`).join(", ")}.` : "";
+  return `Plan ${input.count} static ad creative${input.count > 1 ? "s" : ""} from the operator's brief. Each creative is ONE future image (never a collage or several ads in one image), format ${input.ratio}.
+
+${facts}
+
+OPERATOR BRIEF:
+"""
+${input.brief.trim()}
+"""
+
+Rules:
+- Follow the brief exactly for style, angle, ratio, product visibility and any distribution it asks for (e.g. « 3 before/after and 2 product-focused » means exactly that split, in that order).
+- The ${input.count} creatives must be genuinely different: vary scene, subject, framing, camera angle, product placement, visual hook, composition, lighting, text hierarchy, proof mechanism and context of use, while keeping the requested style family and the same real product.
+- Each "prompt" is complete and directly usable by an image model: subject, product placement and visibility, setting, lighting, camera or phone look, composition, on-image text only if the brief asks for it. 60 to 160 words. Plain English. No numbering, no reference to other creatives, no product-fidelity boilerplate (it is appended automatically).
+- "angle" is the advertising angle in a few words, "concept" one sentence describing the image idea, "hook" the headline idea (empty string if the brief wants no text).${avoid}
+
+Return ONLY this JSON:
+{"count": ${input.count}, "ratio": "${input.ratio}", "format": "static", "creatives": [{"index": 1, "angle": "", "concept": "", "hook": "", "prompt": ""}]}`;
+}
+
+export async function planWorkspaceBatch(input: PlanInput): Promise<CreativePlan & { engine: "hermes" | "claude" }> {
+  const count = Math.min(MAX_PLANNED_CREATIVES, Math.max(1, Math.round(input.count)));
+  const prompt = planPrompt({ ...input, count });
+  let hermesReason = hermesAnalysisAvailable() ? "" : "Hermes non configuré";
+  if (!hermesReason) {
+    try {
+      const raw = await askHermesText(prompt, SYSTEM);
+      return { ...validatePlan(raw, count, input.ratio), engine: "hermes" };
+    } catch (error) {
+      hermesReason = error instanceof Error ? error.message : "Hermes indisponible";
+    }
+  }
+  try {
+    const raw = await kieClaude(prompt, 4000);
+    return { ...validatePlan(raw, count, input.ratio), engine: "claude" };
+  } catch (error) {
+    throw new Error(`Planification impossible — Hermes : ${hermesReason} ; Kie : ${error instanceof Error ? error.message : "?"}`);
+  }
+}

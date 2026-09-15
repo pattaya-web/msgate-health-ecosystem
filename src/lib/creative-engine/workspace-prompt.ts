@@ -6,6 +6,8 @@
  * chose.
  */
 
+import { SINGLE_CREATIVE_RULE } from "./prompt";
+
 export type WorkspaceProductFacts = {
   name: string;
   store: string;
@@ -23,5 +25,6 @@ export function composeWorkspacePrompt(input: { userPrompt: string; product: Wor
   const descriptor = [product.productType, product.category ? `(${product.category})` : ""].filter(Boolean).join(" ");
   const facts = (product.features ?? []).filter(Boolean).slice(0, 2).join("; ");
   const productLine = `PRODUCT: ${product.name}${product.store ? ` by ${product.store}` : ""}${descriptor ? ` — ${descriptor}` : ""}.${facts ? ` ${facts}.` : ""}`;
-  return [user, "", productLine, input.hasReference ? FIDELITY_INSTRUCTION : ""].filter((line, index) => line !== "" || index === 1).join("\n");
+  // Une créa = une image : la règle du moteur ferme la porte aux collages, quel que soit le brief.
+  return [user, "", productLine, input.hasReference ? FIDELITY_INSTRUCTION : "", SINGLE_CREATIVE_RULE].filter((line, index) => line !== "" || index === 1).join("\n");
 }
