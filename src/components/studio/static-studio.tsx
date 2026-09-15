@@ -94,19 +94,6 @@ function loadStoredJobs(): Job[] {
 type RefImage = { id: string; preview: string; name: string; dataUrl?: string; url?: string };
 
 export function StaticStudio() {
-  const router = useRouter();
-  /** Envoie le rendu ouvert dans Remove Magic : gomme au pinceau, l'IA rebouche. */
-  async function eraseWithAi(url: string) {
-    try {
-      const blob = await (await fetch(url)).blob();
-      const dataUrl = await fileToDataUrl(new File([blob], "creative.png", { type: blob.type || "image/png" }));
-      sessionStorage.setItem(STUDIO_REMOVE_SOURCE_KEY, dataUrl);
-      setZoom(null);
-      router.push("/studio/remove");
-    } catch {
-      toast.error("Image illisible");
-    }
-  }
   const [brief, setBrief] = useState("");
   const [prompts, setPrompts] = useState<string[]>([]);
   const [selected, setSelected] = useState<Record<number, boolean>>({});
@@ -162,6 +149,19 @@ export function StaticStudio() {
   );
   /** Créa ouverte en grand, et lot coché pour un export groupé. */
   const [zoom, setZoom] = useState<string | null>(null);
+  const router = useRouter();
+  /** Envoie le rendu ouvert dans Remove Magic : gomme au pinceau, l'IA rebouche. */
+  async function eraseWithAi(url: string) {
+    try {
+      const blob = await (await fetch(url)).blob();
+      const dataUrl = await fileToDataUrl(new File([blob], "creative.png", { type: blob.type || "image/png" }));
+      sessionStorage.setItem(STUDIO_REMOVE_SOURCE_KEY, dataUrl);
+      setZoom(null);
+      router.push("/studio/remove");
+    } catch {
+      toast.error("Image illisible");
+    }
+  }
 
   /* Aperçu ouvert : Échap le ferme, et la page derrière ne défile plus. */
   useEffect(() => {
