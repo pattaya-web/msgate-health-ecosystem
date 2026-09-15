@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckSquare,
   ChevronDown,
@@ -24,6 +24,7 @@ import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { cn } from "@/lib/utils";
 import { assetProxy, libraryFileUrl, pollStudioTask, saveStaticCreative, studioPost } from "@/lib/studio/client";
 import { STUDIO_REMOVE_SOURCE_KEY, STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-types";
+import { claimTask, releaseTask, markStaticStudioMounted } from "@/lib/studio/generation-registry";
 import { useRouter } from "next/navigation";
 import { Eraser } from "lucide-react";
 import { SendToDrive } from "@/components/drive/send-to-drive";
@@ -142,8 +143,11 @@ export function StaticStudio() {
   const [count, setCount] = useState(1);
   const [busy, setBusy] = useState<"expand" | "gen" | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
-  /** taskId déjà surveillés, pour ne pas ouvrir deux boucles sur la même tâche. */
-  const watching = useRef<Set<string>>(new Set());
+  /* Tant que le studio est monté, c'est lui qui suit ses tâches ; parti, le veilleur du shell prend le relais. */
+  useEffect(() => {
+    markStaticStudioMounted(true);
+    return () => markStaticStudioMounted(false);
+  }, []);
   const [refs, setRefs] = useState<RefImage[]>([]);
   const [genPaste, setGenPaste] = useState("");
   /* Prompt libre : en « Auto · brief », le texte est un brief que Hermes découpe en N prompts distincts ; en « Prompt exact », il part tel quel. */
@@ -332,7 +336,7 @@ export function StaticStudio() {
           error: error instanceof Error ? error.message : "Échec",
         });
       } finally {
-        watching.current.delete(job.taskId);
+        releaseTask(job.taskId);
       }
     },
     [patchJob]
@@ -343,8 +347,7 @@ export function StaticStudio() {
   useEffect(() => {
     for (const job of jobs) {
       if (job.status !== "run" || !job.taskId) continue;
-      if (watching.current.has(job.taskId)) continue;
-      watching.current.add(job.taskId);
+      if (!claimTask(job.taskId)) continue;
       void watchJob(job);
     }
   }, [jobs, watchJob]);
@@ -669,6 +672,8 @@ export function StaticStudio() {
         ratio: wantedRatio ?? ratio,
         hasReference: refs.length > 0,
         product: product ? { name: product.name, ...(product.brand ? { store: product.brand } : {}), ...(productUrl.trim() ? { url: productUrl.trim() } : {}), ...(product.price ? { price: product.price } : {}) } : null,
+        // La première référence chargée est la créa que le batch doit suivre ; toutes partent ensuite avec la génération.
+        referenceDataUrl: refs.find((ref) => ref.dataUrl)?.dataUrl ?? null,
       });
       setPlan(fresh);
       setPlanSelected(new Set(fresh.creatives.map((creative) => creative.index)));
@@ -685,7 +690,7 @@ export function StaticStudio() {
     if (!plan) return;
     setRewriting(index);
     try {
-      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: refs.length > 0, product: product ? { name: product.name } : null, avoid: avoidList(plan, index) })).creatives[0];
+      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: refs.length > 0, product: product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: refs.find((ref) => ref.dataUrl)?.dataUrl ?? null })).creatives[0];
       if (!fresh) throw new Error("Aucune créa renvoyée");
       setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
     } catch (error) {
@@ -1189,7 +1194,7 @@ export function StaticStudio() {
 
           <p className="mt-1 text-[11px] text-slate-400">
             {promptMode === "auto"
-              ? `Auto · brief : « Create 5 ads… » donne ${planCount} prompt${planCount > 1 ? "s" : ""} distinct${planCount > 1 ? "s" : ""} par Hermes, ${planCount} image${planCount > 1 ? "s" : ""}, à relire avant de générer.${promptsOnly ? " « Prompts only » lu : rien ne part sans ton clic." : ""}${product ? ` Produit : ${product.name}.` : ""}${refs.length ? " Les références partent avec chaque prompt." : ""} `
+              ? `Auto · brief : « Create 5 ads… » donne ${planCount} prompt${planCount > 1 ? "s" : ""} distinct${planCount > 1 ? "s" : ""} par Hermes, ${planCount} image${planCount > 1 ? "s" : ""}, à relire avant de générer.${promptsOnly ? " « Prompts only » lu : rien ne part sans ton clic." : ""}${product ? ` Produit : ${product.name}.` : ""}${refs.some((ref) => ref.dataUrl) ? " La 1re référence chargée est la créa que le batch suit ; toutes partent avec chaque prompt." : refs.length ? " Les références partent avec chaque prompt." : ""} `
               : null}
             {promptMode === "exact" && !genPaste.trim() && !activePrompts.length && refs.length
               ? `Sans prompt : les références sont reproduites telles quelles × Batch ×${count}.`

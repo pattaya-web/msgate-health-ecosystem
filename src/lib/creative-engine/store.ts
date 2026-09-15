@@ -513,7 +513,16 @@ export async function duplicateItem(batchId: string, itemId: string) {
  * Suit les rendus en attente et rapatrie chaque image terminée. Les URL Kie
  * expirent : l'image est copiée sur disque dès qu'elle existe.
  */
-export async function refreshBatch(batchId: string) {
+const refreshQueue = ((globalThis as typeof globalThis & { __msgateRefreshQueue?: { chain: Promise<unknown> } }).__msgateRefreshQueue ??= { chain: Promise.resolve() });
+
+/** Un rafraîchissement à la fois : le fichier des lots est réécrit en entier, deux sondes croisées se perdraient des résultats. */
+export function refreshBatch(batchId: string) {
+  const run = refreshQueue.chain.then(() => refreshBatchNow(batchId));
+  refreshQueue.chain = run.catch(() => undefined);
+  return run;
+}
+
+async function refreshBatchNow(batchId: string) {
   const batches = await listBatches();
   const batch = batches.find((item) => item.id === batchId);
   if (!batch) throw new Error("Lot introuvable");
