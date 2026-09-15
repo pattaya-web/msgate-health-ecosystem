@@ -23,7 +23,34 @@ export type PlanInput = {
   hasReference: boolean;
   /** Concepts déjà retenus, à éviter quand on réécrit une seule créa. */
   avoid?: string[];
+  /** Une créa de référence est jointe au brief (et à la génération) : chaque prompt suit sa structure. */
+  creativeReferenceAttached?: boolean;
+  /** Sa description en mots, quand un modèle qui voit a pu la lire ; null sinon. */
+  creativeReferenceDescription?: string | null;
 };
+
+const DESCRIBE_PROMPT =
+  "Describe this ad creative for an image-generation planner that cannot see it. In 90 to 140 words, plain English, one paragraph: format and layout, subject and framing, where and how big the product is, text blocks (what kind, where, hierarchy; quote short visible text), colours and background, lighting and camera feel, overall style (UGC / studio / editorial / meme / infographic). Facts only, no advice, no markdown.";
+
+/** Met des mots sur la créa de référence pour que Hermes (texte seul) puisse la suivre ; null si aucun modèle qui voit n'est joignable. */
+export async function describeCreativeReference(dataUrl: string): Promise<string | null> {
+  try {
+    const text = (await kieClaude(DESCRIBE_PROMPT, 600, [dataUrl])).trim();
+    return text.length >= 40 ? text.slice(0, 1200) : null;
+  } catch {
+    return null;
+  }
+}
+
+function creativeReferenceBlock(input: PlanInput): string {
+  if (!input.creativeReferenceAttached) return "";
+  const seen = input.creativeReferenceDescription
+    ? `Description: ${input.creativeReferenceDescription}`
+    : "It could not be described here; the image model will see it at generation time.";
+  return `
+REFERENCE CREATIVE: the operator attached a real ad creative as the model for this batch; the same image is attached to the image model at generation time. ${seen}
+Every creative keeps its composition, visual hierarchy, framing, text placement and style; only the scene, subject, angle and hook change as the brief asks. Start every "prompt" with this exact sentence: "Follow the attached reference creative's composition, hierarchy and style."`;
+}
 
 const SYSTEM =
   "You are the creative planner of the MSGate CRM Creative Engine. You turn an operator's brief into distinct static-ad concepts, each with a generation-ready image prompt. Answer with the requested JSON object ONLY: no prose, no markdown fences. Read-only task: do not browse, do not call tools that write or generate anything.";
@@ -48,10 +75,11 @@ export function planPrompt(input: PlanInput): string {
       ? "NO PRODUCT SHEET: the brief describes the subject. Reference image(s) are attached at generation time as the visual source of truth: every prompt shows exactly what they show, never a redesigned or imagined version."
       : "NO PRODUCT SHEET: the brief is the only source. Describe the subject consistently across creatives.";
   const avoid = input.avoid?.length ? `\nAlready used concepts, do NOT repeat them: ${input.avoid.map((entry) => `« ${entry} »`).join(", ")}.` : "";
+  const reference = creativeReferenceBlock(input);
   return `Plan ${input.count} static ad creative${input.count > 1 ? "s" : ""} from the operator's brief. Each creative is ONE future image (never a collage or several ads in one image), format ${input.ratio}.
 
 ${facts}
-
+${reference}
 OPERATOR BRIEF:
 """
 ${input.brief.trim()}

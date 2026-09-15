@@ -1,6 +1,9 @@
 "use client";
 
-import { Loader2, RefreshCw, Wand2 } from "lucide-react";
+import { useState, type DragEvent } from "react";
+import { ImagePlus, Loader2, RefreshCw, Wand2, X } from "lucide-react";
+import { toast } from "sonner";
+import { fileToDataUrl } from "@/components/mass-test/engine-client";
 import { enginePost } from "@/components/mass-test/engine-client";
 import type { CreativePlan, PlannedCreative } from "@/lib/creative-engine/workspace-plan";
 import { cn } from "@/lib/utils";
@@ -11,7 +14,7 @@ import { cn } from "@/lib/utils";
  * avant tout envoi. Chaque écran garde sa propre suite (aperçu, génération).
  */
 
-export type PlanResult = CreativePlan & { engine: string };
+export type PlanResult = CreativePlan & { engine: string; referenceAttached?: boolean; referenceDescription?: string | null };
 
 export type PlanRequest = {
   brief: string;
@@ -23,6 +26,8 @@ export type PlanRequest = {
   /** Sinon, ce qu'on sait du produit (fiche lue en prompt libre), ou rien. */
   product?: { name: string; store?: string; url?: string; price?: string } | null;
   avoid?: string[];
+  /** Créa de référence (data URL) : décrite pour le planificateur, à joindre ensuite à la génération. */
+  referenceDataUrl?: string | null;
 };
 
 export async function requestPlan(input: PlanRequest): Promise<PlanResult> {
@@ -64,6 +69,11 @@ export function PlanCards({
           Batch : {planned.length} créa{planned.length > 1 ? "s" : ""} = {planned.length} image{planned.length > 1 ? "s" : ""}
         </div>
         <span className="text-[10.5px] text-slate-400">planifié par {engineLabel(plan.engine)} · {plan.ratio}</span>
+        {plan.referenceAttached ? (
+          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceDescription ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceDescription ?? "Aucun modèle qui voit n'était joignable : le planificateur ne l'a pas lue, mais l'image part avec chaque génération."} data-plan-reference={plan.referenceDescription ? "described" : "attached"}>
+            {plan.referenceDescription ? "Créa de référence lue et suivie" : "Créa de référence jointe (non lue par le planificateur)"}
+          </span>
+        ) : null}
         <div className="ml-auto flex items-center gap-1.5 text-[11px]">
           <button type="button" onClick={() => onSelect(new Set(planned.map((creative) => creative.index)))} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             Tout sélectionner
@@ -123,4 +133,55 @@ export function patchPlan(plan: PlanResult, index: number, patch: Partial<Planne
 /** Les concepts des autres créas, pour que la réécriture d'une seule ne les répète pas. */
 export function avoidList(plan: PlanResult, index: number): string[] {
   return plan.creatives.filter((creative) => creative.index !== index).map((creative) => creative.concept || creative.angle).filter(Boolean);
+}
+
+
+/** Une image glissée, collée ou choisie, gardée en data URL : la créa que le batch doit suivre. */
+export function CreativeReferenceSlot({ value, onChange, hint }: { value: string | null; onChange: (dataUrl: string | null) => void; hint?: string }) {
+  const [over, setOver] = useState(false);
+  async function take(files: FileList | File[] | null | undefined) {
+    const file = [...(files ?? [])].find((entry) => entry.type.startsWith("image/"));
+    if (!file) return;
+    if (file.size > 4_000_000) return toast.error("Image trop lourde (4 Mo max)");
+    onChange(await fileToDataUrl(file));
+  }
+  const drop = (event: DragEvent) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    setOver(false);
+    void take(event.dataTransfer.files);
+  };
+  return (
+    <div
+      className={cn("flex items-center gap-2 rounded-xl p-1.5 text-[11px] transition-colors", over ? "bg-emerald-50 ring-2 ring-dashed ring-emerald-400 dark:bg-emerald-950/30" : "bg-slate-50 dark:bg-slate-800/60")}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes("Files")) {
+          event.preventDefault();
+          setOver(true);
+        }
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={drop}
+      data-creative-reference={value ? "set" : "empty"}
+    >
+      {value ? (
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg ring-1 ring-slate-900/10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={value} alt="" className="h-full w-full object-cover" />
+          <button type="button" onClick={() => onChange(null)} className="absolute right-0 top-0 rounded bg-black/60 p-0.5 text-white" aria-label="Retirer la créa de référence">
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </div>
+      ) : (
+        <label className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-white text-slate-400 ring-1 ring-dashed ring-slate-300 hover:text-slate-600 dark:bg-slate-900 dark:ring-slate-600" title="Choisir une image">
+          <ImagePlus className="h-4 w-4" />
+          <input type="file" accept="image/*" className="hidden" data-creative-reference-input onChange={(event) => { void take(event.target.files); event.target.value = ""; }} />
+        </label>
+      )}
+      <div className="min-w-0 text-slate-500">
+        <div className="font-semibold uppercase tracking-wide text-slate-500">Créa de référence{value ? " · jointe" : " · optionnel"}</div>
+        <div className="text-[10.5px] text-slate-400">{hint ?? "Glisse, colle (Ctrl+V dans le brief) ou choisis une créa : le batch suit sa structure et son style, et elle part avec chaque génération."}</div>
+      </div>
+    </div>
+  );
 }
