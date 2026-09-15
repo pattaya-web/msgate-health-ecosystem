@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { hermesChatConfig } from "@/lib/ask-hermes/config";
-import { loadCreativeImageDataUrl, loadCreativeRecord } from "@/lib/ask-hermes/creative";
+import { loadCreativeImageDataUrl, loadCreativeRecord, loadProductRecord } from "@/lib/ask-hermes/creative";
 import { systemLayer, userText } from "@/lib/ask-hermes/prompt";
 import { CONVERSATION_ID_PATTERN, type PageContext, type StreamEvent } from "@/lib/ask-hermes/types";
 import { HermesUpstreamError, openHermesStream, parseHermesSse, type UpstreamMessage } from "@/lib/ask-hermes/upstream";
@@ -107,10 +107,12 @@ export async function POST(request: NextRequest) {
   }
 
   const environment = (process.env.NEXT_PUBLIC_APP_ENV ?? (process.env.VERCEL_ENV === "production" ? "production" : "local")).trim() || "local";
+  const product = body.context?.productId && SAFE_ID.test(body.context.productId) ? await loadProductRecord(body.context.productId) : null;
   const system = systemLayer({
     environment,
     context: (body.context as PageContext | undefined) ?? null,
     creative,
+    product,
     action: body.action,
     externalImages: images.length,
     crmImageAttached: Boolean(crmImage),

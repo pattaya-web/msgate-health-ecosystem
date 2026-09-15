@@ -87,6 +87,26 @@ export type CreativeRecord = {
   imageUrl: string | null;
 };
 
+/** La fiche d'un produit du Creative Engine, résumée pour Hermes (jamais le texte brut de la page). */
+export type ProductRecord = {
+  id: string;
+  name: string;
+  store: string;
+  url: string;
+  engine: "claude" | "hermes" | "fallback";
+  category: string;
+  productType: string;
+  productClass: string;
+  targetCustomer: string;
+  mainProblem: string;
+  mechanism: string;
+  transformation: string;
+  benefits: string[];
+  features: string[];
+  angles: string[];
+  imageUrl: string | null;
+};
+
 export type QuickAction = "analyze" | "original" | "reverse" | "angle" | "variations";
 
 export const QUICK_ACTIONS: Array<{ id: QuickAction; label: string; needsImage: boolean }> = [

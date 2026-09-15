@@ -1,6 +1,32 @@
-import { listBatches, readBatchFile } from "@/lib/creative-engine/store";
+import { listBatches, listProducts, readBatchFile } from "@/lib/creative-engine/store";
 import type { BatchItem, TestBatch } from "@/lib/creative-engine/types";
-import type { CreativeRecord } from "./types";
+import type { CreativeRecord, ProductRecord } from "./types";
+
+/** La fiche d'un produit du Creative Engine, résumée : ce que Hermes doit savoir pour parler du bon produit. */
+export async function loadProductRecord(productId: string): Promise<ProductRecord | null> {
+  if (!/^[\w-]+$/.test(productId)) return null;
+  const product = (await listProducts()).find((entry) => entry.id === productId);
+  if (!product) return null;
+  const a = product.analysis;
+  return {
+    id: product.id,
+    name: product.name,
+    store: product.store,
+    url: product.url,
+    engine: product.engine,
+    category: a?.category ?? "",
+    productType: a?.productType ?? "",
+    productClass: a?.productClass ?? "",
+    targetCustomer: a?.targetCustomer ?? "",
+    mainProblem: a?.mainProblem ?? "",
+    mechanism: a?.mechanism ?? "",
+    transformation: a?.transformation ?? "",
+    benefits: (a?.benefits ?? []).slice(0, 4),
+    features: (a?.features ?? []).slice(0, 4),
+    angles: [...product.suggestedAngles, ...product.customAngles].map((angle) => angle.name).slice(0, 8),
+    imageUrl: product.imageUrls[0] ?? null,
+  };
+}
 
 const SAFE_ID = /^[\w-]+$/;
 

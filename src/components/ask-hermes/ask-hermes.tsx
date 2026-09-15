@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, Copy, ImagePlus, Loader2, Paperclip, RefreshCw, Send, Square, Trash2, X } from "lucide-react";
+import { Bot, Check, ChevronDown, Copy, ImagePlus, Loader2, Package, Paperclip, Pin, RefreshCw, Search, Send, Square, Trash2, X } from "lucide-react";
+import { engineGet } from "@/components/mass-test/engine-client";
+import type { ProductContext } from "@/lib/creative-engine/types";
 import { EnvBadge } from "@/components/layout/env-badge";
 import { cn } from "@/lib/utils";
 import { extractPrompts, type ExtractedPrompt } from "@/lib/ask-hermes/prompts";
@@ -61,6 +63,20 @@ function loadSize(): PanelSize {
   }
 }
 
+/** Un produit épinglé à la main : il vaut pour toutes les pages jusqu'à ce qu'on le retire. Mémorisé par navigateur. */
+type PinnedProduct = { id: string; name: string; url: string; store: string };
+const PIN_KEY = "msgate.ask-hermes.product";
+function loadPinned(): PinnedProduct | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PIN_KEY);
+    const parsed = raw ? (JSON.parse(raw) as PinnedProduct) : null;
+    return parsed && typeof parsed.id === "string" && typeof parsed.name === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 type ChipKey = "store" | "product" | "batch" | "creative" | "campaign" | "adset" | "ad";
 type Chip = { key: ChipKey; label: string };
 
@@ -114,6 +130,8 @@ export function AskHermes() {
   const chat = useHermesChat();
   const pageContext = useHermesPageContext();
   const [removed, setRemoved] = useState<Set<ChipKey>>(() => new Set());
+  const [pinned, setPinned] = useState<PinnedProduct | null>(loadPinned);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [draft, setDraft] = useState("");
   const [hint, setHint] = useState<string | null>(null);
@@ -136,8 +154,22 @@ export function AskHermes() {
     setRemoved(new Set());
   }, [signature]);
 
-  const effectiveContext = useMemo(() => stripChips(pageContext, removed), [pageContext, removed]);
-  const chips = useMemo(() => chipsFor(pageContext).filter((chip) => !removed.has(chip.key)), [pageContext, removed]);
+  useEffect(() => {
+    try {
+      if (pinned) localStorage.setItem(PIN_KEY, JSON.stringify(pinned));
+      else localStorage.removeItem(PIN_KEY);
+    } catch {
+      // stockage indisponible : l'épingle ne survit pas au rechargement
+    }
+  }, [pinned]);
+
+  // Le produit épinglé remplace celui de la page ; le reste du contexte de page est gardé.
+  const effectiveContext = useMemo<PageContext>(() => {
+    const base = stripChips(pageContext, removed);
+    if (!pinned) return base;
+    return { ...base, pageType: "product", productId: pinned.id, productName: pinned.name, productUrl: pinned.url || undefined, storeName: pinned.store || base.storeName };
+  }, [pageContext, removed, pinned]);
+  const chips = useMemo(() => chipsFor(pageContext).filter((chip) => !removed.has(chip.key) && !(pinned && chip.key === "product")), [pageContext, removed, pinned]);
   const crmCandidate = useMemo(
     () =>
       effectiveContext.creativeId && effectiveContext.batchId
@@ -429,8 +461,21 @@ export function AskHermes() {
         <div className={cn("shrink-0 border-t border-slate-200 px-3 pb-3 pt-2 dark:border-slate-800", size === "full" && "[&>*]:mx-auto [&>*]:max-w-3xl")}>
           {generation ? <GenerationStatus generation={generation} onUpdate={setGeneration} onDismiss={() => setGeneration(null)} /> : null}
 
-          {chips.length || crmCandidate ? (
-            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          {pickerOpen ? <ProductPicker onPick={(product) => { setPinned(product); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} /> : null}
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              {pinned ? (
+                <span className="inline-flex max-w-[240px] items-center gap-1 rounded-md bg-emerald-50 py-0.5 pl-2 pr-1 text-[11px] text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-800" title={`Produit épinglé : ${pinned.name}${pinned.store ? ` · ${pinned.store}` : ""}`} data-pinned-product>
+                  <Pin className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{pinned.name}</span>
+                  <button type="button" className="rounded p-0.5 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-900 dark:hover:bg-emerald-900" aria-label={`Retirer ${pinned.name}`} onClick={() => setPinned(null)}>
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ) : null}
+              <button type="button" className="inline-flex items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-0.5 text-[11px] text-slate-600 hover:border-slate-400 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:text-slate-100" onClick={() => setPickerOpen((open) => !open)} title="Choisir un produit du Creative Engine comme sujet de la conversation">
+                <Package className="h-3 w-3" />
+                {pinned ? "Changer de produit" : "Joindre un produit"}
+              </button>
               {chips.map((chip) => (
                 <span key={chip.key} className="inline-flex max-w-[220px] items-center gap-1 rounded-md bg-slate-100 py-0.5 pl-2 pr-1 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-200" title={`${chip.key}: ${chip.label}`}>
                   <span className="truncate">{chip.label}</span>
@@ -445,8 +490,7 @@ export function AskHermes() {
                   Attach current creative
                 </button>
               ) : null}
-            </div>
-          ) : null}
+          </div>
 
           {attachments.length ? (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -561,6 +605,59 @@ export function AskHermes() {
         />
       ) : null}
     </>
+  );
+}
+
+/** La liste des produits du Creative Engine, pour en épingler un comme sujet. Lecture seule. */
+function ProductPicker({ onPick, onClose }: { onPick: (product: PinnedProduct) => void; onClose: () => void }) {
+  const [products, setProducts] = useState<ProductContext[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    engineGet()
+      .then((data) => {
+        if (!cancelled) setProducts(data.products);
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Produits illisibles");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const shown = (products ?? []).filter((product) => !query.trim() || `${product.name} ${product.store}`.toLowerCase().includes(query.trim().toLowerCase()));
+  return (
+    <div className="mb-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900" data-product-picker>
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <Search className="h-3.5 w-3.5 text-slate-400" />
+        <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Chercher un produit du Creative Engine…" className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-slate-400" />
+        <button type="button" onClick={onClose} className="rounded p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Fermer">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {error ? <div className="text-[11px] text-rose-600">{error}</div> : null}
+      {products === null && !error ? <div className="flex items-center gap-1.5 text-[11px] text-slate-500"><Loader2 className="h-3 w-3 animate-spin" /> Chargement…</div> : null}
+      {products && !shown.length ? <div className="text-[11px] text-slate-500">Aucun produit. Analyse-en un dans Studio › Mass test.</div> : null}
+      <ul className="max-h-44 space-y-0.5 overflow-y-auto">
+        {shown.map((product) => (
+          <li key={product.id}>
+            <button type="button" onClick={() => onPick({ id: product.id, name: product.name, url: product.url, store: product.store })} className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-slate-100 dark:hover:bg-slate-800">
+              {product.imageUrls[0] ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={product.imageUrls[0]} alt="" className="h-7 w-7 shrink-0 rounded object-cover" />
+              ) : (
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-slate-100 text-slate-400 dark:bg-slate-800"><Package className="h-3.5 w-3.5" /></span>
+              )}
+              <span className="min-w-0">
+                <span className="block truncate text-[12px] font-medium text-slate-900 dark:text-slate-100">{product.name}</span>
+                <span className="block truncate text-[10.5px] text-slate-500">{product.store}{product.engine === "fallback" ? " · analyse de repli" : ""}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
