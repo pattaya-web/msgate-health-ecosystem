@@ -20,7 +20,9 @@ import { CreativeBatch } from "@/components/studio/creative-batch";
 import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { cn } from "@/lib/utils";
 import { assetProxy, libraryFileUrl, pollStudioTask, saveStaticCreative, studioPost } from "@/lib/studio/client";
-import { STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-types";
+import { STUDIO_REMOVE_SOURCE_KEY, STUDIO_REUSE_KEY, type StaticCreative } from "@/lib/studio/library-types";
+import { useRouter } from "next/navigation";
+import { Eraser } from "lucide-react";
 import { SendToDrive } from "@/components/drive/send-to-drive";
 import { DEFAULT_RATIO, RATIOS, isWideRatio, ratioAspect, type Ratio } from "@/lib/studio/ratios";
 import { DEFAULT_MODEL_FAMILY, MODEL_FAMILIES, modelFamily } from "@/lib/studio/models";
@@ -92,6 +94,19 @@ function loadStoredJobs(): Job[] {
 type RefImage = { id: string; preview: string; name: string; dataUrl?: string; url?: string };
 
 export function StaticStudio() {
+  const router = useRouter();
+  /** Envoie le rendu ouvert dans Remove Magic : gomme au pinceau, l'IA rebouche. */
+  async function eraseWithAi(url: string) {
+    try {
+      const blob = await (await fetch(url)).blob();
+      const dataUrl = await fileToDataUrl(new File([blob], "creative.png", { type: blob.type || "image/png" }));
+      sessionStorage.setItem(STUDIO_REMOVE_SOURCE_KEY, dataUrl);
+      setZoom(null);
+      router.push("/studio/remove");
+    } catch {
+      toast.error("Image illisible");
+    }
+  }
   const [brief, setBrief] = useState("");
   const [prompts, setPrompts] = useState<string[]>([]);
   const [selected, setSelected] = useState<Record<number, boolean>>({});
@@ -1284,6 +1299,18 @@ export function StaticStudio() {
                     </button>
                   ) : null}
                   <SendToDrive url={zoom} name={`crea-${job?.id ?? "studio"}.${job?.kind === "video" ? "mp4" : "png"}`} />
+                  {job?.kind !== "video" ? (
+                    <button
+                      type="button"
+                      onClick={() => void eraseWithAi(zoom)}
+                      title="Gomme un élément au pinceau, l'IA rebouche la zone (Remove Magic)"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
+                      data-erase-ai
+                    >
+                      <Eraser className="h-3.5 w-3.5" />
+                      Effacer avec l&apos;IA
+                    </button>
+                  ) : null}
                   <a
                     href={zoom}
                     download

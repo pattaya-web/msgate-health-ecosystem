@@ -4,7 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import { Download, Eraser, Loader2, Redo2, Undo2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { assetProxy, pollStudioTask, studioPost } from "@/lib/studio/client";
+import { STUDIO_REMOVE_SOURCE_KEY } from "@/lib/studio/library-types";
 import { cn } from "@/lib/utils";
+
+/** L'image déposée par l'aperçu d'une créa (« Effacer avec l'IA »), consommée au premier rendu. */
+function takeHandoff(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = sessionStorage.getItem(STUDIO_REMOVE_SOURCE_KEY);
+    if (value) sessionStorage.removeItem(STUDIO_REMOVE_SOURCE_KEY);
+    return value && value.startsWith("data:image/") ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 export function RemoveStudio() {
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -12,9 +25,11 @@ export function RemoveStudio() {
   const last = useRef<{ x: number; y: number } | null>(null);
   const drawing = useRef(false);
   const drewStroke = useRef(false);
-  const [src, setSrc] = useState("");
-  const [history, setHistory] = useState<string[]>([]);
-  const [cursor, setCursor] = useState(-1);
+  // Le studio n'est monté qu'une fois la session relue côté client : l'initialisation paresseuse lit la remise sans décalage d'hydratation.
+  const [seed] = useState<string | null>(takeHandoff);
+  const [src, setSrc] = useState(seed ?? "");
+  const [history, setHistory] = useState<string[]>(seed ? [seed] : []);
+  const [cursor, setCursor] = useState(seed ? 0 : -1);
   const [maskStack, setMaskStack] = useState<string[]>([]);
   const [maskCursor, setMaskCursor] = useState(-1);
   const [painted, setPainted] = useState(false);

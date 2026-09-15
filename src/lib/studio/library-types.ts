@@ -22,3 +22,5 @@ export type StaticCreative = {
 };
 
 export const STUDIO_REUSE_KEY = "msgate.studio.reuse";
+/** Une image envoyée depuis l'aperçu d'une créa vers Remove Magic (gomme IA), en data URL, lue une seule fois. */
+export const STUDIO_REMOVE_SOURCE_KEY = "msgate.studio.remove-source";
