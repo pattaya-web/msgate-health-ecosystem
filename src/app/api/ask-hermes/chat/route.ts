@@ -40,6 +40,8 @@ const contextSchema = z
     creativeId: z.string().max(120).optional(),
     creativeName: z.string().max(300).optional(),
     creativeImageUrl: z.string().max(500).optional(),
+    primaryReferenceUrl: z.string().max(1000).optional(),
+    primaryReferenceType: z.string().max(40).optional(),
     campaignId: z.string().max(120).optional(),
     campaignName: z.string().max(300).optional(),
     adsetId: z.string().max(120).optional(),

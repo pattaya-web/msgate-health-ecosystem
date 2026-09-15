@@ -14,6 +14,8 @@ export type PageType =
   | "mass-test"
   /** Une fiche produit est ouverte sur la page (Mass test, studio statique, Reproduire) : « ce produit » désigne celle-là. */
   | "product"
+  /** L'espace de création centré produit : produit actif + référence visuelle principale. */
+  | "product-creative-workspace"
   | "studio"
   | "studio-library"
   | "ugc"
@@ -43,6 +45,9 @@ export type PageContext = {
   creativeName?: string;
   /** URL (relative au CRM) de l'image de la créa ouverte, pour la joindre en un clic. */
   creativeImageUrl?: string;
+  /** Référence visuelle principale du produit actif (URL hébergée) et son type. */
+  primaryReferenceUrl?: string;
+  primaryReferenceType?: string;
   campaignId?: string;
   campaignName?: string;
   adsetId?: string;

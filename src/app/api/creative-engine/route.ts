@@ -15,8 +15,12 @@ import {
   retryFailed,
   setItemStatus,
   updateProduct,
+  setProductReference,
+  clearProductReference,
   type GenerateSpec,
 } from "@/lib/creative-engine/store";
+import { extractProductImages } from "@/lib/creative-engine/product-images";
+import type { ProductReferenceType } from "@/lib/creative-engine/types";
 import type { CreativeEmphasis, CreativeStatus, FamilyMixSetting, ReferenceStrength } from "@/lib/creative-engine/types";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +55,12 @@ type Body = {
     | "item-regenerate"
     | "item-duplicate"
     | "drive-export"
-    | "batch-delete";
+    | "batch-delete"
+    | "product-images"
+    | "product-reference"
+    | "product-reference-clear";
+  referenceType?: ProductReferenceType;
+  referenceUrl?: string;
   url?: string;
   store?: string;
   productId?: string;
@@ -114,6 +123,19 @@ export async function POST(request: Request) {
       case "product-update":
         if (!body.productId) return NextResponse.json({ error: "Produit manquant" }, { status: 400 });
         return NextResponse.json({ product: await updateProduct(body.productId, { store: body.store, name: body.name, addAngle: body.addAngle, removeAngleId: body.removeAngleId }) });
+      case "product-images": {
+        const products = await listProducts();
+        const product = body.productId ? products.find((item) => item.id === body.productId) : null;
+        const url = product?.url ?? body.url;
+        if (!url) return NextResponse.json({ error: "Produit ou URL manquant" }, { status: 400 });
+        return NextResponse.json({ images: await extractProductImages(url, product?.imageUrls ?? []) });
+      }
+      case "product-reference":
+        if (!body.productId || !body.referenceUrl) return NextResponse.json({ error: "Produit ou image manquant" }, { status: 400 });
+        return NextResponse.json({ product: await setProductReference(body.productId, { type: body.referenceType ?? "primary", url: body.referenceUrl }) });
+      case "product-reference-clear":
+        if (!body.productId) return NextResponse.json({ error: "Produit manquant" }, { status: 400 });
+        return NextResponse.json({ product: await clearProductReference(body.productId, body.referenceType ?? "primary") });
       case "product-delete":
         if (!body.productId) return NextResponse.json({ error: "Produit manquant" }, { status: 400 });
         await deleteProduct(body.productId);

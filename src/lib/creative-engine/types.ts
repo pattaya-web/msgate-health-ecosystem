@@ -78,6 +78,23 @@ export type Angle = {
   source: "auto" | "custom";
 };
 
+/**
+ * Une référence visuelle attachée à un produit. V1 : une seule, « primary »
+ * (la vraie photo du produit) ; les autres types sont réservés pour plus tard.
+ */
+export type ProductReferenceType = "primary" | "packaging" | "on-body" | "angle" | "competitor";
+export type ProductReference = {
+  id: string;
+  type: ProductReferenceType;
+  url: string;
+  source: "page" | "upload";
+  selectedAt: string;
+};
+
+export function primaryReference(product: Pick<ProductContext, "references">): ProductReference | null {
+  return product.references?.find((reference) => reference.type === "primary") ?? null;
+}
+
 export type ProductContext = {
   id: string;
   store: string;
@@ -89,6 +106,8 @@ export type ProductContext = {
   customAngles: Angle[];
   /** Qui a écrit l'analyse : Claude via Kie, Hermes en secours, ou le repli déterministe (à refaire). */
   engine: "claude" | "hermes" | "fallback";
+  /** Références visuelles choisies par l'opérateur (absent sur les anciens produits). */
+  references?: ProductReference[];
   createdAt: string;
   updatedAt: string;
 };
@@ -351,6 +370,8 @@ export type BatchItem = CreativeSpec & {
   model: string;
   referenceUsed: boolean;
   generatedAt: string | null;
+  /** Le texte tapé par l'opérateur, avant les ajouts (produit, fidélité) — pour les lots de l'espace produit. */
+  userPrompt?: string;
   /** Pour « variations depuis un winner » : la créa d'origine. */
   parentId?: string | null;
 };
@@ -389,7 +410,9 @@ export type TestBatch = {
   plan: PlanSummary;
   items: BatchItem[];
   /** Absent pour un lot planifié par le moteur ; « ask-hermes » quand les prompts viennent du chat, après confirmation. */
-  source?: "ask-hermes";
+  source?: "ask-hermes" | "product-workspace";
+  /** La référence produit envoyée au modèle, quand l'espace produit l'a jointe. */
+  primaryReferenceUrl?: string | null;
   /** Conversation Ask Hermes d'origine, pour retrouver l'échange. */
   sessionId?: string | null;
   referenceFrameworkId?: string | null;

@@ -26,7 +26,7 @@ const schema = z
   .object({
     confirm: z.literal("generate"),
     prompts: z
-      .array(z.object({ prompt: z.string().trim().min(20).max(8000), angle: z.string().max(120).optional(), hook: z.string().max(300).optional(), label: z.string().max(120).optional() }))
+      .array(z.object({ prompt: z.string().trim().min(20).max(8000), userPrompt: z.string().max(8000).optional(), angle: z.string().max(120).optional(), hook: z.string().max(300).optional(), label: z.string().max(120).optional() }))
       .min(1)
       .max(30),
     productId: z.string().regex(SAFE_ID).nullable().optional(),
@@ -40,6 +40,10 @@ const schema = z
     useProductImages: z.boolean().default(false),
     sessionId: z.string().max(80).nullable().optional(),
     referenceFrameworkId: z.string().max(120).nullable().optional(),
+    source: z.enum(["ask-hermes", "product-workspace"]).default("ask-hermes"),
+    /** Références déjà hébergées en https (la référence principale d'un produit) : envoyées telles quelles au modèle. */
+    referenceUrls: z.array(z.string().url().max(1000).regex(/^https:\/\//)).max(3).default([]),
+    primaryReferenceUrl: z.string().url().max(1000).nullable().optional(),
   })
   .strict();
 
@@ -64,7 +68,9 @@ export async function POST(request: NextRequest) {
   }
   try {
     const batch = await createPromptBatch({
-      source: "ask-hermes",
+      source: body.source,
+      hostedReferenceUrls: body.referenceUrls,
+      primaryReferenceUrl: body.primaryReferenceUrl ?? null,
       productId: body.productId ?? null,
       productName: body.productName,
       productUrl: body.productUrl,

@@ -8,6 +8,7 @@ import type { Ratio } from "@/lib/studio/ratios";
 import { analyzeProductUrl, classify, inferGender } from "@/lib/creative-engine/analysis";
 import { creativeName } from "@/lib/creative-engine/naming";
 import { buildPromptBatch, type PromptBatchSpec } from "@/lib/creative-engine/prompt-batch";
+import type { ProductReferenceType } from "@/lib/creative-engine/types";
 import { planBatch, presetsFrom, type Plan } from "@/lib/creative-engine/planner";
 import { composeCreativePrompt } from "@/lib/creative-engine/prompt";
 import {
@@ -176,6 +177,36 @@ export async function updateProduct(id: string, patch: { store?: string; name?: 
     product.customAngles = product.customAngles.filter((angle) => angle.id !== patch.removeAngleId);
     product.suggestedAngles = product.suggestedAngles.filter((angle) => angle.id !== patch.removeAngleId);
   }
+  product.updatedAt = new Date().toISOString();
+  await saveProducts(items);
+  return product;
+}
+
+/**
+ * Pose (ou remplace) la référence visuelle d'un type pour un produit. La
+ * référence principale entre aussi dans les photos produit, pour que les lots
+ * planifiés du Mass test la voient comme les autres.
+ */
+export async function setProductReference(id: string, input: { type: ProductReferenceType; url: string; source?: "page" | "upload" }) {
+  const url = input.url.trim();
+  if (!/^https:\/\//i.test(url)) throw new Error("La référence doit être une URL https");
+  const items = await listProducts();
+  const product = items.find((item) => item.id === id);
+  if (!product) throw new Error("Produit introuvable");
+  const references = (product.references ?? []).filter((reference) => reference.type !== input.type);
+  references.unshift({ id: uid("ref"), type: input.type, url, source: input.source ?? "page", selectedAt: new Date().toISOString() });
+  product.references = references;
+  if (input.type === "primary" && !product.imageUrls.includes(url)) product.imageUrls = [url, ...product.imageUrls].slice(0, MAX_REFS);
+  product.updatedAt = new Date().toISOString();
+  await saveProducts(items);
+  return product;
+}
+
+export async function clearProductReference(id: string, type: ProductReferenceType) {
+  const items = await listProducts();
+  const product = items.find((item) => item.id === id);
+  if (!product) throw new Error("Produit introuvable");
+  product.references = (product.references ?? []).filter((reference) => reference.type !== type);
   product.updatedAt = new Date().toISOString();
   await saveProducts(items);
   return product;
@@ -387,10 +418,10 @@ export async function createTestBatch(spec: GenerateSpec) {
  * modèle image-to-image n'est choisi que si une référence explicite ou, sur
  * demande, les photos produit du CRM sont fournies.
  */
-export async function createPromptBatch(spec: Omit<PromptBatchSpec, "referenceUrls" | "productImageUrls"> & { referenceDataUrls: string[]; useProductImages: boolean }) {
+export async function createPromptBatch(spec: Omit<PromptBatchSpec, "referenceUrls" | "productImageUrls"> & { referenceDataUrls: string[]; useProductImages: boolean; /** Références déjà hébergées (https), ex. la référence principale d'un produit. */ hostedReferenceUrls?: string[] }) {
   const products = await listProducts();
   const product = spec.productId ? products.find((entry) => entry.id === spec.productId) ?? null : null;
-  const referenceUrls: string[] = [];
+  const referenceUrls: string[] = (spec.hostedReferenceUrls ?? []).filter((url) => /^https:\/\//i.test(url)).slice(0, 3);
   for (const [index, dataUrl] of spec.referenceDataUrls.slice(0, 3).entries()) {
     try {
       referenceUrls.push(await uploadBase64(dataUrl, `hermes-reference-${Date.now()}-${index}.png`));

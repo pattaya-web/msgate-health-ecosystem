@@ -9,10 +9,12 @@ import type { BatchItem, ProductContext, TestBatch } from "./types";
  * Le prompt est conservé tel quel : c'est exactement ce qui part au modèle.
  */
 
-export type PromptBatchSource = "ask-hermes";
+export type PromptBatchSource = "ask-hermes" | "product-workspace";
 
 export type PromptSpec = {
   prompt: string;
+  /** Le texte tapé par l'opérateur avant les ajouts automatiques. */
+  userPrompt?: string;
   angle?: string;
   hook?: string;
   label?: string;
@@ -34,6 +36,7 @@ export type PromptBatchSpec = {
   productImageUrls: string[];
   sessionId?: string | null;
   referenceFrameworkId?: string | null;
+  primaryReferenceUrl?: string | null;
 };
 
 export const ASK_HERMES_FAMILY = { id: "ASK_HERMES", label: "Ask Hermes" } as const;
@@ -56,7 +59,7 @@ export function buildPromptBatch(input: {
   now?: string;
 }): TestBatch {
   const { spec, product, number, ids } = input;
-  const store = product?.store ?? spec.store?.trim() ?? "Ask Hermes";
+  const store = product?.store ?? spec.store?.trim() ?? (spec.source === "product-workspace" ? "Espace produit" : "Ask Hermes");
   const productName = product?.name ?? spec.productName.trim();
   const inputs = [...spec.referenceUrls, ...spec.productImageUrls];
   const model = inputs.length ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image";
@@ -76,6 +79,7 @@ export function buildPromptBatch(input: {
       referenceUsed: spec.referenceUrls.length > 0,
       generatedAt: null,
       parentId: null,
+      ...(entry.userPrompt?.trim() ? { userPrompt: entry.userPrompt.trim() } : {}),
       angleId: `hermes-${slug(angle)}`,
       angleName: angle,
       presetId: "ask-hermes",
@@ -129,5 +133,6 @@ export function buildPromptBatch(input: {
     source: spec.source,
     sessionId: spec.sessionId ?? null,
     referenceFrameworkId: spec.referenceFrameworkId ?? null,
+    primaryReferenceUrl: spec.primaryReferenceUrl ?? null,
   };
 }

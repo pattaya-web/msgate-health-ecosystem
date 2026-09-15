@@ -14,6 +14,7 @@ const PAGE_LABEL: Record<PageContext["pageType"], string> = {
   "ads-uploader": "Ads uploader",
   "mass-test": "Studio › Mass test (Creative Engine)",
   product: "Product view — a product is open on this page; « this product » / « the current product » is the one listed below",
+  "product-creative-workspace": "Product Creative Workspace — the operator is producing creatives for the product listed below; « this product », « the current product », « the product I'm working on » all mean it",
   studio: "Studio",
   "studio-library": "Studio › Library",
   ugc: "UGC studio",
@@ -86,6 +87,9 @@ function contextLines(context: PageContext | null, creative: CreativeRecord | nu
     if (context.storeName || context.storeId) lines.push(`- Store: ${context.storeName ?? "?"}${context.storeId ? ` (id ${context.storeId})` : ""}`);
     if (context.productName || context.productId) {
       lines.push(`- Product: ${context.productName ?? "?"}${context.productId ? ` (id ${context.productId})` : ""}${context.productUrl ? ` — ${context.productUrl}` : ""}`);
+    }
+    if (context.primaryReferenceUrl) {
+      lines.push(`- Primary product reference (${context.primaryReferenceType ?? "primary"}): ${context.primaryReferenceUrl} — the physical visual source of truth for this product (shape, proportions, colors, materials). It is sent to the image model at generation time. Any image attached in the chat is inspiration or a competitor creative, never a replacement for this product.`);
     }
     if (product) {
       const weak = product.engine === "fallback" ? " (keyword fallback, no AI analysis yet: treat these fields as weak)" : "";
