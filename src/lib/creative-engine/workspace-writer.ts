@@ -1,15 +1,17 @@
 import { askHermesText, askHermesVision, hermesAnalysisAvailable, hermesCannotSee } from "@/lib/creative-engine/hermes-analysis";
-import { kieClaude, uploadBase64 } from "@/lib/studio/kie";
+import { kieClaude } from "@/lib/studio/kie";
 import type { ProductContext } from "./types";
-import { MAX_PLANNED_CREATIVES, validatePlan, type CreativePlan } from "./workspace-plan";
+import { MAX_PLANNED_CREATIVES, parseLenientJson, PlanValidationError, validatePlan, type CreativePlan } from "./workspace-plan";
 
 /**
- * Le planificateur de l'espace produit : un brief en langage naturel
- * (« Create 5 ultra realistic static ads… ») devient N concepts distincts,
- * chacun avec son prompt de génération, en JSON strict. Hermes en premier
- * (mêmes skills et mémoire que sur Telegram), Claude via Kie en secours. Rien
- * n'est généré ici, et un plan illisible est une erreur, jamais un prompt
- * unique fabriqué en douce à partir du brief.
+ * Le planificateur de brief : un brief en langage naturel (« Create 5 ultra
+ * realistic static ads… ») devient N concepts distincts, chacun avec son
+ * prompt de génération, en JSON strict. Une seule requête Hermes, qui reçoit
+ * le brief, le produit actif s'il y en a un, et la créa d'inspiration jointe
+ * comme image (URL hébergée) : c'est Hermes qui la regarde et l'analyse.
+ * Claude via Kie n'est qu'un secours pour les briefs texte seul. Rien n'est
+ * généré ici, et un plan illisible est une erreur, jamais un prompt unique
+ * fabriqué en douce à partir du brief.
  */
 
 /** Ce qu'on sait du produit : une fiche du moteur (avec analyse), une fiche lue en prompt libre, ou rien. */
@@ -23,84 +25,26 @@ export type PlanInput = {
   hasReference: boolean;
   /** Concepts déjà retenus, à éviter quand on réécrit une seule créa. */
   avoid?: string[];
-  /** Une créa d'inspiration (pub concurrente, style) est jointe au brief : chaque prompt suit sa structure, jamais ses faits. */
-  creativeReferenceAttached?: boolean;
-  /** Sa description en mots, quand un modèle qui voit a pu la lire ; null sinon. */
-  creativeReferenceDescription?: string | null;
-  /** Les faits propres au concurrent lus sur l'inspiration (marque, origine, garantie, chiffres…) : à ne jamais reprendre. */
-  competitorFacts?: string[];
+  /** La créa d'inspiration, hébergée en https, jointe à la requête Hermes comme image. */
+  referenceImageUrl?: string | null;
+  /** Une créa était jointe (même si l'opérateur a choisi de planifier sans la faire lire). */
+  referenceAttached?: boolean;
 };
 
-export type CreativeReferenceReading = { description: string; competitorFacts: string[] };
+/** Ce qu'Hermes a vu sur l'inspiration, tel qu'il le rend dans le JSON du plan. */
+export type ReferenceReading = { seen: boolean; summary: string; elements: string[]; competitorFacts: string[] };
 
-const DESCRIBE_PROMPT =
-  'Analyse this ad creative for an image-generation planner that cannot see it. Return ONLY a JSON object, no markdown: {"description": "...", "competitorFacts": ["..."]}. "description": 90 to 160 words, plain English, one paragraph, the creative DNA — format and layout, marketing angle, hook mechanism, subject and framing, where and how big the product is, text blocks (kind, position, hierarchy), type of proof (before/after, testimonial, stat, badge, comparison…), colours and background, lighting and camera feel, overall style (UGC / studio / editorial / meme / infographic). "competitorFacts": ONLY the product- or brand-specific wording that must not be reused for another product — brand and product names, slogans, claims, guarantees, country of origin, named materials, certifications, statistics, study mentions, prices, badge wording — as short exact strings as written (max 20). Never list layout, colours, typography, style, object shapes, or absences (\'no price visible\'): those belong in the description. Facts only, no advice.';
+export type PlanOutcome = CreativePlan & {
+  engine: "hermes" | "claude";
+  referenceAttached: boolean;
+  referenceSeen: boolean;
+  referenceSummary: string | null;
+  referenceElements: string[];
+  competitorFacts: string[];
+};
 
-const DESCRIBE_SYSTEM =
-  "You are the creative analyst of the MSGate CRM Creative Engine. You look at the attached ad creative and answer with the requested JSON object ONLY. Read-only task: do not browse, do not call tools that write or generate anything.";
-
-/** Ce qu'a donné la lecture : par quel œil, ou pourquoi aucun. */
-export type ReadingOutcome = { reading: CreativeReferenceReading | null; eye: "hermes" | "claude" | null; reason: string | null };
-
-/**
- * Lit la créa d'inspiration : d'abord Hermes lui-même, avec l'image jointe
- * (il voit dès qu'il tourne sur un modèle multimodal), sinon Claude via Kie
- * (ou en direct avec une clé Anthropic). Rend l'ADN créatif et les faits du
- * concurrent à écarter ; null quand aucun modèle qui voit n'est joignable,
- * avec la raison pour l'afficher.
- */
-export async function readCreativeReference(dataUrl: string): Promise<ReadingOutcome> {
-  const reasons: string[] = [];
-  if (hermesAnalysisAvailable()) {
-    try {
-      // Hermes lit une URL https, pas une data URL : l'image est hébergée d'abord (même dépôt que les références envoyées au modèle image).
-      const hosted = await uploadBase64(dataUrl, `inspiration-${Date.now().toString(36)}.png`);
-      const raw = await askHermesVision(DESCRIBE_PROMPT, DESCRIBE_SYSTEM, [hosted]);
-      const reading = parseReading(raw);
-      if (reading && !hermesCannotSee(raw)) return { reading, eye: "hermes", reason: null };
-      reasons.push(hermesCannotSee(raw) ? "Hermes tourne sur un modèle texte seul, il ne voit pas l'image" : "Hermes n'a pas rendu de lecture exploitable");
-    } catch (error) {
-      reasons.push(`Hermes : ${error instanceof Error ? error.message : "injoignable"}`);
-    }
-  } else reasons.push("Hermes non configuré");
-  const reading = await describeCreativeReference(dataUrl);
-  if (reading) return { reading, eye: "claude", reason: null };
-  reasons.push("Claude via Kie injoignable" + (process.env.ANTHROPIC_API_KEY?.trim() ? "" : ", pas de clé Anthropic directe"));
-  return { reading: null, eye: null, reason: reasons.join(" ; ") };
-}
-
-function parseReading(raw: string): CreativeReferenceReading | null {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(raw.slice(start, end + 1)) as { description?: unknown; competitorFacts?: unknown };
-    const description = typeof parsed.description === "string" ? parsed.description.trim().slice(0, 1600) : "";
-    const competitorFacts = Array.isArray(parsed.competitorFacts) ? parsed.competitorFacts.filter((entry): entry is string => typeof entry === "string" && entry.trim().length >= 3).map((entry) => entry.trim().slice(0, 80)).slice(0, 20) : [];
-    return description.length >= 40 ? { description, competitorFacts } : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Lecture par Claude via Kie (ou en direct avec ANTHROPIC_API_KEY) ; null si injoignable. */
-export async function describeCreativeReference(dataUrl: string): Promise<CreativeReferenceReading | null> {
-  try {
-    const raw = (await kieClaude(DESCRIBE_PROMPT, 900, [dataUrl])).trim();
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      const parsed = JSON.parse(raw.slice(start, end + 1)) as { description?: unknown; competitorFacts?: unknown };
-      const description = typeof parsed.description === "string" ? parsed.description.trim().slice(0, 1600) : "";
-      const competitorFacts = Array.isArray(parsed.competitorFacts) ? parsed.competitorFacts.filter((entry): entry is string => typeof entry === "string" && entry.trim().length >= 3).map((entry) => entry.trim().slice(0, 80)).slice(0, 20) : [];
-      if (description.length >= 40) return { description, competitorFacts };
-    }
-    // Réponse en prose : on garde la description, sans liste de faits.
-    return raw.length >= 40 ? { description: raw.slice(0, 1600), competitorFacts: [] } : null;
-  } catch {
-    return null;
-  }
-}
+/** Le modèle derrière Hermes ne voit pas les images : l'opérateur décide s'il continue en texte seul. */
+export class VisionUnavailableError extends Error {}
 
 /** Mots trop génériques pour compter comme une fuite (« product », « ad »…), et absences (« no price visible »). */
 const GENERIC_FACT = /^(product|ad|ads|creative|image|photo|the|a|an|new|best|now|today|free|premium|quality)$/i;
@@ -130,23 +74,36 @@ export function findCompetitorLeaks(prompts: string[], competitorFacts: string[]
     .filter((entry) => entry.facts.length > 0);
 }
 
+function ownProductText(product: PlanProduct | null): string {
+  return product ? JSON.stringify([product.name, product.store, product.url, product.analysis]) : "";
+}
+
+const ANALYSIS_POINTS =
+  "creative type, marketing angle, hook mechanism, layout and composition, visual hierarchy, before/after structure, subject positioning, typography hierarchy, badges, arrows, icons, CTA, price blocks, proof elements, photography style, colours, overall vibe";
+
 function creativeReferenceBlock(input: PlanInput): string {
-  if (!input.creativeReferenceAttached) return "";
-  const seen = input.creativeReferenceDescription
-    ? `What it looks like: ${input.creativeReferenceDescription}`
-    : "It could not be read here; treat the brief's description of it as the guide.";
-  const forbidden = relevantCompetitorFacts(input.competitorFacts ?? [], ownProductText(input.product));
-  const facts = forbidden.length ? `\nCompetitor-specific elements seen on it, FORBIDDEN in every prompt: ${forbidden.map((fact) => `« ${fact} »`).join(", ")}.` : "";
-  const product = input.product ? "the ACTIVE PRODUCT above" : "the subject of the brief";
-  return `
-CREATIVE INSPIRATION: the operator attached an ad creative (often a competitor's) as inspiration. ${seen}${facts}
+  if (input.referenceImageUrl) {
+    const withProduct = input.product
+      ? `
 SOURCE OF TRUTH, in this order: 1) the active product sheet above, 2) its attached product reference photo, 3) this inspiration image — for creative form only.
-CREATIVE TRANSFER, not product swap: understand why this creative works, then rebuild the same logic for ${product}. Keep its marketing angle, hook mechanism, layout, composition, visual hierarchy, type of proof, visual rhythm, photography and annotation style. Replace EVERY product-specific element with the active product's real facts: its name, brand, packaging, mechanism, benefits, origin, guarantee, certifications, statistics. Never reuse the competitor's product, brand, logo, packaging, claims, guarantees, country of origin, materials, certifications, statistics, studies, icons or factual copy. If the active product has no equivalent for an element (e.g. a "Made in …" badge with no known origin), REMOVE that element instead of inventing one.
-Start every "prompt" with this exact sentence: "Follow the inspiration creative's composition, hierarchy and style, with the active product only."`;
+CREATIVE TRANSFER, not product swap: understand why this creative works, then rebuild the same logic for the ACTIVE PRODUCT above. Keep its marketing angle, hook mechanism, layout, composition, visual hierarchy, type of proof, visual rhythm, photography and annotation style. Replace EVERY product-specific element with the active product's real facts: its name, brand, packaging, mechanism, benefits, origin, guarantee, certifications, statistics. Never reuse the competitor's product, brand, logo, packaging, claims, guarantees, country of origin, materials, certifications, statistics, studies, icons or factual copy. If the active product has no equivalent for an element (e.g. a "Made in …" badge with no known origin), REMOVE that element instead of inventing one.
+Start every "prompt" with this exact sentence: "Follow the inspiration creative's composition, hierarchy and style, with the active product only."`
+      : `
+It is the PRIMARY creative inspiration: rebuild its structure, angle, hook mechanism, composition and style for the subject of the brief, keeping the same kind of subject unless the brief says otherwise, and vary each creative as the brief asks.
+Start every "prompt" with this exact sentence: "Follow the attached inspiration creative's composition, hierarchy and style."`;
+    return `
+CREATIVE INSPIRATION: an ad creative is ATTACHED TO THIS MESSAGE as an image (${input.referenceImageUrl}). Look at it before planning and analyse: ${ANALYSIS_POINTS}. Report that analysis in the "reference" object of the JSON: "seen": true; "summary": 60 to 120 words of what the image actually shows and how it works; "elements": the concrete visual elements you reuse from it (short phrases, 3 to 12); "competitorFacts": ONLY the product- or brand-specific wording written or shown on it — brand and product names, slogans, claims, guarantees, country of origin, named materials, certifications, statistics, prices, badge wording — as written (never layout, colours, style, object shapes, nor absences).
+If you truly cannot see the image, answer with "reference": {"seen": false, "summary": "<why>", "elements": [], "competitorFacts": []} and plan from the brief alone. Never describe or invent what you did not see.${withProduct}`;
+  }
+  if (input.referenceAttached) {
+    return `
+CREATIVE INSPIRATION: the operator attached an inspiration image, but it is not readable in this request. Plan from the brief alone and set "reference": {"seen": false, "summary": "not provided to the planner", "elements": [], "competitorFacts": []}. Do not pretend to have seen it.`;
+  }
+  return "";
 }
 
 const SYSTEM =
-  "You are the creative planner of the MSGate CRM Creative Engine. You turn an operator's brief into distinct static-ad concepts, each with a generation-ready image prompt. Answer with the requested JSON object ONLY: no prose, no markdown fences. Read-only task: do not browse, do not call tools that write or generate anything.";
+  "You are the creative planner of the MSGate CRM Creative Engine. You turn an operator's brief into distinct static-ad concepts, each with a generation-ready image prompt. When an image is attached, look at it and analyse it yourself. Answer with the requested JSON object ONLY: no prose, no markdown fences. Read-only task: do not browse beyond the attached image, do not call tools that write or generate anything.";
 
 export function planPrompt(input: PlanInput): string {
   const a = input.product?.analysis;
@@ -169,6 +126,7 @@ export function planPrompt(input: PlanInput): string {
       : "NO PRODUCT SHEET: the brief is the only source. Describe the subject consistently across creatives.";
   const avoid = input.avoid?.length ? `\nAlready used concepts, do NOT repeat them: ${input.avoid.map((entry) => `« ${entry} »`).join(", ")}.` : "";
   const reference = creativeReferenceBlock(input);
+  const referenceJson = input.referenceImageUrl || input.referenceAttached ? ', "reference": {"seen": true, "summary": "", "elements": [""], "competitorFacts": [""]}' : "";
   return `Plan ${input.count} static ad creative${input.count > 1 ? "s" : ""} from the operator's brief. Each creative is ONE future image (never a collage or several ads in one image), format ${input.ratio}.
 
 ${facts}
@@ -187,19 +145,23 @@ Rules:
 - The brief may be in French, English or both: read it either way and write the prompts in English.${avoid}
 
 Return ONLY this JSON:
-{"count": ${input.count}, "ratio": "${input.ratio}", "format": "static", "creatives": [{"index": 1, "angle": "", "concept": "", "hook": "", "prompt": ""}]}`;
+{"count": ${input.count}, "ratio": "${input.ratio}", "format": "static", "creatives": [{"index": 1, "angle": "", "concept": "", "hook": "", "prompt": ""}]${referenceJson}}`;
 }
 
-/** Un plan validé qui reprend un fait du concurrent est rejeté : le planificateur repasse une fois avec la liste des fuites, puis c'est une erreur. */
-function ownProductText(product: PlanProduct | null): string {
-  return product ? JSON.stringify([product.name, product.store, product.url, product.analysis]) : "";
-}
-
-function checkLeaks(plan: CreativePlan, competitorFacts: string[] | undefined, product: PlanProduct | null) {
-  if (!competitorFacts?.length) return plan;
-  const leaks = findCompetitorLeaks(plan.creatives.map((creative) => creative.prompt), competitorFacts, ownProductText(product));
-  if (leaks.length) throw new CompetitorLeakError(leaks);
-  return plan;
+/** La partie « reference » du JSON rendu par le planificateur, tolérante aux champs manquants. */
+export function parseReferenceReading(raw: string): ReferenceReading | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = parseLenientJson<{ reference?: { seen?: unknown; summary?: unknown; elements?: unknown; competitorFacts?: unknown } }>(raw.slice(start, end + 1));
+    const ref = parsed.reference;
+    if (!ref || typeof ref !== "object") return null;
+    const strings = (value: unknown, max: number) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length >= 2).map((entry) => entry.trim().slice(0, 100)).slice(0, max) : []);
+    return { seen: ref.seen === true, summary: typeof ref.summary === "string" ? ref.summary.trim().slice(0, 1600) : "", elements: strings(ref.elements, 12), competitorFacts: strings(ref.competitorFacts, 20) };
+  } catch {
+    return null;
+  }
 }
 
 export class CompetitorLeakError extends Error {
@@ -208,35 +170,71 @@ export class CompetitorLeakError extends Error {
   }
 }
 
-async function planOnce(input: PlanInput, count: number, extraRule: string): Promise<CreativePlan & { engine: "hermes" | "claude" }> {
+/** Un plan validé qui reprend un fait du concurrent est rejeté : le planificateur repasse une fois avec la liste des fuites, puis c'est une erreur. */
+function checkLeaks(plan: CreativePlan, competitorFacts: string[], product: PlanProduct | null) {
+  if (!product || !competitorFacts.length) return;
+  const leaks = findCompetitorLeaks(plan.creatives.map((creative) => creative.prompt), competitorFacts, ownProductText(product));
+  if (leaks.length) throw new CompetitorLeakError(leaks);
+}
+
+function outcome(plan: CreativePlan, engine: "hermes" | "claude", input: PlanInput, reading: ReferenceReading | null): PlanOutcome {
+  checkLeaks(plan, reading?.competitorFacts ?? [], input.product);
+  return {
+    ...plan,
+    engine,
+    referenceAttached: Boolean(input.referenceAttached || input.referenceImageUrl),
+    referenceSeen: Boolean(input.referenceImageUrl) && reading?.seen === true,
+    referenceSummary: reading?.seen ? reading.summary || null : null,
+    referenceElements: reading?.seen ? reading.elements : [],
+    competitorFacts: reading?.seen ? relevantCompetitorFacts(reading.competitorFacts, ownProductText(input.product)) : [],
+  };
+}
+
+async function planOnce(input: PlanInput, count: number, extraRule: string): Promise<PlanOutcome> {
   const prompt = planPrompt({ ...input, count }) + extraRule;
+  const withImage = Boolean(input.referenceImageUrl);
   let hermesReason = hermesAnalysisAvailable() ? "" : "Hermes non configuré";
   if (!hermesReason) {
     try {
-      const raw = await askHermesText(prompt, SYSTEM);
-      return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts, input.product), engine: "hermes" };
+      const raw = withImage ? await askHermesVision(prompt, SYSTEM, [input.referenceImageUrl as string]) : await askHermesText(prompt, SYSTEM);
+      const reading = parseReferenceReading(raw);
+      if (withImage && (reading?.seen === false || (!reading && hermesCannotSee(raw)))) {
+        throw new VisionUnavailableError(`Le modèle Hermes actuel ne voit pas les images${reading?.summary ? ` — ${reading.summary}` : ""}.`);
+      }
+      const plan = validatePlan(raw, count, input.ratio);
+      if (withImage && !reading?.seen) throw new VisionUnavailableError("Hermes a planifié sans confirmer avoir vu l'image.");
+      return outcome(plan, "hermes", input, reading);
     } catch (error) {
-      if (error instanceof CompetitorLeakError) throw error;
+      if (error instanceof CompetitorLeakError || error instanceof VisionUnavailableError) throw error;
       hermesReason = error instanceof Error ? error.message : "Hermes indisponible";
     }
   }
+  // Une image d'inspiration exige Hermes : pas de lecture par un autre œil en douce.
+  if (withImage) throw new Error(`Planification impossible — Hermes : ${hermesReason} (l'image d'inspiration ne peut être lue que par Hermes)`);
   try {
     const raw = await kieClaude(prompt, 4000);
-    return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts, input.product), engine: "claude" };
+    return outcome(validatePlan(raw, count, input.ratio), "claude", input, null);
   } catch (error) {
     if (error instanceof CompetitorLeakError) throw error;
     throw new Error(`Planification impossible — Hermes : ${hermesReason} ; Kie : ${error instanceof Error ? error.message : "?"}`);
   }
 }
 
-export async function planWorkspaceBatch(input: PlanInput): Promise<CreativePlan & { engine: "hermes" | "claude" }> {
+export async function planWorkspaceBatch(input: PlanInput): Promise<PlanOutcome> {
   const count = Math.min(MAX_PLANNED_CREATIVES, Math.max(1, Math.round(input.count)));
   try {
     return await planOnce(input, count, "");
   } catch (error) {
-    if (!(error instanceof CompetitorLeakError)) throw error;
-    const facts = [...new Set(error.leaks.flatMap((leak) => leak.facts))];
-    const rule = `\n\nPREVIOUS ATTEMPT REJECTED: these competitor elements appeared in the prompts and must not appear in any form: ${facts.map((fact) => `« ${fact} »`).join(", ")}. Use the active product's own facts or drop the element.`;
-    return planOnce(input, count, rule);
+    if (error instanceof CompetitorLeakError) {
+      const facts = [...new Set(error.leaks.flatMap((leak) => leak.facts))];
+      const rule = `\n\nPREVIOUS ATTEMPT REJECTED: these competitor elements appeared in the prompts and must not appear in any form: ${facts.map((fact) => `« ${fact} »`).join(", ")}. Use the active product's own facts or drop the element.`;
+      return planOnce(input, count, rule);
+    }
+    // Un plan mal formé (prose au lieu de JSON, JSON cassé) vaut un second passage, une seule fois.
+    if (error instanceof PlanValidationError || /JSON du planificateur/.test(error instanceof Error ? error.message : "")) {
+      const rule = `\n\nPREVIOUS ANSWER WAS NOT USABLE (${error instanceof Error ? error.message : "invalid"}). Answer with the JSON object ONLY, exactly ${count} creatives, no prose before or after, newlines inside strings escaped as \\n.`;
+      return planOnce(input, count, rule);
+    }
+    throw error;
   }
 }

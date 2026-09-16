@@ -20,7 +20,8 @@ import {
   type GenerateSpec,
 } from "@/lib/creative-engine/store";
 import { extractProductImages } from "@/lib/creative-engine/product-images";
-import { planWorkspaceBatch, readCreativeReference, relevantCompetitorFacts } from "@/lib/creative-engine/workspace-writer";
+import { planWorkspaceBatch, VisionUnavailableError } from "@/lib/creative-engine/workspace-writer";
+import { uploadBase64 } from "@/lib/studio/kie";
 import type { ProductReferenceType } from "@/lib/creative-engine/types";
 import type { CreativeEmphasis, CreativeStatus, FamilyMixSetting, ReferenceStrength } from "@/lib/creative-engine/types";
 
@@ -69,8 +70,10 @@ type Body = {
   avoid?: string[];
   /** Prompt libre : la fiche lue, quand il n'y a pas de produit du moteur. */
   product?: { name?: string; store?: string; url?: string; price?: string } | null;
-  /** Créa de référence jointe au brief (data URL image) : décrite pour le planificateur, jointe à la génération. */
+  /** Créa d'inspiration jointe au brief (data URL image) : hébergée puis vue par Hermes dans la requête de planification. */
   referenceDataUrl?: string | null;
+  /** Vrai pour planifier depuis le texte seul quand Hermes ne peut pas voir l'image (choix de l'opérateur). */
+  ignoreReference?: boolean;
   url?: string;
   store?: string;
   productId?: string;
@@ -147,20 +150,31 @@ export async function POST(request: Request) {
         const product = stored ?? sheet;
         if (!body.brief?.trim()) return NextResponse.json({ error: "Brief manquant" }, { status: 400 });
         const referenceDataUrl = typeof body.referenceDataUrl === "string" && /^data:image\/[a-z0-9.+-]+;base64,/i.test(body.referenceDataUrl) && body.referenceDataUrl.length <= 5_500_000 ? body.referenceDataUrl : null;
-        const outcome = referenceDataUrl ? await readCreativeReference(referenceDataUrl) : null;
-        const reading = outcome?.reading ?? null;
-        const plan = await planWorkspaceBatch({
-          brief: body.brief,
-          count: body.count ?? 1,
-          ratio: body.ratio || "3:4",
-          product,
-          hasReference: Boolean(body.hasReference) || Boolean(referenceDataUrl),
-          avoid: (body.avoid ?? []).map(String).slice(0, 30),
-          creativeReferenceAttached: Boolean(referenceDataUrl),
-          creativeReferenceDescription: reading?.description ?? null,
-          competitorFacts: reading?.competitorFacts ?? [],
-        });
-        return NextResponse.json({ plan: { ...plan, referenceAttached: Boolean(referenceDataUrl), referenceDescription: reading?.description ?? null, competitorFacts: relevantCompetitorFacts(reading?.competitorFacts ?? [], product ? JSON.stringify([product.name, product.store, product.url, "analysis" in product ? product.analysis : null]) : ""), referenceEye: outcome?.eye ?? null, referenceReadFailure: outcome?.reason ?? null } });
+        // Hermes lit une image par URL https (jamais en data URL) : l'inspiration est hébergée puis jointe à la requête de planification elle-même.
+        let referenceImageUrl: string | null = null;
+        if (referenceDataUrl && !body.ignoreReference) {
+          try {
+            referenceImageUrl = await uploadBase64(referenceDataUrl, `inspiration-${Date.now().toString(36)}.png`);
+          } catch (error) {
+            return NextResponse.json({ error: `Hébergement de l'image d'inspiration impossible : ${error instanceof Error ? error.message : "?"}` }, { status: 502 });
+          }
+        }
+        try {
+          const plan = await planWorkspaceBatch({
+            brief: body.brief,
+            count: body.count ?? 1,
+            ratio: body.ratio || "3:4",
+            product,
+            hasReference: Boolean(body.hasReference) || Boolean(referenceImageUrl),
+            avoid: (body.avoid ?? []).map(String).slice(0, 30),
+            referenceImageUrl,
+            referenceAttached: Boolean(referenceDataUrl),
+          });
+          return NextResponse.json({ plan });
+        } catch (error) {
+          if (error instanceof VisionUnavailableError) return NextResponse.json({ error: error.message, visionUnavailable: true }, { status: 422 });
+          throw error;
+        }
       }
       case "product-reference":
         if (!body.productId || !body.referenceUrl) return NextResponse.json({ error: "Produit ou image manquant" }, { status: 400 });

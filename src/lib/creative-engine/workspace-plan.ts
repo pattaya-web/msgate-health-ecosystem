@@ -70,6 +70,23 @@ function extractJson(raw: string): string | null {
   return start >= 0 && end > start ? candidate.slice(start, end + 1) : null;
 }
 
+/**
+ * Le JSON d'un modèle de langage n'est pas toujours strict : retours à la ligne
+ * nus dans un prompt, virgule après le dernier élément, guillemets typographiques.
+ * On lit tel quel, puis avec ces réparations, avant de déclarer le plan illisible.
+ */
+export function parseLenientJson<T>(json: string): T {
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    const repaired = json
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/\r?\n/g, " ")
+      .replace(/,\s*([}\]])/g, "$1");
+    return JSON.parse(repaired) as T;
+  }
+}
+
 export class PlanValidationError extends Error {}
 
 /** Lecture stricte du JSON du planificateur : exactement `count` créas distinctes, chacune avec un prompt exploitable. */
@@ -78,9 +95,9 @@ export function validatePlan(raw: string, count: number, fallbackRatio: string):
   if (!json) throw new PlanValidationError("le planificateur n'a pas renvoyé de JSON");
   let parsed: { count?: unknown; ratio?: unknown; format?: unknown; creatives?: unknown };
   try {
-    parsed = JSON.parse(json);
+    parsed = parseLenientJson(json);
   } catch {
-    throw new PlanValidationError("JSON du planificateur invalide");
+    throw new PlanValidationError(`JSON du planificateur invalide (début : « ${json.slice(0, 80).replace(/\s+/g, " ")}… »)`);
   }
   if (!Array.isArray(parsed.creatives)) throw new PlanValidationError("pas de liste « creatives » dans le plan");
   const str = (value: unknown) => (typeof value === "string" ? value.trim() : "");

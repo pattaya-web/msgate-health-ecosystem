@@ -4,7 +4,6 @@ import { useState, type DragEvent } from "react";
 import { ImagePlus, Loader2, RefreshCw, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { fileToDataUrl } from "@/components/mass-test/engine-client";
-import { enginePost } from "@/components/mass-test/engine-client";
 import type { CreativePlan, PlannedCreative } from "@/lib/creative-engine/workspace-plan";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +13,21 @@ import { cn } from "@/lib/utils";
  * avant tout envoi. Chaque écran garde sa propre suite (aperçu, génération).
  */
 
-export type PlanResult = CreativePlan & { engine: string; referenceAttached?: boolean; referenceDescription?: string | null; competitorFacts?: string[]; referenceEye?: "hermes" | "claude" | null; referenceReadFailure?: string | null };
+export type PlanResult = CreativePlan & {
+  engine: string;
+  /** Une créa d'inspiration était jointe au brief. */
+  referenceAttached?: boolean;
+  /** Hermes l'a réellement regardée dans la requête de planification. */
+  referenceSeen?: boolean;
+  /** Ce qu'il y a vu (ADN créatif), et les éléments visuels concrets qu'il reprend. */
+  referenceSummary?: string | null;
+  referenceElements?: string[];
+  /** Faits propres au concurrent lus sur l'image et écartés (avec un produit actif). */
+  competitorFacts?: string[];
+};
+
+/** Hermes tourne sur un modèle qui ne voit pas : l'opérateur choisit de continuer en texte seul ou non. */
+export class VisionUnavailableError extends Error {}
 
 export type PlanRequest = {
   brief: string;
@@ -26,13 +39,39 @@ export type PlanRequest = {
   /** Sinon, ce qu'on sait du produit (fiche lue en prompt libre), ou rien. */
   product?: { name: string; store?: string; url?: string; price?: string } | null;
   avoid?: string[];
-  /** Créa de référence (data URL) : décrite pour le planificateur, à joindre ensuite à la génération. */
+  /** Créa d'inspiration (data URL) : hébergée puis vue par Hermes dans la requête de planification. */
   referenceDataUrl?: string | null;
+  /** Planifier depuis le texte seul, l'image restant jointe à la génération. */
+  ignoreReference?: boolean;
 };
 
 export async function requestPlan(input: PlanRequest): Promise<PlanResult> {
-  const data = await enginePost<{ plan: PlanResult }>({ action: "workspace-plan", ...input });
+  const res = await fetch("/api/creative-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "workspace-plan", ...input }) });
+  const data = (await res.json()) as { plan?: PlanResult; error?: string; visionUnavailable?: boolean };
+  if (!res.ok || !data.plan) {
+    if (data.visionUnavailable) throw new VisionUnavailableError(data.error || "Le modèle Hermes actuel ne voit pas les images");
+    throw new Error(data.error || "Planification impossible");
+  }
   return data.plan;
+}
+
+/** L'avertissement quand Hermes ne peut pas voir l'image : rien n'est planifié tant que l'opérateur n'a pas choisi. */
+export function VisionWarning({ message, onContinue, onDismiss, busy }: { message: string; onContinue: () => void; onDismiss: () => void; busy?: boolean }) {
+  return (
+    <section className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" data-vision-warning>
+      <div className="font-semibold">Hermes current model does not support vision.</div>
+      <p className="mt-0.5 text-[11.5px]">{message} L&apos;image reste jointe à la génération, mais le planificateur ne peut pas la regarder. Tu peux planifier depuis le texte seul.</p>
+      <div className="mt-2 flex items-center gap-2">
+        <button type="button" disabled={busy} onClick={onContinue} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-60 dark:bg-white dark:text-slate-900" data-plan-text-only>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Planifier sans l&apos;image
+        </button>
+        <button type="button" onClick={onDismiss} className="h-8 rounded-lg px-2 text-[12px] font-medium text-amber-900/70 hover:text-amber-900 dark:text-amber-200/70">
+          Annuler
+        </button>
+      </div>
+    </section>
+  );
 }
 
 export function engineLabel(engine: string) {
@@ -41,6 +80,7 @@ export function engineLabel(engine: string) {
 
 export function PlanCards({
   plan,
+  withProduct = false,
   selected,
   onSelect,
   onEdit,
@@ -51,6 +91,8 @@ export function PlanCards({
   busy,
 }: {
   plan: PlanResult;
+  /** Un produit actif accompagnait la planification (le statut le dit). */
+  withProduct?: boolean;
   selected: Set<number>;
   onSelect: (next: Set<number>) => void;
   onEdit: (index: number, prompt: string) => void;
@@ -70,14 +112,20 @@ export function PlanCards({
         </div>
         <span className="text-[10.5px] text-slate-400">planifié par {engineLabel(plan.engine)} · {plan.ratio}</span>
         {plan.referenceAttached ? (
-          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceDescription ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceDescription ?? `Aucun modèle qui voit n'a répondu${plan.referenceReadFailure ? ` — ${plan.referenceReadFailure}` : ""}. Le planificateur a travaillé depuis le brief seul.`} data-plan-reference={plan.referenceDescription ? "described" : "attached"}>
-            {plan.referenceDescription ? `Inspiration lue par ${plan.referenceEye === "hermes" ? "Hermes" : "Claude"} et suivie` : "Inspiration jointe, NON LUE : aucun modèle qui voit n'a répondu"}
+          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceSeen ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceSeen ? plan.referenceSummary ?? "" : "Planifié depuis le texte seul : le modèle Hermes actuel n'a pas regardé l'image."} data-plan-reference={plan.referenceSeen ? "seen" : "unseen"}>
+            {plan.referenceSeen ? (withProduct ? "Produit actif + référence lue par Hermes" : "Référence lue par Hermes") : "Référence non lisible par le modèle Hermes actuel"}
           </span>
         ) : null}
         {plan.competitorFacts?.length ? (
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800" title={plan.competitorFacts.join(" · ")} data-plan-competitor-facts={plan.competitorFacts.length}>
             {plan.competitorFacts.length} fait{plan.competitorFacts.length > 1 ? "s" : ""} concurrent{plan.competitorFacts.length > 1 ? "s" : ""} écarté{plan.competitorFacts.length > 1 ? "s" : ""}
           </span>
+        ) : null}
+        {plan.referenceSeen && plan.referenceElements?.length ? (
+          <div className="basis-full text-[10.5px] text-slate-500" data-plan-elements={plan.referenceElements.length}>
+            <span className="font-semibold uppercase tracking-wide text-slate-400">Éléments repris : </span>
+            {plan.referenceElements.join(" · ")}
+          </div>
         ) : null}
         <div className="ml-auto flex items-center gap-1.5 text-[11px]">
           <button type="button" onClick={() => onSelect(new Set(planned.map((creative) => creative.index)))} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">

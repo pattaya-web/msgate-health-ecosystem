@@ -8,7 +8,7 @@ import { GenerationStatus, type GenerationState } from "@/components/ask-hermes/
 import { fileToDataUrl, itemImageUrl, panel } from "@/components/mass-test/engine-client";
 import { PageHeader } from "@/components/shared/page-states";
 import { BatchPreview, launchFromPrompts, launchedState, type Draft } from "@/components/studio/batch-preview";
-import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, type PlanResult } from "@/components/studio/brief-planner";
+import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult } from "@/components/studio/brief-planner";
 import { CreativeResults, type ResultItem } from "@/components/studio/creative-results";
 import { ActiveProductCard, ProductGallery, useProductContext } from "@/components/studio/product-context";
 import { isPromptsOnly, parseRequestedCount, parseRequestedRatio } from "@/lib/creative-engine/workspace-plan";
@@ -41,6 +41,7 @@ export function ProductWorkspace() {
   /* Une créa d'inspiration (pub concurrente, style) : décrite pour le planificateur ; la référence produit reste la seule vérité visuelle. */
   const [creativeRef, setCreativeRef] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
+  const [visionWarning, setVisionWarning] = useState<string | null>(null);
   const [rewriting, setRewriting] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -124,7 +125,7 @@ export function ProductWorkspace() {
       .map((creative) => ({ index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: compose(creative.prompt) }));
   }, [facts, mode, brief, plan, selected, referenceMode, creativeRef]);
 
-  async function prepare() {
+  async function prepare(ignoreReference = false) {
     if (!active || !brief.trim()) return;
     if (mode === "exact") {
       setPreviewOpen(true);
@@ -134,14 +135,16 @@ export function ProductWorkspace() {
     if (wantedRatio && RATIO_IDS.includes(wantedRatio) && wantedRatio !== ratio) setRatio(wantedRatio as Ratio);
     setPlanning(true);
     setPreviewOpen(false);
+    setVisionWarning(null);
     try {
-      const fresh = await requestPlan({ productId: active.id, brief, count, ratio: wantedRatio ?? ratio, hasReference: referenceMode, referenceDataUrl: creativeRef });
+      const fresh = await requestPlan({ productId: active.id, brief, count, ratio: wantedRatio ?? ratio, hasReference: referenceMode, referenceDataUrl: creativeRef, ignoreReference });
       setPlan(fresh);
       setSelected(new Set(fresh.creatives.map((creative) => creative.index)));
-      toast.success(`${fresh.creatives.length} créa${fresh.creatives.length > 1 ? "s" : ""} planifiée${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}`);
+      toast.success(`${fresh.creatives.length} créa${fresh.creatives.length > 1 ? "s" : ""} planifiée${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}${fresh.referenceSeen ? " · référence lue" : ""}`);
     } catch (error) {
       setPlan(null);
-      toast.error(error instanceof Error ? error.message : "Planification impossible");
+      if (error instanceof VisionUnavailableError) setVisionWarning(error.message);
+      else toast.error(error instanceof Error ? error.message : "Planification impossible");
     } finally {
       setPlanning(false);
     }
@@ -304,9 +307,12 @@ export function ProductWorkspace() {
             </p>
           </section>
 
+          {visionWarning ? <VisionWarning message={visionWarning} busy={planning} onContinue={() => void prepare(true)} onDismiss={() => setVisionWarning(null)} /> : null}
+
           {mode === "auto" && plan ? (
             <PlanCards
               plan={plan}
+              withProduct
               selected={selected}
               onSelect={setSelected}
               onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}

@@ -18,7 +18,7 @@ import {
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { CreativeBatch } from "@/components/studio/creative-batch";
-import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, type PlanResult } from "@/components/studio/brief-planner";
+import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult } from "@/components/studio/brief-planner";
 import { ActiveProductCard, ProductGallery, useProductContext } from "@/components/studio/product-context";
 import { BatchPreview, launchFromPrompts, launchedState, type Draft } from "@/components/studio/batch-preview";
 import { GenerationStatus, type GenerationState } from "@/components/ask-hermes/generate-dialog";
@@ -159,6 +159,7 @@ export function StaticStudio() {
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [planSelected, setPlanSelected] = useState<Set<number>>(() => new Set());
   const [planning, setPlanning] = useState(false);
+  const [visionWarning, setVisionWarning] = useState<string | null>(null);
   const [rewriting, setRewriting] = useState<number | null>(null);
   const [countOverride, setCountOverride] = useState<number | null>(null);
   const detectedCount = useMemo(() => parseRequestedCount(genPaste), [genPaste]);
@@ -691,7 +692,7 @@ export function StaticStudio() {
   }
 
   /** Auto · brief : le texte est un brief, Hermes le découpe en N prompts distincts, montrés avant de générer. */
-  async function planFromBrief() {
+  async function planFromBrief(ignoreReference = false) {
     if (!genPaste.trim()) {
       toast.error("Écris ton brief (« Create 5 ads… »)");
       return;
@@ -699,6 +700,7 @@ export function StaticStudio() {
     const wantedRatio = parseRequestedRatio(genPaste);
     if (wantedRatio && family.ratios.includes(wantedRatio as Ratio) && wantedRatio !== ratio) setRatio(wantedRatio as Ratio);
     setPlanning(true);
+    setVisionWarning(null);
     try {
       const fresh = await requestPlan({
         brief: genPaste,
@@ -709,13 +711,15 @@ export function StaticStudio() {
         product: !activeProduct && product ? { name: product.name, ...(product.brand ? { store: product.brand } : {}), ...(productUrl.trim() ? { url: productUrl.trim() } : {}), ...(product.price ? { price: product.price } : {}) } : null,
         // L'inspiration explicite, sinon la première référence chargée, est la créa que le batch suit.
         referenceDataUrl: inspirationImage,
+        ignoreReference,
       });
       setPlan(fresh);
       setPlanSelected(new Set(fresh.creatives.map((creative) => creative.index)));
-      toast.success(`${fresh.creatives.length} prompt${fresh.creatives.length > 1 ? "s" : ""} planifié${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}`);
+      toast.success(`${fresh.creatives.length} prompt${fresh.creatives.length > 1 ? "s" : ""} planifié${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}${fresh.referenceSeen ? " · référence lue" : ""}`);
     } catch (error) {
       setPlan(null);
-      toast.error(error instanceof Error ? error.message : "Planification impossible");
+      if (error instanceof VisionUnavailableError) setVisionWarning(error.message);
+      else toast.error(error instanceof Error ? error.message : "Planification impossible");
     } finally {
       setPlanning(false);
     }
@@ -1276,9 +1280,12 @@ export function StaticStudio() {
           </p>
         </div>
 
+        {mode === "prompt" && promptMode === "auto" && visionWarning ? <VisionWarning message={visionWarning} busy={planning} onContinue={() => void planFromBrief(true)} onDismiss={() => setVisionWarning(null)} /> : null}
+
         {mode === "prompt" && promptMode === "auto" && plan ? (
           <PlanCards
             plan={plan}
+            withProduct={Boolean(activeProduct)}
             selected={planSelected}
             onSelect={setPlanSelected}
             onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}
