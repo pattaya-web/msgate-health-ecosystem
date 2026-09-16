@@ -220,7 +220,8 @@ export function StaticStudio() {
   /* Style de créa, facultatif : vide, le prompt part tel quel ; choisi, ses consignes s'ajoutent au prompt. */
   const [productType, setProductType] = useState(NO_STYLE);
   const [pageLabel, setPageLabel] = useState("");
-  const [mode, setMode] = useState<"batch" | "prompt">("batch");
+  /* Le prompt libre est l'entrée principale : brief naturel, produit et inspiration facultatifs, Hermes décide des angles. */
+  const [mode, setMode] = useState<"batch" | "prompt">("prompt");
   /* La fiche chargée en prompt libre est « ce produit » pour Ask Hermes ; en mode lot, c'est CreativeBatch qui publie la sienne. */
   usePublishHermesContext(
     "static-studio-product",
@@ -996,14 +997,6 @@ export function StaticStudio() {
                     Nouvelle variation
                   </button>
                 ) : null}
-                <a
-                  href={`/studio/mass-test?url=${encodeURIComponent(productUrl.trim())}`}
-                  className="ml-2 inline-flex items-center gap-1 rounded-full bg-slate-900 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900"
-                  title="Ouvrir le Mass test avec ce produit : 5 angles × 3 variantes proposés"
-                >
-                  <Zap className="h-3 w-3" />
-                  Mass test ce produit
-                </a>
               </span>
             ) : null}
           </div>

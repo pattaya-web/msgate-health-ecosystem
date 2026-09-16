@@ -2,18 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Eraser, FlaskConical, Image as ImageIcon, Mic, Package, Video } from "lucide-react";
+import { Clapperboard, Eraser, Image as ImageIcon, Mic, Package, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * La bibliothèque n'est plus ici : elle a rejoint la barre de gauche, dans
  * « Création ». On y va pour retrouver une créa, pas pour en fabriquer une —
  * ce n'est donc pas une étape du studio mais une destination à part.
+ *
+ * « Mass test » n'est plus un onglet : la production en masse passe par le
+ * prompt libre et son Auto-brief (produit, référence, inspiration, brief).
+ * La route /studio/mass-test et ses lots restent en place, atteignables par
+ * les liens « Détails du lot », en attendant d'en faire une matrice de tests.
  */
 const TABS = [
   { href: "/studio/product", label: "Produit", icon: Package },
   { href: "/studio/static", label: "Static", icon: ImageIcon },
-  { href: "/studio/mass-test", label: "Mass test", icon: FlaskConical },
   { href: "/studio/ai-video", label: "Vidéo IA", icon: Clapperboard },
   { href: "/studio/basic", label: "Voix Off ElevenLabs", icon: Mic },
   { href: "/studio/remove", label: "Remove Magic", icon: Eraser },

@@ -358,7 +358,7 @@ export function ProductWorkspace() {
             zipName={`${active.name.replace(/[^\w-]+/g, "-").toLowerCase()}-creatives`}
             actions={
               <a href={`/studio/mass-test?batch=${productBatches[0].id}`} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
-                <ExternalLink className="h-3 w-3" /> Mass test
+                <ExternalLink className="h-3 w-3" /> Détails du lot
               </a>
             }
             onReuse={(item) => {

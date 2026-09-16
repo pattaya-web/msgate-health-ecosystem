@@ -278,7 +278,7 @@ export function GenerationStatus({ generation, onUpdate, onDismiss }: { generati
         </ul>
       ) : null}
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
-        <a href={`/studio/mass-test?batch=${batch.id}`} className={cn("inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900")}>
+        <a href={`/studio/mass-test?batch=${batch.id}`} title="Statuts, relance et envoi Drive du lot" className={cn("inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900")}>
           <ExternalLink className="h-3 w-3" />
           Open generated batch
         </a>
