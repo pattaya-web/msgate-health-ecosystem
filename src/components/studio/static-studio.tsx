@@ -21,7 +21,7 @@ import { CreativeBatch } from "@/components/studio/creative-batch";
 import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult } from "@/components/studio/brief-planner";
 import { ActiveProductCard, ProductGallery, useProductContext } from "@/components/studio/product-context";
 import { CompetitorResearchPanel } from "@/components/studio/competitor-research";
-import type { CompetitorInspiration } from "@/lib/brandsearch/types";
+import type { CompetitorAnalysis, CompetitorInspiration, CompetitorResearch } from "@/lib/brandsearch/types";
 import { BatchPreview, launchFromPrompts, launchedState, type Draft } from "@/components/studio/batch-preview";
 import { GenerationStatus, type GenerationState } from "@/components/ask-hermes/generate-dialog";
 import { composeWorkspacePrompt } from "@/lib/creative-engine/workspace-prompt";
@@ -175,6 +175,13 @@ export function StaticStudio() {
   const [inspiration, setInspiration] = useState<string | null>(null);
   /* Pubs concurrentes choisies dans la galerie Brand Search et regardées par Hermes : motifs et ADN pour l'Auto-brief, jamais leurs faits. */
   const [competitorInspiration, setCompetitorInspiration] = useState<CompetitorInspiration | null>(null);
+  /* Présentation seulement : onglet d'inspiration, panneau Brand Search ouvert ou non, détails repliés, réglages avancés, édition du produit. */
+  const [competitorDetails, setCompetitorDetails] = useState<{ research: CompetitorResearch; analysis: CompetitorAnalysis } | null>(null);
+  const [inspirationTab, setInspirationTab] = useState<"image" | "brandsearch">("image");
+  const [competitorOpen, setCompetitorOpen] = useState(true);
+  const [inspirationView, setInspirationView] = useState<"ads" | "analysis" | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [productEdit, setProductEdit] = useState(false);
   const ctx = useProductContext({
     storageKey: "msgate.free-prompt.product",
     onSwitch: () => {
@@ -953,385 +960,514 @@ export function StaticStudio() {
         ) : null}
 
         {mode === "prompt" ? (
-          <div className="space-y-3" data-free-product-context>
-            <ActiveProductCard ctx={ctx} title="Produit actif · vérité produit (optionnel)" />
-            <ProductGallery ctx={ctx} collapsible />
-          </div>
-        ) : null}
+          <>
+            {/* La logique en une ligne, pour un premier passage comme pour le centième. */}
+            <p className="px-1 text-[11px] text-slate-500" data-priority-help>
+              <span className="font-semibold text-slate-700 dark:text-slate-200">Produit</span> = ce qui doit rester vrai · <span className="font-semibold text-slate-700 dark:text-slate-200">Inspiration</span> = l&apos;allure que la créa doit avoir · <span className="font-semibold text-slate-700 dark:text-slate-200">Auto-brief</span> = ce que tu demandes à Hermes.
+            </p>
 
-        <div
-          className={cn(
-            "rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70",
-            mode === "batch" && "hidden"
-          )}
-        >
-          {/* Ligne 0 — lien produit facultatif (sans produit du moteur) : fiche lue, photos en références, et un prompt écrit si un style est choisi. */}
-          <div className={cn("mb-2 flex flex-wrap items-center gap-2", activeProduct && "hidden")}>
-            <div className="relative min-w-[260px] flex-1">
-              <Link2 className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <input
-                value={productUrl}
-                onChange={(e) => setProductUrl(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void loadProduct();
-                }}
-                placeholder="Facultatif — lien de ta page produit : la fiche est lue et ses photos servent de références"
-                className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-[12px] dark:border-slate-700 dark:bg-slate-950"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => void loadProduct()}
-              disabled={productBusy}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900"
-            >
-              {productBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
-              {product ? "Recharger" : "Charger la fiche"}
-            </button>
-            {product ? (
-              <span className="text-[11px] text-slate-500">
-                {product.name}
-                {product.price ? ` · ${product.price}` : ""} · {product.imageUrls.length} photo(s)
-                {productType ? (
-                  <button
-                    type="button"
-                    onClick={() => product && setGenPaste(promptFromProduct(product, productType))}
-                    className="ml-2 font-medium text-emerald-600 hover:underline"
-                    title="Réécrire un nouveau prompt depuis la fiche, autre variation"
-                  >
-                    Nouvelle variation
-                  </button>
+            {/* ---------------------------------------------- 1. PRODUIT */}
+            <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-step="product" data-free-product-context>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <StepTitle n={1} title="Produit" optional />
+                {activeProduct ? (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <button type="button" onClick={() => setProductEdit((value) => !value)} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300" data-product-change>
+                      {productEdit ? "Fermer" : "Changer de produit"}
+                    </button>
+                    <button type="button" onClick={() => { ctx.selectProduct(null); setProductEdit(false); }} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300" data-detach-product>
+                      Détacher
+                    </button>
+                  </div>
                 ) : null}
-              </span>
-            ) : null}
-          </div>
-
-          {/* Ligne 1 — les références d'abord (dépôt de fichiers, clic pour agrandir, glisser pour réordonner), puis les réglages du rendu. */}
-          <div
-            data-refs-zone
-            className={cn(
-              "flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl p-1 transition-colors",
-              fileOver && "bg-emerald-50 ring-2 ring-dashed ring-emerald-400 dark:bg-emerald-950/30"
-            )}
-            onDragOver={(e) => {
-              if (e.dataTransfer.types.includes("Files")) {
-                e.preventDefault();
-                setFileOver(true);
-              }
-            }}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false);
-            }}
-            onDrop={(e) => {
-              if (!e.dataTransfer.types.includes("Files")) return;
-              e.preventDefault();
-              setFileOver(false);
-              const files = [...e.dataTransfer.files].filter((file) => file.type.startsWith("image/"));
-              if (files.length) void addRefs(files);
-            }}
-          >
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="Dépose des images ici. Clic : agrandir. Glisser : changer l'ordre.">
-              Références{refs.length ? ` ${refs.length}/8` : ""}
-            </span>
-
-            {refs.map((ref, index) => (
-              <div
-                key={ref.id}
-                draggable
-                data-ref-index={index}
-                onDragStart={(e) => {
-                  setDragIndex(index);
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData("text/plain", String(index));
-                }}
-                onDragEnd={() => setDragIndex(null)}
-                onDragOver={(e) => {
-                  if (dragIndex !== null) e.preventDefault();
-                }}
-                onDrop={(e) => {
-                  if (dragIndex === null) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  moveRef(dragIndex, index);
-                  setDragIndex(null);
-                }}
-                className={cn(
-                  "group/ref relative h-11 w-11 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 active:cursor-grabbing",
-                  ref.url ? "ring-emerald-500/40" : "ring-slate-900/10",
-                  dragIndex === index && "opacity-40"
-                )}
-                title={`${index + 1} · ${ref.name} — clic : agrandir, glisser : réordonner`}
-              >
-                <button type="button" onClick={() => setRefZoom(ref)} className="h-full w-full" aria-label={`Agrandir la référence ${index + 1}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={ref.preview} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />
-                </button>
-                <span className="pointer-events-none absolute bottom-0 left-0 rounded-tr bg-black/60 px-1 text-[9px] font-semibold leading-3 text-white">{index + 1}</span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setRefs((list) => list.filter((item) => item.id !== ref.id));
-                  }}
-                  className="absolute right-0 top-0 rounded bg-black/60 p-0.5 text-white"
-                  aria-label={`Retirer la référence ${index + 1}`}
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
               </div>
-            ))}
+              {activeProduct ? (
+                <div className="flex flex-wrap items-center gap-4 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60" data-product-summary>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-200 ring-1 ring-slate-900/10 dark:bg-slate-700">
+                      {primary?.url ?? activeProduct.imageUrls[0] ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={primary?.url ?? activeProduct.imageUrls[0]} alt="" className="h-full w-full object-cover" />
+                      ) : null}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100" data-product-name>{activeProduct.name}</div>
+                      <div className="text-[11.5px] text-slate-500">Boutique : {activeProduct.store}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11.5px]" data-product-reference={primary ? "yes" : "no"}>
+                    <div className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-slate-200 ring-1 ring-slate-900/10 dark:bg-slate-700">
+                      {primary ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={primary.url} alt="" className="h-full w-full object-cover" />
+                      ) : null}
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Référence produit</div>
+                      {primary ? <div className="text-emerald-700 dark:text-emerald-300">✓ Référence principale sélectionnée</div> : <button type="button" onClick={() => setProductEdit(true)} className="text-amber-700 underline-offset-2 hover:underline dark:text-amber-300">○ Aucune : choisis la vraie photo du produit</button>}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="mb-2 text-[12px] text-slate-500" data-product-none>Aucun produit rattaché. Tu peux créer depuis une inspiration + un brief, ou rattacher un produit : c&apos;est lui qui dit ce que tu vends.</p>
+              )}
+              {/* Sans référence principale, la galerie reste ouverte : choisir la vraie photo est la première chose à faire. */}
+              {!activeProduct || productEdit || !primary ? (
+                <div className="mt-2 space-y-3">
+                  <ActiveProductCard ctx={ctx} title={activeProduct ? "Changer de produit" : "Rattacher un produit du Creative Engine"} showDetach={false} />
+                  <ProductGallery ctx={ctx} collapsible={Boolean(primary)} />
+                </div>
+              ) : null}
+              {!activeProduct ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2" data-quick-sheet>
+                  <div className="relative min-w-[260px] flex-1">
+                    <Link2 className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={productUrl}
+                      onChange={(e) => setProductUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void loadProduct();
+                      }}
+                      placeholder="Ou, sans le moteur : lien de ta page produit, la fiche est lue et ses photos servent de références"
+                      className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-[12px] dark:border-slate-700 dark:bg-slate-950"
+                    />
+                  </div>
+                  <button type="button" onClick={() => void loadProduct()} disabled={productBusy} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                    {productBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+                    {product ? "Recharger" : "Charger la fiche"}
+                  </button>
+                  {product ? (
+                    <span className="text-[11px] text-slate-500">
+                      {product.name}
+                      {product.price ? ` · ${product.price}` : ""} · {product.imageUrls.length} photo(s)
+                      {productType ? (
+                        <button type="button" onClick={() => product && setGenPaste(promptFromProduct(product, productType))} className="ml-2 font-medium text-emerald-600 hover:underline" title="Réécrire un nouveau prompt depuis la fiche, autre variation">
+                          Nouvelle variation
+                        </button>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  {pageLabel ? <p className="basis-full text-[11px] text-emerald-700 dark:text-emerald-400">Page lue : {pageLabel}</p> : null}
+                </div>
+              ) : null}
+            </section>
 
-            {refs.length < 8 ? (
-              <label
-                title="Ajouter une image de référence (ou dépose des fichiers sur la rangée)"
-                className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-dashed ring-slate-300 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600"
-              >
-                <ImagePlus className="h-4 w-4" />
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.length) void addRefs(e.target.files);
-                    e.target.value = "";
+            {/* ---------------------------------------------- 2. INSPIRATION */}
+            <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-step="inspiration">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <StepTitle n={2} title="Inspiration créative" optional />
+                <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Source d'inspiration">
+                  {(
+                    [
+                      ["image", "Image"],
+                      ["brandsearch", "Brand Search"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button key={id} type="button" aria-pressed={inspirationTab === id} onClick={() => setInspirationTab(id)} className={cn("rounded px-2 py-0.5 text-[10.5px] font-medium", inspirationTab === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")} data-inspiration-tab={id}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="mb-2 text-[11px] text-slate-500">L&apos;inspiration guide le style, la mise en page, l&apos;angle, les accroches et la structure visuelle. Elle ne remplace jamais ton produit.</p>
+
+              {competitorInspiration ? (
+                <div className="mb-3 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-[12px] text-emerald-950 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-100" data-competitor-inspiration>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">✓ Inspiration active — reliée à l&apos;Auto-brief</div>
+                  <div className="mt-1 grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
+                    <div><span className="text-emerald-800/70 dark:text-emerald-200/70">Concurrent :</span> <span className="font-semibold">{competitorInspiration.domain}</span></div>
+                    <div><span className="text-emerald-800/70 dark:text-emerald-200/70">Pubs sélectionnées :</span> <span className="font-semibold">{competitorInspiration.creatives.length} pub{competitorInspiration.creatives.length > 1 ? "s" : ""}</span></div>
+                    <div><span className="text-emerald-800/70 dark:text-emerald-200/70">Motifs détectés :</span> <span className="font-semibold">{competitorInspiration.patterns.length}</span></div>
+                    <div><span className="text-emerald-800/70 dark:text-emerald-200/70">Produit cible :</span> <span className="font-semibold">{activeProduct ? activeProduct.name : "aucun (créa libre)"}</span></div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                    <button type="button" onClick={() => setInspirationView((value) => (value === "ads" ? null : "ads"))} className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" data-inspiration-view-ads>Voir les pubs sélectionnées</button>
+                    <button type="button" onClick={() => setInspirationView((value) => (value === "analysis" ? null : "analysis"))} className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" data-inspiration-view-analysis>Voir l&apos;analyse Hermes</button>
+                    <button type="button" onClick={() => { setInspirationTab("brandsearch"); setCompetitorOpen(true); }} className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200">Changer l&apos;inspiration</button>
+                    <button type="button" onClick={() => { setCompetitorInspiration(null); setCompetitorDetails(null); setInspirationView(null); }} className="rounded-md border border-emerald-300 bg-white px-2 py-0.5 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" data-competitor-inspiration-clear>Retirer</button>
+                  </div>
+                  {inspirationView === "ads" && competitorDetails ? (
+                    <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-6" data-inspiration-ads>
+                      {competitorDetails.research.creatives.filter((creative) => competitorInspiration.creatives.some((entry) => entry.id === creative.id)).map((creative) => (
+                        <figure key={creative.id} className="overflow-hidden rounded-lg bg-white ring-1 ring-emerald-200 dark:bg-slate-900 dark:ring-emerald-800">
+                          <div className="aspect-[4/5] bg-slate-100 dark:bg-slate-800">
+                            {creative.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={creative.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                            ) : null}
+                          </div>
+                          <figcaption className="truncate px-1.5 py-1 text-[10px] text-slate-500">{competitorDetails.analysis.creatives.find((entry) => entry.id === creative.id)?.archetype ?? creative.headline ?? creative.id}</figcaption>
+                        </figure>
+                      ))}
+                    </div>
+                  ) : null}
+                  {inspirationView === "analysis" && competitorDetails ? (
+                    <div className="mt-2 space-y-2 rounded-lg bg-white p-2.5 text-[11.5px] text-slate-700 dark:bg-slate-900 dark:text-slate-300" data-inspiration-analysis>
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Pubs analysées</div>
+                        <ul className="mt-0.5 space-y-0.5">
+                          {competitorInspiration.creatives.map((creative) => (
+                            <li key={creative.id}><span className="font-medium">{creative.archetype || creative.id}</span> — {creative.angle}{creative.hookMechanism ? ` · accroche : ${creative.hookMechanism}` : ""}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Motifs récurrents</div>
+                        <ol className="mt-0.5 space-y-0.5">
+                          {competitorInspiration.patterns.map((pattern, index) => (
+                            <li key={pattern.name}><span className="font-medium">{String.fromCharCode(65 + index)}. {pattern.name}</span> — {pattern.description}{pattern.mechanism ? ` Mécanisme : ${pattern.mechanism}` : ""} ({pattern.adIds.length})</li>
+                          ))}
+                        </ol>
+                      </div>
+                      {competitorDetails.analysis.recommended.length ? (
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Recommandations Hermes</div>
+                          <ul className="mt-0.5 space-y-0.5">{competitorDetails.analysis.recommended.map((entry) => <li key={entry.id}>{entry.id} — {entry.why}</li>)}</ul>
+                        </div>
+                      ) : null}
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Éléments propres au concurrent, exclus</div>
+                        <p className="mt-0.5 text-amber-700 dark:text-amber-300">{[...new Set(competitorInspiration.creatives.flatMap((creative) => creative.competitorFacts))].join(" · ") || "—"}</p>
+                      </div>
+                      <p className="text-[10.5px] text-slate-400">{competitorDetails.analysis.signalsNote}</p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {inspirationTab === "image" ? (
+                <div className="space-y-2">
+                  <CreativeReferenceSlot value={inspiration} onChange={setInspiration} hint={activeProduct ? "Pub concurrente ou créa de style : le batch en garde l'angle, la structure et le style ; ton produit, sa photo et ses faits restent les tiens." : "Pub concurrente ou créa de style : le batch en garde la structure et le style."} />
+                  <div
+                    data-refs-zone
+                    className={cn(
+                      "flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl p-1 transition-colors",
+                      fileOver && "bg-emerald-50 ring-2 ring-dashed ring-emerald-400 dark:bg-emerald-950/30"
+                    )}
+                    onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes("Files")) {
+                        e.preventDefault();
+                        setFileOver(true);
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false);
+                    }}
+                    onDrop={(e) => {
+                      if (!e.dataTransfer.types.includes("Files")) return;
+                      e.preventDefault();
+                      setFileOver(false);
+                      const files = [...e.dataTransfer.files].filter((file) => file.type.startsWith("image/"));
+                      if (files.length) void addRefs(files);
+                    }}
+                  >
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="Images envoyées au modèle image avec chaque prompt (sans produit rattaché). Clic : agrandir. Glisser : changer l'ordre.">
+                      Images de référence{refs.length ? ` ${refs.length}/8` : ""}
+                    </span>
+                    {refs.map((ref, index) => (
+                      <div
+                        key={ref.id}
+                        draggable
+                        data-ref-index={index}
+                        onDragStart={(e) => {
+                          setDragIndex(index);
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", String(index));
+                        }}
+                        onDragEnd={() => setDragIndex(null)}
+                        onDragOver={(e) => {
+                          if (dragIndex !== null) e.preventDefault();
+                        }}
+                        onDrop={(e) => {
+                          if (dragIndex === null) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          moveRef(dragIndex, index);
+                          setDragIndex(null);
+                        }}
+                        className={cn(
+                          "group/ref relative h-11 w-11 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 active:cursor-grabbing",
+                          ref.url ? "ring-emerald-500/40" : "ring-slate-900/10",
+                          dragIndex === index && "opacity-40"
+                        )}
+                        title={`${index + 1} · ${ref.name} — clic : agrandir, glisser : réordonner`}
+                      >
+                        <button type="button" onClick={() => setRefZoom(ref)} className="h-full w-full" aria-label={`Agrandir la référence ${index + 1}`}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={ref.preview} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />
+                        </button>
+                        <span className="pointer-events-none absolute bottom-0 left-0 rounded-tr bg-black/60 px-1 text-[9px] font-semibold leading-3 text-white">{index + 1}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRefs((list) => list.filter((item) => item.id !== ref.id));
+                          }}
+                          className="absolute right-0 top-0 rounded bg-black/60 p-0.5 text-white"
+                          aria-label={`Retirer la référence ${index + 1}`}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {refs.length < 8 ? (
+                      <label title="Ajouter une image de référence (ou dépose des fichiers sur la rangée)" className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-dashed ring-slate-300 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600">
+                        <ImagePlus className="h-4 w-4" />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files?.length) void addRefs(e.target.files);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <CompetitorResearchPanel
+                  productId={activeProduct?.id ?? null}
+                  productName={activeProduct?.name ?? null}
+                  active={competitorInspiration ? { domain: competitorInspiration.domain, ads: competitorInspiration.creatives.length } : null}
+                  open={competitorOpen}
+                  onOpenChange={setCompetitorOpen}
+                  onUse={(next, details) => {
+                    setCompetitorInspiration(next);
+                    setCompetitorDetails(details);
+                    setInspirationView(null);
+                    setCompetitorOpen(false);
+                    setPlan(null);
                   }}
                 />
-              </label>
-            ) : null}
+              )}
+            </section>
 
-            <div className="ml-auto flex items-center gap-1.5">
-              <Picker
-                label="Modèle"
-                value={modelId}
-                onChange={(value) => {
-                  const next = modelFamily(value);
-                  if (!next) return;
-                  setModelId(value);
-                  if (next.ratios.length && !next.ratios.includes(ratio)) setRatio(next.ratios[0]);
-                  if (next.resolutions.length && !next.resolutions.includes(resolution)) setResolution(next.resolutions[0]);
-                  if (next.durations?.length && !next.durations.includes(duration)) setDuration(next.durations[0]);
+            {/* ---------------------------------------------- 3. AUTO-BRIEF */}
+            <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-step="brief">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <StepTitle n={3} title="Auto-brief" />
+                <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Mode du prompt">
+                  {(
+                    [
+                      ["auto", "Auto · brief"],
+                      ["exact", "Prompt exact"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button key={id} type="button" aria-pressed={promptMode === id} onClick={() => { setPromptMode(id); if (id === "exact") setPlan(null); }} className={cn("rounded px-2 py-0.5 text-[10.5px] font-medium", promptMode === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")} data-prompt-mode={id}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {promptMode === "auto" ? (
+                <div className="mb-2 rounded-xl bg-slate-50 p-2 text-[11.5px] dark:bg-slate-800/60" data-brief-context>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Hermes va utiliser</div>
+                  <ul className="mt-0.5 grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
+                    <li className={activeProduct ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{activeProduct ? `✓ Produit actif : ${activeProduct.name}` : "○ Aucun produit actif"}</li>
+                    <li className={primary ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{primary ? "✓ Référence produit principale" : activeProduct ? "○ Pas de référence produit (texte seul)" : "○ Pas de référence produit"}</li>
+                    <li className={inspirationImage ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{inspirationImage ? "✓ Image d'inspiration" : "○ Pas d'image d'inspiration"}</li>
+                    <li className={competitorInspiration ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{competitorInspiration ? `✓ ${competitorInspiration.creatives.length} pub${competitorInspiration.creatives.length > 1 ? "s" : ""} concurrente${competitorInspiration.creatives.length > 1 ? "s" : ""} (${competitorInspiration.domain}) · ${competitorInspiration.patterns.length} motif${competitorInspiration.patterns.length > 1 ? "s" : ""} extrait${competitorInspiration.patterns.length > 1 ? "s" : ""}` : "○ Pas d'inspiration Brand Search"}</li>
+                  </ul>
+                </div>
+              ) : null}
+              <textarea
+                value={genPaste}
+                onChange={(e) => {
+                  setGenPaste(e.target.value);
+                  setCountOverride(null);
                 }}
-              >
-                <optgroup label="Image">
-                  {MODEL_FAMILIES.filter((item) => item.kind === "image").map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}{item.imageModel ? "" : " · texte seul"}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Vidéo">
-                  {MODEL_FAMILIES.filter((item) => item.kind === "video").map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}{item.imageModel ? "" : " · texte seul"}
-                    </option>
-                  ))}
-                </optgroup>
-              </Picker>
-              <Picker
-                label="Style"
-                value={productType}
-                onChange={(value) => {
-                  setProductType(value);
-                  if (product && value) setGenPaste(promptFromProduct(product, value));
+                onPaste={(e) => {
+                  // Une image dans le presse-papiers (capture, copie depuis le navigateur) devient une référence, sans passer par un fichier.
+                  const files = [...(e.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
+                  if (!files.length) return;
+                  e.preventDefault();
+                  void addRefs(files);
+                  toast.success(`${files.length} image${files.length > 1 ? "s" : ""} ajoutée${files.length > 1 ? "s" : ""} aux références`);
                 }}
-              >
-                <option value={NO_STYLE}>Aucun · prompt tel quel</option>
-                {CREATIVE_TYPES.filter((item) => item.enabled).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </Picker>
-              {family.ratios.length ? (
-                <Picker label="Ratio" value={ratio} onChange={(value) => setRatio(value as Ratio)}>
-                  {RATIOS.filter((item) => family.ratios.includes(item.id)).map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.id} · {item.hint}
-                    </option>
-                  ))}
-                </Picker>
-              ) : null}
-              {family.resolutions.length ? (
-                <Picker label="Taille" value={resolution} onChange={(value) => setResolution(value)}>
-                  {family.resolutions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </Picker>
-              ) : null}
-              {family.kind === "video" && family.durations?.length ? (
-                <Picker label="Durée" value={String(duration)} onChange={(value) => setDuration(Number(value))}>
-                  {family.durations.map((item) => (
-                    <option key={item} value={item}>
-                      {item} s
-                    </option>
-                  ))}
-                </Picker>
-              ) : null}
-              <Picker label="Batch" value={String(count)} onChange={(value) => setCount(Number(value))}>
-                {COUNTS.map((n) => (
-                  <option key={n} value={n}>
-                    ×{n}
-                  </option>
-                ))}
-              </Picker>
-            </div>
-          </div>
-
-          {pageLabel && !activeProduct ? (
-            <p className="mt-1.5 text-[11px] text-emerald-700 dark:text-emerald-400">Page lue : {pageLabel}</p>
-          ) : null}
-          {promptMode === "auto" ? (
-            <div className="mt-2">
-              <CreativeReferenceSlot value={inspiration} onChange={setInspiration} hint={activeProduct ? "Pub concurrente ou créa de style : le batch en garde l'angle, la structure et le style ; le produit, sa photo et ses faits restent ceux du produit actif." : "Pub concurrente ou créa de style : le batch en garde la structure et le style. Sans produit actif, la 1re référence chargée joue ce rôle."} />
-            </div>
-          ) : null}
-
-          {/* Ligne 2 — le prompt, tenu bas par défaut. Le coin se tire à la souris
-              pour relire un prompt entier sans changer d'écran. */}
-          <div className="mt-2 flex items-start gap-2">
-            <textarea
-              value={genPaste}
-              onChange={(e) => {
-                setGenPaste(e.target.value);
-                setCountOverride(null);
-              }}
-              onPaste={(e) => {
-                // Une image dans le presse-papiers (capture, copie depuis le navigateur) devient une référence, sans passer par un fichier.
-                const files = [...(e.clipboardData?.files ?? [])].filter((file) => file.type.startsWith("image/"));
-                if (!files.length) return;
-                e.preventDefault();
-                void addRefs(files);
-                toast.success(`${files.length} image${files.length > 1 ? "s" : ""} ajoutée${files.length > 1 ? "s" : ""} aux références`);
-              }}
-              rows={2}
-              placeholder={promptMode === "auto" ? "Ton brief, comme à Hermes : « Create 5 ultra realistic static ads, iPhone candid, ratio 3:4… » — chaque créa aura son prompt" : "Ton prompt, envoyé tel quel (aucun style ajouté sauf si tu en choisis un). Plusieurs : sépare-les par une ligne ---"}
-              className="min-h-[38px] flex-1 resize-y rounded-xl bg-slate-50 px-2.5 py-2 text-[12px] leading-relaxed outline-none dark:bg-slate-800"
-              data-free-prompt
-            />
-            {promptMode === "auto" ? (
-              <button
-                type="button"
-                onClick={() => void planFromBrief()}
-                disabled={busy !== null || planning || !genPaste.trim()}
-                title="Hermes découpe le brief en N prompts distincts, montrés avant de générer"
-                className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-medium text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
-                data-plan-brief
-              >
-                {planning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-                {planning ? "Planification…" : `Planifier ${planCount} créa${planCount > 1 ? "s" : ""}`}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void generate()}
-                disabled={busy !== null}
-                title="Lancer la génération"
-                className="inline-flex h-[38px] shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-medium text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
-              >
-                {busy === "gen" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Zap className="h-3.5 w-3.5" />
-                )}
-                Générer
-              </button>
-            )}
-          </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Mode du prompt">
-              {(
-                [
-                  ["auto", "Auto · brief"],
-                  ["exact", "Prompt exact"],
-                ] as const
-              ).map(([id, label]) => (
-                <button key={id} type="button" aria-pressed={promptMode === id} onClick={() => { setPromptMode(id); if (id === "exact") setPlan(null); }} className={cn("rounded px-2 py-0.5 text-[10.5px] font-medium", promptMode === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")} data-prompt-mode={id}>
-                  {label}
+                rows={promptMode === "auto" ? 5 : 3}
+                placeholder={promptMode === "auto" ? "Create 15 creatives:\n5 before/after\n5 aggressive direct-response\n5 scientific / benefit ads\n\n3:4\nNo standalone logos\nPrepare prompts only." : "Ton prompt, envoyé tel quel (aucun style ajouté sauf si tu en choisis un). Plusieurs : sépare-les par une ligne ---"}
+                className="w-full resize-y rounded-xl bg-slate-50 px-3 py-2 text-[12.5px] leading-relaxed outline-none dark:bg-slate-800"
+                data-free-prompt
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+                {promptMode === "auto" ? (
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-500" title="Nombre de créas lu dans le brief ; modifiable">
+                    <span className="font-semibold uppercase tracking-wide">Créas</span>
+                    <input type="number" min={1} max={30} value={planCount} onChange={(event) => setCountOverride(Math.min(30, Math.max(1, Number(event.target.value) || 1)))} className="w-14 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800" data-plan-count-input />
+                    <span className="text-[10px] text-slate-400">{countOverride === null ? "détecté" : "modifié"}</span>
+                  </label>
+                ) : null}
+                {family.ratios.length ? (
+                  <Picker label="Ratio" value={ratio} onChange={(value) => setRatio(value as Ratio)}>
+                    {RATIOS.filter((item) => family.ratios.includes(item.id)).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.id} · {item.hint}
+                      </option>
+                    ))}
+                  </Picker>
+                ) : null}
+                {family.resolutions.length ? (
+                  <Picker label="Taille" value={resolution} onChange={(value) => setResolution(value)}>
+                    {family.resolutions.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </Picker>
+                ) : null}
+                <button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="text-[11px] text-slate-500 underline-offset-2 hover:underline" data-advanced-toggle>
+                  {advancedOpen ? "Masquer les réglages avancés" : "Réglages avancés"}
                 </button>
-              ))}
-            </div>
-            {promptMode === "auto" ? (
-              <label className="flex items-center gap-1.5 text-[11px] text-slate-500" title="Nombre d'images lu dans le brief ; modifiable">
-                <span className="font-semibold uppercase tracking-wide">Créas</span>
-                <input type="number" min={1} max={30} value={planCount} onChange={(event) => setCountOverride(Math.min(30, Math.max(1, Number(event.target.value) || 1)))} className="w-14 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800" data-plan-count-input />
-                <span className="text-[10px] text-slate-400">{countOverride === null ? "détecté" : "modifié"}</span>
-              </label>
+                {promptMode === "auto" ? (
+                  <button
+                    type="button"
+                    onClick={() => void planFromBrief()}
+                    disabled={busy !== null || planning || !genPaste.trim()}
+                    title="Hermes découpe le brief en N créas distinctes, montrées avant de générer"
+                    className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-4 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-60 dark:bg-white dark:text-slate-900"
+                    data-plan-brief
+                  >
+                    {planning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                    {planning ? "Planification…" : `Planifier ${planCount} créa${planCount > 1 ? "s" : ""}`}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void generate()}
+                    disabled={busy !== null}
+                    title="Lancer la génération"
+                    className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-4 text-[12px] font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-slate-900"
+                  >
+                    {busy === "gen" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                    Générer
+                  </button>
+                )}
+              </div>
+              {advancedOpen ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xl bg-slate-50 p-2 dark:bg-slate-800/60" data-advanced>
+                  <Picker
+                    label="Modèle"
+                    value={modelId}
+                    onChange={(value) => {
+                      const next = modelFamily(value);
+                      if (!next) return;
+                      setModelId(value);
+                      if (next.ratios.length && !next.ratios.includes(ratio)) setRatio(next.ratios[0]);
+                      if (next.resolutions.length && !next.resolutions.includes(resolution)) setResolution(next.resolutions[0]);
+                      if (next.durations?.length && !next.durations.includes(duration)) setDuration(next.durations[0]);
+                    }}
+                  >
+                    <optgroup label="Image">
+                      {MODEL_FAMILIES.filter((item) => item.kind === "image").map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}{item.imageModel ? "" : " · texte seul"}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Vidéo">
+                      {MODEL_FAMILIES.filter((item) => item.kind === "video").map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}{item.imageModel ? "" : " · texte seul"}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </Picker>
+                  <Picker
+                    label="Style"
+                    value={productType}
+                    onChange={(value) => {
+                      setProductType(value);
+                      if (product && value) setGenPaste(promptFromProduct(product, value));
+                    }}
+                  >
+                    <option value={NO_STYLE}>Aucun · prompt tel quel</option>
+                    {CREATIVE_TYPES.filter((item) => item.enabled).map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </Picker>
+                  {family.kind === "video" && family.durations?.length ? (
+                    <Picker label="Durée" value={String(duration)} onChange={(value) => setDuration(Number(value))}>
+                      {family.durations.map((item) => (
+                        <option key={item} value={item}>
+                          {item} s
+                        </option>
+                      ))}
+                    </Picker>
+                  ) : null}
+                  <Picker label="Batch" value={String(count)} onChange={(value) => setCount(Number(value))}>
+                    {COUNTS.map((n) => (
+                      <option key={n} value={n}>
+                        ×{n}
+                      </option>
+                    ))}
+                  </Picker>
+                  <span className="text-[10.5px] text-slate-400">Modèle : {family.label}{family.kind === "video" ? ` (vidéo ${duration} s)` : ""}.{productType && styleInstructions(productType) ? ` Style « ${CREATIVE_TYPES.find((item) => item.id === productType)?.name} » ajouté.` : " Sans style."}{refs.length && !family.imageModel ? " Ce modèle ne prend pas de référence." : ""}{family.note ? ` ${family.note}` : ""}</span>
+                </div>
+              ) : null}
+              <p className="mt-1.5 text-[11px] text-slate-400">
+                {promptMode === "auto"
+                  ? `${planCount} créa${planCount > 1 ? "s" : ""} = ${planCount} image${planCount > 1 ? "s" : ""} distincte${planCount > 1 ? "s" : ""}, à relire avant de générer.${promptsOnly ? " « Prompts only » lu : rien ne part sans ton clic." : ""}${activeProduct && !primary ? " Sans référence produit, le modèle inventera l'apparence du produit." : ""}${!activeProduct && refs.length ? " Les images de référence partent avec chaque prompt." : ""}`
+                  : !genPaste.trim() && !activePrompts.length && refs.length
+                    ? `Sans prompt : les références sont reproduites telles quelles × Batch ×${count}.`
+                    : genCount === 1
+                      ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
+                      : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt.`}
+              </p>
+              {promptMode === "auto" && visionWarning ? <div className="mt-2"><VisionWarning message={visionWarning} busy={planning} onContinue={() => void planFromBrief(true)} onDismiss={() => setVisionWarning(null)} /></div> : null}
+            </section>
+
+            {/* ---------------------------------------------- 4. CRÉAS PLANIFIÉES */}
+            {promptMode === "auto" && plan ? (
+              <section data-step="planned">
+                <div className="mb-1.5 px-1"><StepTitle n={4} title="Créas planifiées" /></div>
+                <PlanCards
+                  plan={plan}
+                  withProduct={Boolean(activeProduct)}
+                  selected={planSelected}
+                  onSelect={setPlanSelected}
+                  onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}
+                  onRewrite={(index) => void rewritePlanned(index)}
+                  rewriting={rewriting}
+                  actionLabel={(n) => (activeProduct ? `Générer la sélection (${n})` : `Utiliser ces ${n} prompt${n > 1 ? "s" : ""}`)}
+                  onAction={activeProduct ? () => setPreviewOpen(true) : usePlannedPrompts}
+                />
+                {!activeProduct ? <p className="mt-1 px-1 text-[11px] text-slate-400">Sans produit rattaché, les prompts choisis reviennent dans l&apos;Auto-brief (étape 3) et partent avec « Générer ».</p> : null}
+              </section>
             ) : null}
-          </div>
 
-          <p className="mt-1 text-[11px] text-slate-400">
-            {promptMode === "auto"
-              ? `Auto · brief : « Create 5 ads… » donne ${planCount} prompt${planCount > 1 ? "s" : ""} distinct${planCount > 1 ? "s" : ""} par Hermes, ${planCount} image${planCount > 1 ? "s" : ""}, à relire avant de générer.${promptsOnly ? " « Prompts only » lu : rien ne part sans ton clic." : ""}${activeProduct ? ` Produit actif : ${activeProduct.name}${primary ? ", sa référence principale part avec chaque image" : ", sans référence principale (texte seul)"}.` : product ? ` Produit : ${product.name}.` : ""}${inspiration ? " Inspiration jointe : structure et style suivis, faits concurrents écartés." : refs.some((ref) => ref.dataUrl) ? " La 1re référence chargée est la créa que le batch suit." : ""}${!activeProduct && refs.length ? " Les références partent avec chaque prompt." : ""} `
-              : null}
-            {promptMode === "exact" && !genPaste.trim() && !activePrompts.length && refs.length
-              ? `Sans prompt : les références sont reproduites telles quelles × Batch ×${count}.`
-              : genCount === 1
-                ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}.`
-                : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt.`}
-            {productType && styleInstructions(productType) ? ` Style « ${CREATIVE_TYPES.find((item) => item.id === productType)?.name} » ajouté au prompt.` : " Sans style : le prompt part tel quel."}
-            {` Modèle : ${family.label}${family.kind === "video" ? ` (vidéo ${duration} s)` : ""}.`}
-            {refs.length && !family.imageModel ? " Ce modèle ne prend pas de référence : retire-les ou change de modèle." : ""}
-            {family.note ? ` ${family.note}` : ""}
-          </p>
-        </div>
-
-        {mode === "prompt" && promptMode === "auto" ? (
-          <CompetitorResearchPanel
-            productId={activeProduct?.id ?? null}
-            productName={activeProduct?.name ?? null}
-            active={competitorInspiration ? { domain: competitorInspiration.domain, ads: competitorInspiration.creatives.length } : null}
-            onUse={(next) => {
-              setCompetitorInspiration(next);
-              setPlan(null);
-            }}
-          />
-        ) : null}
-        {mode === "prompt" && promptMode === "auto" && competitorInspiration ? (
-          <div className="flex items-center gap-2 rounded-xl bg-sky-50 px-3 py-1.5 text-[11.5px] text-sky-900 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800" data-competitor-inspiration>
-            <span>Inspiration Brand Search : <span className="font-semibold">{competitorInspiration.domain}</span> · {competitorInspiration.creatives.length} pub{competitorInspiration.creatives.length > 1 ? "s" : ""} · {competitorInspiration.patterns.length} motif{competitorInspiration.patterns.length > 1 ? "s" : ""}{activeProduct ? ` → adaptées à ${activeProduct.name}` : ""}</span>
-            <button type="button" onClick={() => setCompetitorInspiration(null)} className="ml-auto text-sky-700 hover:text-sky-900 dark:text-sky-300" aria-label="Retirer l'inspiration concurrente" data-competitor-inspiration-clear>×</button>
-          </div>
-        ) : null}
-        {mode === "prompt" && promptMode === "auto" && visionWarning ? <VisionWarning message={visionWarning} busy={planning} onContinue={() => void planFromBrief(true)} onDismiss={() => setVisionWarning(null)} /> : null}
-
-        {mode === "prompt" && promptMode === "auto" && plan ? (
-          <PlanCards
-            plan={plan}
-            withProduct={Boolean(activeProduct)}
-            selected={planSelected}
-            onSelect={setPlanSelected}
-            onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}
-            onRewrite={(index) => void rewritePlanned(index)}
-            rewriting={rewriting}
-            actionLabel={(n) => (activeProduct ? `Générer la sélection (${n})` : `Utiliser ces ${n} prompt${n > 1 ? "s" : ""}`)}
-            onAction={activeProduct ? () => setPreviewOpen(true) : usePlannedPrompts}
-          />
-        ) : null}
-
-        {mode === "prompt" && activeProduct && previewOpen && drafts.length ? (
-          <BatchPreview
-            product={activeProduct}
-            primaryUrl={primary?.url ?? null}
-            inspiration={inspirationImage}
-            inspirationSent={inspirationSent}
-            drafts={drafts}
-            exact={false}
-            ratio={ratio}
-            resolution={resolution}
-            model={primary || inspirationSent ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image"}
-            launching={launching}
-            onCancel={() => setPreviewOpen(false)}
-            onConfirm={() => void confirmProductGeneration()}
-          />
-        ) : null}
-
-        {mode === "prompt" && generation ? (
-          <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70">
-            <GenerationStatus generation={generation} onUpdate={setGeneration} onDismiss={() => setGeneration(null)} />
-          </section>
+            {/* ---------------------------------------------- 5. GÉNÉRER */}
+            {(activeProduct && previewOpen && drafts.length) || generation ? (
+              <section className="space-y-3" data-step="generate">
+                <div className="px-1"><StepTitle n={5} title="Générer" /></div>
+                {activeProduct && previewOpen && drafts.length ? (
+                  <BatchPreview
+                    product={activeProduct}
+                    primaryUrl={primary?.url ?? null}
+                    inspiration={inspirationImage}
+                    inspirationSent={inspirationSent}
+                    drafts={drafts}
+                    exact={false}
+                    ratio={ratio}
+                    resolution={resolution}
+                    model={primary || inspirationSent ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image"}
+                    launching={launching}
+                    onCancel={() => setPreviewOpen(false)}
+                    onConfirm={() => void confirmProductGeneration()}
+                  />
+                ) : null}
+                {generation ? (
+                  <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70">
+                    <GenerationStatus generation={generation} onUpdate={setGeneration} onDismiss={() => setGeneration(null)} />
+                  </section>
+                ) : null}
+              </section>
+            ) : null}
+          </>
         ) : null}
 
         <div className="min-h-[48vh] rounded-2xl bg-slate-50/80 p-2 ring-1 ring-slate-900/[0.04] dark:bg-slate-950/40">
@@ -1735,6 +1871,17 @@ function fileToDataUrl(file: File) {
  * dessiné : il tient sur une ligne, s'ouvre au clavier comme à la souris, et
  * reste lisible en thème sombre sans avoir à repeindre un portail.
  */
+/** Le numéro et le nom d'une étape du prompt libre : la page se lit de haut en bas. */
+function StepTitle({ n, title, optional = false }: { n: number; title: string; optional?: boolean }) {
+  return (
+    <div className="flex items-center gap-2" data-step-title={n}>
+      <span className="grid h-5 w-5 place-items-center rounded-full bg-slate-900 text-[10.5px] font-bold text-white dark:bg-white dark:text-slate-900">{n}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">{title}</span>
+      {optional ? <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">optionnel</span> : null}
+    </div>
+  );
+}
+
 function Picker({
   label,
   value,

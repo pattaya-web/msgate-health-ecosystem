@@ -156,7 +156,7 @@ export function useProductContext(options: { onSwitch?: () => void; onPrimarySet
 }
 
 /** Carte du produit actif + sélection / chargement par URL. */
-export function ActiveProductCard({ ctx, title = "Produit actif" }: { ctx: ProductContextState; title?: string }) {
+export function ActiveProductCard({ ctx, title = "Produit actif", showDetach = true }: { ctx: ProductContextState; title?: string; showDetach?: boolean }) {
   const { active, primary, products, activeId } = ctx;
   const thumb = primary?.url ?? active?.imageUrls[0] ?? null;
   return (
@@ -223,7 +223,7 @@ export function ActiveProductCard({ ctx, title = "Produit actif" }: { ctx: Produ
           {ctx.loadingProduct ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           Load Product
         </button>
-        {active ? (
+        {active && showDetach ? (
           <button type="button" onClick={() => ctx.selectProduct(null)} className="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200" title="Continuer sans produit" data-detach-product>
             Détacher
           </button>

@@ -58,8 +58,10 @@ export function toInspiration(analysis: CompetitorAnalysis, research: Competitor
   return { domain: analysis.domain, patterns, creatives };
 }
 
-export function CompetitorResearchPanel({ productId, productName, onUse, active }: { productId: string | null; productName: string | null; onUse: (inspiration: CompetitorInspiration) => void; active: { domain: string; ads: number } | null }) {
-  const [open, setOpen] = useState(false);
+export function CompetitorResearchPanel({ productId, productName, onUse, active, open, onOpenChange }: { productId: string | null; productName: string | null; onUse: (inspiration: CompetitorInspiration, details: { research: CompetitorResearch; analysis: CompetitorAnalysis }) => void; active: { domain: string; ads: number } | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const setOpen = (value: boolean | ((current: boolean) => boolean)) => onOpenChange(typeof value === "function" ? value(open) : value);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const [domain, setDomain] = useState("");
   const [limit, setLimit] = useState(20);
   const [status, setStatus] = useState<"active" | "all">("active");
@@ -150,7 +152,7 @@ export function CompetitorResearchPanel({ productId, productName, onUse, active 
     }
     const inspiration = toInspiration(current, research, [...selected]);
     if (!inspiration.creatives.length) return toast.error("Aucune pub analysée dans la sélection");
-    onUse(inspiration);
+    onUse(inspiration, { research, analysis: current });
     toast.success(`${inspiration.creatives.length} pub${inspiration.creatives.length > 1 ? "s" : ""} de ${inspiration.domain} en inspiration : écris ton brief, Hermes adapte les motifs à ton produit`);
   }
 
@@ -166,7 +168,7 @@ export function CompetitorResearchPanel({ productId, productName, onUse, active 
     <section className={panel} data-competitor-research>
       <div className="flex items-center justify-between gap-2">
         <button type="button" onClick={() => setOpen((value) => !value)} className="text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400" data-competitor-toggle>
-          Concurrents · Brand Search {open ? "▾" : "▸"}
+          Pubs d&apos;un concurrent · Brand Search {open ? "▾" : "▸"}
         </button>
         {active ? (
           <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-800" data-competitor-active>
@@ -205,7 +207,8 @@ export function CompetitorResearchPanel({ productId, productName, onUse, active 
               Chercher les statics
             </button>
           </div>
-          <p className="text-[10.5px] text-slate-400">Un crédit Brand Search par pub renvoyée. Les images expirent 3 jours après la recherche. Signaux disponibles : dépense et portée UE estimées, rang de portée, jours actifs, doublons — pas de ROAS ni de revenu.</p>
+          <p className="text-[10.5px] text-slate-400">Cherche un concurrent, coche les pubs qui t&apos;inspirent, puis « Utiliser la sélection comme inspiration » : Hermes les regarde et en tire les motifs pour ton brief. <button type="button" onClick={() => setShowHelp((value) => !value)} className="underline-offset-2 hover:underline" data-competitor-help>{showHelp ? "Masquer les détails" : "Détails sur les signaux"}</button></p>
+          {showHelp ? <p className="text-[10.5px] text-slate-400">Un crédit Brand Search par pub renvoyée. Les images expirent 3 jours après la recherche. Signaux disponibles : dépense et portée UE estimées (Meta Ad Library, UE seulement), rang de portée, jours actifs, doublons. Pas de ROAS, de revenu ni de CTR : un signal élevé veut dire que l&apos;annonceur a continué d&apos;y dépenser, pas que la pub est un gagnant prouvé.</p> : null}
 
           {research ? (
             <>
@@ -294,20 +297,23 @@ export function CompetitorResearchPanel({ productId, productName, onUse, active 
 
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {analyzing ? <span className="text-[11px] text-slate-500" data-competitor-progress>Hermes regarde {selectedList.length} pub{selectedList.length > 1 ? "s" : ""} par lots de {PER_CHUNK} en parallèle, puis dégage les motifs · environ {estimateMinutes(selectedList.length)} min…</span> : selected.size > MAX_ANALYZED ? <span className="text-[11px] text-amber-700 dark:text-amber-300">{MAX_ANALYZED} pubs max par analyse</span> : null}
-                <button type="button" disabled={!selected.size || analyzing} onClick={() => void analyze(selectedList)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" data-competitor-analyze>
-                  {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  Analyser la sélection ({selected.size})
+                <button type="button" disabled={!selected.size || analyzing} onClick={() => void analyze(selectedList)} className="text-[11px] text-slate-500 underline-offset-2 hover:underline disabled:opacity-50" title="Avancé : lire les pubs cochées sans les rattacher au brief" data-competitor-analyze>
+                  Analyser seulement ({selected.size})
                 </button>
-                <button type="button" disabled={!selected.size || analyzing} onClick={() => void applySelection()} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900" data-competitor-use>
+                <button type="button" disabled={!selected.size || analyzing} onClick={() => void applySelection()} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-slate-900 px-4 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900" data-competitor-use>
                   {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   Utiliser la sélection comme inspiration ({selected.size})
                 </button>
               </div>
-              <p className="text-[10.5px] text-slate-400">« Analyser » : Hermes regarde les pubs cochées et décrit leur ADN, les motifs récurrents et ce qu&apos;il recommande. « Utiliser » : seules les pubs cochées (analysées d&apos;abord si besoin) deviennent l&apos;inspiration de l&apos;Auto-brief{productName ? `, adaptées à ${productName}` : ""}. Aucune image n&apos;est générée ici.</p>
+              <p className="text-[10.5px] text-slate-400">Seules les pubs cochées comptent : Hermes les regarde (si ce n&apos;est pas déjà fait), en tire les motifs, et elles deviennent l&apos;inspiration de l&apos;Auto-brief{productName ? `, adaptées à ${productName}` : ""}. Aucune image n&apos;est générée ici.</p>
 
               {analysis ? (
                 <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60" data-competitor-patterns={analysis.patterns.length}>
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Motifs récurrents · {analysis.domain} · {analysis.creatives.length} pub{analysis.creatives.length > 1 ? "s" : ""} regardée{analysis.creatives.length > 1 ? "s" : ""} par Hermes</div>
+                  <button type="button" onClick={() => setShowAnalysis((value) => !value)} className="text-left text-[10px] font-semibold uppercase tracking-wide text-slate-500 underline-offset-2 hover:underline" data-competitor-analysis-toggle>
+                    {showAnalysis ? "Masquer" : "Voir"} l&apos;analyse Hermes · {analysis.creatives.length} pub{analysis.creatives.length > 1 ? "s" : ""} regardée{analysis.creatives.length > 1 ? "s" : ""} · {analysis.patterns.length} motif{analysis.patterns.length > 1 ? "s" : ""}
+                  </button>
+                  {showAnalysis ? <>
+                  <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Motifs récurrents · {analysis.domain}</div>
                   <ol className="mt-1 space-y-1 text-[11.5px]">
                     {analysis.patterns.map((pattern, index) => (
                       <li key={pattern.name}>
@@ -317,6 +323,7 @@ export function CompetitorResearchPanel({ productId, productName, onUse, active 
                   </ol>
                   {analysis.recommended.length ? <p className="mt-1.5 text-[11px] text-slate-500"><Star className="mr-1 inline h-3 w-3 text-amber-500" />Hermes recommande : {analysis.recommended.map((entry) => `${entry.id} (${entry.why})`).join(" · ")}. La sélection reste la tienne.</p> : null}
                   <p className="mt-1 text-[10.5px] text-slate-400">{analysis.signalsNote}</p>
+                  </> : null}
                 </div>
               ) : null}
             </>
