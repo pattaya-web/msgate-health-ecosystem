@@ -33,7 +33,7 @@ export type CreativePlan = {
 const WORDS: Record<string, number> = { one: 1, une: 1, un: 1, two: 2, deux: 2, three: 3, trois: 3, four: 4, quatre: 4, five: 5, cinq: 5, six: 6, seven: 7, sept: 7, eight: 8, huit: 8, nine: 9, neuf: 9, ten: 10, dix: 10, twelve: 12, douze: 12, fifteen: 15, quinze: 15, twenty: 20, vingt: 20 };
 const NUMBER = "(\\d{1,2}|one|une|un|two|deux|three|trois|four|quatre|five|cinq|six|seven|sept|eight|huit|nine|neuf|ten|dix|twelve|douze|fifteen|quinze|twenty|vingt)";
 /** Un total : « 5 ads », « 15 static concepts », « dix visuels ». */
-const TOTAL_NOUN = "(?:ads?|creatives?|cr[ée]as?|images?|visuels?|visuals?|statics?|concepts?|photos?|pubs?|variations?|versions?|pictures?|renders?)";
+const TOTAL_NOUN = "(?:ads?|creatives?|cr[ée]atives?|cr[ée]as?|images?|visuels?|visuals?|statics?|concepts?|photos?|pubs?|variations?|versions?|pictures?|renders?)";
 /** Une part : « 3 before/after », « 2 product-focused », « 5 lifestyle ». */
 const PART_NOUN = "(?:before[\\s/-]*after|avant[\\s/-]*apr[èe]s|product[\\s-]*focused|product[\\s-]*focus|packshots?|lifestyle|ugc|testimonials?|t[ée]moignages?|scientific|infographics?|comparisons?|problem[\\s-]*solution|unboxing|close[\\s-]*ups?|selfies?)";
 const TOTAL_RE = new RegExp(`\\b${NUMBER}\\s*(?:x\\s*)?(?:[\\w'-]+\\s+){0,4}?${TOTAL_NOUN}\\b`, "gi");

@@ -100,6 +100,8 @@ type Body = {
   competitorInspiration?: CompetitorInspiration | null;
   /** Photo du produit au modèle image : auto (par créa), always, never. */
   referenceMode?: "auto" | "always" | "never";
+  /** Sans fiche produit : photos du produit / sujet chargées par l'opérateur (data URLs), hébergées puis vues par Hermes. */
+  subjectDataUrls?: string[];
   url?: string;
   store?: string;
   productId?: string;
@@ -185,6 +187,16 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: `Hébergement de l'image d'inspiration impossible : ${error instanceof Error ? error.message : "?"}` }, { status: 502 });
           }
         }
+        const subjectImageUrls: string[] = [];
+        if (!product || !("id" in product)) {
+          for (const [index, dataUrl] of (Array.isArray(body.subjectDataUrls) ? body.subjectDataUrls : []).filter((entry): entry is string => typeof entry === "string" && /^data:image\/[a-z0-9.+-]+;base64,/i.test(entry) && entry.length <= 5_500_000).slice(0, 3).entries()) {
+            try {
+              subjectImageUrls.push(await uploadBase64(dataUrl, `subject-${Date.now().toString(36)}-${index}.png`));
+            } catch {
+              // une photo qui ne monte pas ne bloque pas le plan ; Hermes ne la verra pas
+            }
+          }
+        }
         try {
           const plan = await planWorkspaceBatch({
             brief: body.brief,
@@ -197,6 +209,7 @@ export async function POST(request: Request) {
             referenceAttached: Boolean(referenceDataUrl),
             competitorInspiration: sanitizeCompetitorInspiration(body.competitorInspiration),
             referenceMode: body.referenceMode === "always" || body.referenceMode === "never" ? body.referenceMode : "auto",
+            subjectImageUrls,
           });
           return NextResponse.json({ plan });
         } catch (error) {

@@ -35,6 +35,8 @@ export type PlanInput = {
   referenceAttached?: boolean;
   /** Pubs concurrentes choisies par l'opérateur dans la galerie Brand Search, déjà regardées par Hermes : motifs et ADN, jamais leurs faits. */
   competitorInspiration?: CompetitorInspiration | null;
+  /** Sans fiche produit : les photos du produit / sujet chargées par l'opérateur (URLs hébergées), vues par Hermes et jointes à la génération. */
+  subjectImageUrls?: string[];
 };
 
 /** Ce qu'Hermes a vu sur l'inspiration, tel qu'il le rend dans le JSON du plan. */
@@ -42,6 +44,9 @@ export type ReferenceReading = { seen: boolean; summary: string; elements: strin
 
 export type PlanOutcome = CreativePlan & {
   engine: "hermes" | "claude";
+  /** Photos du produit / sujet : Hermes les a regardées, et ce qu'il y a vu. */
+  subjectSeen: boolean;
+  subjectDescription: string | null;
   competitorInspiration: { domain: string; ads: number; patterns: number } | null;
   referenceAttached: boolean;
   referenceSeen: boolean;
@@ -98,8 +103,9 @@ Start every "prompt" with this exact sentence: "Follow the inspiration creative'
       : `
 It is the PRIMARY creative inspiration: rebuild its structure, angle, hook mechanism, composition and style for the subject of the brief, keeping the same kind of subject unless the brief says otherwise, and vary each creative as the brief asks.
 Start every "prompt" with this exact sentence: "Follow the attached inspiration creative's composition, hierarchy and style."`;
+    const imageNo = (input.subjectImageUrls?.length ?? 0) + 1;
     return `
-CREATIVE INSPIRATION: an ad creative is ATTACHED TO THIS MESSAGE as an image (${input.referenceImageUrl}). Look at it before planning and analyse: ${ANALYSIS_POINTS}. Report that analysis in the "reference" object of the JSON: "seen": true; "summary": 60 to 120 words of what the image actually shows and how it works; "elements": the concrete visual elements you reuse from it (short phrases, 3 to 12); "competitorFacts": ONLY the product- or brand-specific wording written or shown on it — brand and product names, slogans, claims, guarantees, country of origin, named materials, certifications, statistics, prices, badge wording — as written (never layout, colours, style, object shapes, nor absences).
+CREATIVE INSPIRATION: an ad creative is ATTACHED TO THIS MESSAGE as Image ${imageNo} (${input.referenceImageUrl}) — a different thing from the product photos above: it shows how the creative should feel, not what the product is. Look at it before planning and analyse: ${ANALYSIS_POINTS}. Report that analysis in the "reference" object of the JSON: "seen": true; "summary": 60 to 120 words of what the image actually shows and how it works; "elements": the concrete visual elements you reuse from it (short phrases, 3 to 12); "competitorFacts": ONLY the product- or brand-specific wording written or shown on it — brand and product names, slogans, claims, guarantees, country of origin, named materials, certifications, statistics, prices, badge wording — as written (never layout, colours, style, object shapes, nor absences).
 If you truly cannot see the image, answer with "reference": {"seen": false, "summary": "<why>", "elements": [], "competitorFacts": []} and plan from the brief alone. Never describe or invent what you did not see.${withProduct}`;
   }
   if (input.referenceAttached) {
@@ -156,12 +162,14 @@ export function planPrompt(input: PlanInput): string {
       : "- no product photo is attached: describe the product consistently from the facts above",
   ]
     .filter(Boolean)
-    .join("\n") : input.hasReference
-      ? "NO PRODUCT SHEET: the brief describes the subject. Reference image(s) are attached at generation time as the visual source of truth: every prompt shows exactly what they show, never a redesigned or imagined version."
-      : "NO PRODUCT SHEET: the brief is the only source. Describe the subject consistently across creatives.";
+    .join("\n") : input.subjectImageUrls?.length
+      ? `NO PRODUCT SHEET. PRODUCT / SUBJECT PHOTOS: ${input.subjectImageUrls.length === 1 ? "Image 1 attached to this message is a photo" : `Images 1 to ${input.subjectImageUrls.length} attached to this message are photos`} of the operator's own product (the thing every creative sells), uploaded as reference. Look at ${input.subjectImageUrls.length === 1 ? "it" : "them"}: this is the exact product, and the same photo${input.subjectImageUrls.length > 1 ? "s are" : " is"} attached to the image model at generation time (image-to-image), so every prompt shows THIS product as photographed — same shape, proportions, colours, materials — never redesigned or imagined, and names it consistently. Report what you saw in "subject": {"seen": true, "description": "<what the product is, 20-60 words>"}; if you truly cannot see the photos, "subject": {"seen": false, "description": "<why>"}.`
+      : input.hasReference
+        ? "NO PRODUCT SHEET: the brief describes the subject. Reference image(s) are attached at generation time as the visual source of truth: every prompt shows exactly what they show, never a redesigned or imagined version."
+        : "NO PRODUCT SHEET: the brief is the only source. Describe the subject consistently across creatives.";
   const avoid = input.avoid?.length ? `\nAlready used concepts, do NOT repeat them: ${input.avoid.map((entry) => `« ${entry} »`).join(", ")}.` : "";
   const reference = creativeReferenceBlock(input) + competitorInspirationBlock(input);
-  const referenceJson = input.referenceImageUrl || input.referenceAttached ? ', "reference": {"seen": true, "summary": "", "elements": [""], "competitorFacts": [""]}' : "";
+  const referenceJson = (input.referenceImageUrl || input.referenceAttached ? ', "reference": {"seen": true, "summary": "", "elements": [""], "competitorFacts": [""]}' : "") + (input.subjectImageUrls?.length ? ', "subject": {"seen": true, "description": ""}' : "");
   const mode = input.referenceMode ?? "auto";
   const perCreativeFlag = input.hasReference && input.product ? ', "useProductReference": true' : "";
   const referenceRule = input.hasReference && input.product
@@ -193,6 +201,21 @@ Return ONLY this JSON:
 }
 
 /** La partie « reference » du JSON rendu par le planificateur, tolérante aux champs manquants. */
+/** La partie « subject » du JSON : Hermes a-t-il vu les photos du produit, et qu'y a-t-il vu ? */
+export function parseSubjectReading(raw: string): { seen: boolean; description: string } | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = parseLenientJson<{ subject?: { seen?: unknown; description?: unknown } }>(raw.slice(start, end + 1));
+    const subject = parsed.subject;
+    if (!subject || typeof subject !== "object") return null;
+    return { seen: subject.seen === true, description: typeof subject.description === "string" ? subject.description.trim().slice(0, 600) : "" };
+  } catch {
+    return null;
+  }
+}
+
 export function parseReferenceReading(raw: string): ReferenceReading | null {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -234,13 +257,15 @@ function applyReferenceMode(plan: CreativePlan, input: PlanInput): CreativePlan 
   };
 }
 
-function outcome(rawPlan: CreativePlan, engine: "hermes" | "claude", input: PlanInput, reading: ReferenceReading | null): PlanOutcome {
+function outcome(rawPlan: CreativePlan, engine: "hermes" | "claude", input: PlanInput, reading: ReferenceReading | null, subject: { seen: boolean; description: string } | null = null): PlanOutcome {
   const plan = applyReferenceMode(rawPlan, input);
   const competitorFacts = input.competitorInspiration?.creatives.flatMap((creative) => creative.competitorFacts) ?? [];
   checkLeaks(plan, [...(reading?.competitorFacts ?? []), ...competitorFacts], input.product);
   return {
     ...plan,
     engine,
+    subjectSeen: Boolean(input.subjectImageUrls?.length) && subject?.seen === true,
+    subjectDescription: subject?.seen ? subject.description || null : null,
     competitorInspiration: input.competitorInspiration?.creatives.length ? { domain: input.competitorInspiration.domain, ads: input.competitorInspiration.creatives.length, patterns: input.competitorInspiration.patterns.length } : null,
     referenceAttached: Boolean(input.referenceAttached || input.referenceImageUrl),
     referenceSeen: Boolean(input.referenceImageUrl) && reading?.seen === true,
@@ -252,18 +277,22 @@ function outcome(rawPlan: CreativePlan, engine: "hermes" | "claude", input: Plan
 
 async function planOnce(input: PlanInput, count: number, extraRule: string): Promise<PlanOutcome> {
   const prompt = planPrompt({ ...input, count }) + extraRule;
-  const withImage = Boolean(input.referenceImageUrl);
+  // Les photos du produit d'abord (Images 1..n), l'inspiration ensuite : la numérotation du prompt suit cet ordre.
+  const images = [...(input.subjectImageUrls ?? []), ...(input.referenceImageUrl ? [input.referenceImageUrl] : [])];
+  const withImage = images.length > 0;
   let hermesReason = hermesAnalysisAvailable() ? "" : "Hermes non configuré";
   if (!hermesReason) {
     try {
-      const raw = withImage ? await askHermesVision(prompt, SYSTEM, [input.referenceImageUrl as string]) : await askHermesText(prompt, SYSTEM);
+      const raw = withImage ? await askHermesVision(prompt, SYSTEM, images, 60_000 * images.length + 120_000) : await askHermesText(prompt, SYSTEM);
       const reading = parseReferenceReading(raw);
-      if (withImage && (reading?.seen === false || (!reading && hermesCannotSee(raw)))) {
-        throw new VisionUnavailableError(`Le modèle Hermes actuel ne voit pas les images${reading?.summary ? ` — ${reading.summary}` : ""}.`);
+      const subject = parseSubjectReading(raw);
+      if (withImage && (reading?.seen === false || subject?.seen === false || (!reading && !subject && hermesCannotSee(raw)))) {
+        throw new VisionUnavailableError(`Le modèle Hermes actuel ne voit pas les images${reading?.summary ?? subject?.description ? ` — ${reading?.summary ?? subject?.description}` : ""}.`);
       }
       const plan = validatePlan(raw, count, input.ratio);
-      if (withImage && !reading?.seen) throw new VisionUnavailableError("Hermes a planifié sans confirmer avoir vu l'image.");
-      return outcome(plan, "hermes", input, reading);
+      if (input.referenceImageUrl && !reading?.seen) throw new VisionUnavailableError("Hermes a planifié sans confirmer avoir vu l'image d'inspiration.");
+      if (input.subjectImageUrls?.length && !subject?.seen) throw new VisionUnavailableError("Hermes a planifié sans confirmer avoir vu les photos du produit.");
+      return outcome(plan, "hermes", input, reading, subject);
     } catch (error) {
       if (error instanceof CompetitorLeakError || error instanceof VisionUnavailableError) throw error;
       hermesReason = error instanceof Error ? error.message : "Hermes indisponible";

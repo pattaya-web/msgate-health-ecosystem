@@ -199,7 +199,9 @@ export function StaticStudio() {
   });
   const activeProduct = ctx.active;
   const primary = ctx.primary;
-  const inspirationImage = inspiration ?? refs.find((ref) => ref.dataUrl)?.dataUrl ?? null;
+  /* L'inspiration, c'est le slot « Creative inspiration » ; les « Images de référence » sont les photos du produit / sujet (vérité visuelle, jointes à la génération). */
+  const inspirationImage = inspiration;
+  const subjectImages = useMemo(() => refs.filter((ref) => ref.dataUrl).map((ref) => ref.dataUrl as string).slice(0, 3), [refs]);
   /* Avec un produit, l'inspiration guide les prompts ; elle ne part au modèle qu'à défaut de référence produit. */
   const productRefActive = Boolean(primary) && referenceMode !== "never";
   const inspirationSent = Boolean(inspirationImage) && !productRefActive;
@@ -737,6 +739,7 @@ export function StaticStudio() {
         referenceDataUrl: inspirationImage,
         ignoreReference,
         competitorInspiration,
+        subjectDataUrls: activeProduct ? [] : subjectImages,
       });
       setPlan(fresh);
       setPlanSelected(new Set(fresh.creatives.map((creative) => creative.index)));
@@ -755,7 +758,7 @@ export function StaticStudio() {
     if (!plan) return;
     setRewriting(index);
     try {
-      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: activeProduct ? Boolean(primary) : refs.length > 0, productId: activeProduct?.id ?? null, product: !activeProduct && product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: inspirationImage, competitorInspiration, referenceMode })).creatives[0];
+      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: activeProduct ? Boolean(primary) : refs.length > 0, productId: activeProduct?.id ?? null, product: !activeProduct && product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: inspirationImage, competitorInspiration, referenceMode, subjectDataUrls: activeProduct ? [] : subjectImages })).creatives[0];
       if (!fresh) throw new Error("Aucune créa renvoyée");
       setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
     } catch (error) {
@@ -1154,7 +1157,7 @@ export function StaticStudio() {
 
               {inspirationTab === "image" ? (
                 <div className="space-y-2">
-                  <CreativeReferenceSlot value={inspiration} onChange={setInspiration} hint={activeProduct ? "Pub concurrente ou créa de style : le batch en garde l'angle, la structure et le style ; ton produit, sa photo et ses faits restent les tiens." : "Pub concurrente ou créa de style : le batch en garde la structure et le style."} />
+                  <CreativeReferenceSlot value={inspiration} onChange={setInspiration} hint={activeProduct ? "Pub concurrente ou créa de style : le batch en garde l'angle, la structure et le style ; ton produit, sa photo et ses faits restent les tiens." : "Pub concurrente ou créa de style : le batch en garde la structure et le style. Ce n'est pas ton produit : sa photo va dans « Images de référence » juste en dessous."} />
                   <div
                     data-refs-zone
                     className={cn(
@@ -1178,8 +1181,8 @@ export function StaticStudio() {
                       if (files.length) void addRefs(files);
                     }}
                   >
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="Images envoyées au modèle image avec chaque prompt (sans produit rattaché). Clic : agrandir. Glisser : changer l'ordre.">
-                      Images de référence{refs.length ? ` ${refs.length}/8` : ""}
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title="Photos de ton produit / sujet : Hermes les regarde pour planifier (3 max) et elles partent au modèle image avec chaque prompt (sans produit rattaché). Clic : agrandir. Glisser : changer l'ordre.">
+                      Photos du produit · images de référence{refs.length ? ` ${refs.length}/8` : ""}
                     </span>
                     {refs.map((ref, index) => (
                       <div
@@ -1291,6 +1294,7 @@ export function StaticStudio() {
                     <li className={activeProduct ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{activeProduct ? `✓ Produit actif : ${activeProduct.name}` : "○ Aucun produit actif"}</li>
                     <li className={primary ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{primary ? `✓ Photo produit : ${referenceMode === "auto" ? "auto, Hermes décide par créa" : referenceMode === "always" ? "toujours envoyée" : "jamais envoyée (contexte seulement)"}` : activeProduct ? "○ Pas de photo produit (texte seul)" : "○ Pas de photo produit"}</li>
                     <li className={inspirationImage ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{inspirationImage ? "✓ Image d'inspiration" : "○ Pas d'image d'inspiration"}</li>
+                    {!activeProduct ? <li className={subjectImages.length ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"} data-brief-subject={subjectImages.length}>{subjectImages.length ? `✓ ${subjectImages.length} photo${subjectImages.length > 1 ? "s" : ""} du produit (images de référence) : Hermes les regarde, la génération les joint` : "○ Pas de photo du produit (images de référence)"}</li> : null}
                     <li className={competitorInspiration ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{competitorInspiration ? `✓ ${competitorInspiration.creatives.length} pub${competitorInspiration.creatives.length > 1 ? "s" : ""} concurrente${competitorInspiration.creatives.length > 1 ? "s" : ""} (${competitorInspiration.domain}) · ${competitorInspiration.patterns.length} motif${competitorInspiration.patterns.length > 1 ? "s" : ""} extrait${competitorInspiration.patterns.length > 1 ? "s" : ""}` : "○ Pas d'inspiration Brand Search"}</li>
                   </ul>
                 </div>

@@ -27,6 +27,9 @@ export type PlanResult = CreativePlan & {
   competitorFacts?: string[];
   /** Pubs concurrentes Brand Search utilisées comme inspiration. */
   competitorInspiration?: { domain: string; ads: number; patterns: number } | null;
+  /** Photos du produit chargées (sans fiche) : vues par Hermes, et ce qu'il y a vu. */
+  subjectSeen?: boolean;
+  subjectDescription?: string | null;
 };
 
 /** Hermes tourne sur un modèle qui ne voit pas : l'opérateur choisit de continuer en texte seul ou non. */
@@ -50,6 +53,8 @@ export type PlanRequest = {
   competitorInspiration?: CompetitorInspiration | null;
   /** Photo du produit au modèle image : auto (Hermes décide par créa), always, never. */
   referenceMode?: ReferenceMode;
+  /** Sans fiche produit : les photos du produit / sujet (data URLs) que Hermes doit regarder et que la génération joint. */
+  subjectDataUrls?: string[];
 };
 
 export type ReferenceMode = "auto" | "always" | "never";
@@ -152,6 +157,11 @@ export function PlanCards({
         {plan.referenceAttached ? (
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceSeen ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceSeen ? plan.referenceSummary ?? "" : "Planifié depuis le texte seul : le modèle Hermes actuel n'a pas regardé l'image."} data-plan-reference={plan.referenceSeen ? "seen" : "unseen"}>
             {plan.referenceSeen ? (withProduct ? "Produit actif + référence lue par Hermes" : "Référence lue par Hermes") : "Référence non lisible par le modèle Hermes actuel"}
+          </span>
+        ) : null}
+        {plan.subjectSeen ? (
+          <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" title={plan.subjectDescription ?? ""} data-plan-subject="seen">
+            Photo produit lue par Hermes{plan.subjectDescription ? ` : ${plan.subjectDescription.slice(0, 70)}${plan.subjectDescription.length > 70 ? "…" : ""}` : ""}
           </span>
         ) : null}
         {plan.competitorInspiration ? (
