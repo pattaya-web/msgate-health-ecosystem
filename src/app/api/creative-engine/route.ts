@@ -147,7 +147,7 @@ export async function POST(request: Request) {
         const product = stored ?? sheet;
         if (!body.brief?.trim()) return NextResponse.json({ error: "Brief manquant" }, { status: 400 });
         const referenceDataUrl = typeof body.referenceDataUrl === "string" && /^data:image\/[a-z0-9.+-]+;base64,/i.test(body.referenceDataUrl) && body.referenceDataUrl.length <= 5_500_000 ? body.referenceDataUrl : null;
-        const referenceDescription = referenceDataUrl ? await describeCreativeReference(referenceDataUrl) : null;
+        const reading = referenceDataUrl ? await describeCreativeReference(referenceDataUrl) : null;
         const plan = await planWorkspaceBatch({
           brief: body.brief,
           count: body.count ?? 1,
@@ -156,9 +156,10 @@ export async function POST(request: Request) {
           hasReference: Boolean(body.hasReference) || Boolean(referenceDataUrl),
           avoid: (body.avoid ?? []).map(String).slice(0, 30),
           creativeReferenceAttached: Boolean(referenceDataUrl),
-          creativeReferenceDescription: referenceDescription,
+          creativeReferenceDescription: reading?.description ?? null,
+          competitorFacts: reading?.competitorFacts ?? [],
         });
-        return NextResponse.json({ plan: { ...plan, referenceAttached: Boolean(referenceDataUrl), referenceDescription } });
+        return NextResponse.json({ plan: { ...plan, referenceAttached: Boolean(referenceDataUrl), referenceDescription: reading?.description ?? null, competitorFacts: reading?.competitorFacts ?? [] } });
       }
       case "product-reference":
         if (!body.productId || !body.referenceUrl) return NextResponse.json({ error: "Produit ou image manquant" }, { status: 400 });

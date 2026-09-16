@@ -18,7 +18,11 @@ import {
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { CreativeBatch } from "@/components/studio/creative-batch";
-import { avoidList, patchPlan, PlanCards, requestPlan, type PlanResult } from "@/components/studio/brief-planner";
+import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, type PlanResult } from "@/components/studio/brief-planner";
+import { ActiveProductCard, ProductGallery, useProductContext } from "@/components/studio/product-context";
+import { BatchPreview, launchFromPrompts, launchedState, type Draft } from "@/components/studio/batch-preview";
+import { GenerationStatus, type GenerationState } from "@/components/ask-hermes/generate-dialog";
+import { composeWorkspacePrompt } from "@/lib/creative-engine/workspace-prompt";
 import { isPromptsOnly, parseRequestedCount, parseRequestedRatio } from "@/lib/creative-engine/workspace-plan";
 import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { cn } from "@/lib/utils";
@@ -160,6 +164,33 @@ export function StaticStudio() {
   const detectedCount = useMemo(() => parseRequestedCount(genPaste), [genPaste]);
   const planCount = countOverride ?? detectedCount;
   const promptsOnly = useMemo(() => isPromptsOnly(genPaste), [genPaste]);
+  /* Produit actif du Creative Engine, le même que l'espace produit : vérité produit pour le planificateur et la génération. */
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [generation, setGeneration] = useState<GenerationState | null>(null);
+  /* Creative inspiration : pub concurrente ou créa de style, décrite pour le planificateur ; à défaut, la 1re référence chargée joue ce rôle. */
+  const [inspiration, setInspiration] = useState<string | null>(null);
+  const ctx = useProductContext({
+    storageKey: "msgate.free-prompt.product",
+    onSwitch: () => {
+      setPlan(null);
+      setPlanSelected(new Set());
+      setPreviewOpen(false);
+      setGeneration(null);
+    },
+  });
+  const activeProduct = ctx.active;
+  const primary = ctx.primary;
+  const inspirationImage = inspiration ?? refs.find((ref) => ref.dataUrl)?.dataUrl ?? null;
+  /* Avec un produit, l'inspiration guide les prompts ; elle ne part au modèle qu'à défaut de référence produit. */
+  const inspirationSent = Boolean(inspirationImage) && !primary;
+  const drafts = useMemo<Draft[]>(() => {
+    if (!ctx.facts || !plan) return [];
+    const facts = ctx.facts;
+    return plan.creatives
+      .filter((creative) => planSelected.has(creative.index))
+      .map((creative) => ({ index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: composeWorkspacePrompt({ userPrompt: creative.prompt, product: facts, hasReference: Boolean(primary), hasInspiration: Boolean(inspirationImage) }) }));
+  }, [ctx.facts, plan, planSelected, primary, inspirationImage]);
   /** Référence ouverte en grand, et index en cours de glisser pour réordonner. */
   const [refZoom, setRefZoom] = useState<RefImage | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -192,9 +223,11 @@ export function StaticStudio() {
   /* La fiche chargée en prompt libre est « ce produit » pour Ask Hermes ; en mode lot, c'est CreativeBatch qui publie la sienne. */
   usePublishHermesContext(
     "static-studio-product",
-    mode === "prompt" && product
-      ? { pageType: "product", productName: product.name, ...(productUrl.trim() ? { productUrl: productUrl.trim() } : {}), ...(product.brand ? { storeName: product.brand } : {}) }
-      : null
+    mode === "prompt" && activeProduct
+      ? { pageType: "product-creative-workspace", productId: activeProduct.id, productName: activeProduct.name, productUrl: activeProduct.url, storeName: activeProduct.store, ...(primary ? { primaryReferenceUrl: primary.url, primaryReferenceType: primary.type } : {}) }
+      : mode === "prompt" && product
+        ? { pageType: "product", productName: product.name, ...(productUrl.trim() ? { productUrl: productUrl.trim() } : {}), ...(product.brand ? { storeName: product.brand } : {}) }
+        : null
   );
   /** Créa ouverte en grand, et lot coché pour un export groupé. */
   const [zoom, setZoom] = useState<string | null>(null);
@@ -348,7 +381,8 @@ export function StaticStudio() {
     for (const job of jobs) {
       if (job.status !== "run" || !job.taskId) continue;
       if (!claimTask(job.taskId)) continue;
-      void watchJob(job);
+      // Le suivi démarre hors du rendu de l'effet : il met à jour la grille au fil des retours de Kie.
+      void Promise.resolve().then(() => watchJob(job));
     }
   }, [jobs, watchJob]);
 
@@ -670,10 +704,11 @@ export function StaticStudio() {
         brief: genPaste,
         count: planCount,
         ratio: wantedRatio ?? ratio,
-        hasReference: refs.length > 0,
-        product: product ? { name: product.name, ...(product.brand ? { store: product.brand } : {}), ...(productUrl.trim() ? { url: productUrl.trim() } : {}), ...(product.price ? { price: product.price } : {}) } : null,
-        // La première référence chargée est la créa que le batch doit suivre ; toutes partent ensuite avec la génération.
-        referenceDataUrl: refs.find((ref) => ref.dataUrl)?.dataUrl ?? null,
+        hasReference: activeProduct ? Boolean(primary) : refs.length > 0,
+        productId: activeProduct?.id ?? null,
+        product: !activeProduct && product ? { name: product.name, ...(product.brand ? { store: product.brand } : {}), ...(productUrl.trim() ? { url: productUrl.trim() } : {}), ...(product.price ? { price: product.price } : {}) } : null,
+        // L'inspiration explicite, sinon la première référence chargée, est la créa que le batch suit.
+        referenceDataUrl: inspirationImage,
       });
       setPlan(fresh);
       setPlanSelected(new Set(fresh.creatives.map((creative) => creative.index)));
@@ -690,13 +725,30 @@ export function StaticStudio() {
     if (!plan) return;
     setRewriting(index);
     try {
-      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: refs.length > 0, product: product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: refs.find((ref) => ref.dataUrl)?.dataUrl ?? null })).creatives[0];
+      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: activeProduct ? Boolean(primary) : refs.length > 0, productId: activeProduct?.id ?? null, product: !activeProduct && product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: inspirationImage })).creatives[0];
       if (!fresh) throw new Error("Aucune créa renvoyée");
       setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Réécriture impossible");
     } finally {
       setRewriting(null);
+    }
+  }
+
+  /** Avec un produit actif : la génération confirmée passe par le Creative Engine, référence produit en seule image. */
+  async function confirmProductGeneration() {
+    if (!activeProduct || !drafts.length) return;
+    setLaunching(true);
+    try {
+      const batch = await launchFromPrompts({ product: activeProduct, drafts, brief: genPaste, ratio, resolution, primaryUrl: primary?.url ?? null, inspiration: inspirationSent ? inspirationImage : null });
+      setGeneration(launchedState(batch));
+      setPreviewOpen(false);
+      toast.success(`Lot #${String(batch.number).padStart(3, "0")} lancé · ${batch.items.length} image${batch.items.length > 1 ? "s" : ""} — visible dans l'onglet Produit et ici une fois sorties`);
+      void ctx.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Génération impossible");
+    } finally {
+      setLaunching(false);
     }
   }
 
@@ -886,14 +938,21 @@ export function StaticStudio() {
           />
         ) : null}
 
+        {mode === "prompt" ? (
+          <div className="space-y-3" data-free-product-context>
+            <ActiveProductCard ctx={ctx} title="Produit actif · vérité produit (optionnel)" />
+            <ProductGallery ctx={ctx} collapsible />
+          </div>
+        ) : null}
+
         <div
           className={cn(
             "rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70",
             mode === "batch" && "hidden"
           )}
         >
-          {/* Ligne 0 — lien produit facultatif : fiche lue, photos en références, et un prompt écrit si un style est choisi. */}
-          <div className="mb-2 flex flex-wrap items-center gap-2">
+          {/* Ligne 0 — lien produit facultatif (sans produit du moteur) : fiche lue, photos en références, et un prompt écrit si un style est choisi. */}
+          <div className={cn("mb-2 flex flex-wrap items-center gap-2", activeProduct && "hidden")}>
             <div className="relative min-w-[260px] flex-1">
               <Link2 className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
@@ -1115,8 +1174,13 @@ export function StaticStudio() {
             </div>
           </div>
 
-          {pageLabel ? (
+          {pageLabel && !activeProduct ? (
             <p className="mt-1.5 text-[11px] text-emerald-700 dark:text-emerald-400">Page lue : {pageLabel}</p>
+          ) : null}
+          {promptMode === "auto" ? (
+            <div className="mt-2">
+              <CreativeReferenceSlot value={inspiration} onChange={setInspiration} hint={activeProduct ? "Pub concurrente ou créa de style : le batch en garde l'angle, la structure et le style ; le produit, sa photo et ses faits restent ceux du produit actif." : "Pub concurrente ou créa de style : le batch en garde la structure et le style. Sans produit actif, la 1re référence chargée joue ce rôle."} />
+            </div>
           ) : null}
 
           {/* Ligne 2 — le prompt, tenu bas par défaut. Le coin se tire à la souris
@@ -1194,7 +1258,7 @@ export function StaticStudio() {
 
           <p className="mt-1 text-[11px] text-slate-400">
             {promptMode === "auto"
-              ? `Auto · brief : « Create 5 ads… » donne ${planCount} prompt${planCount > 1 ? "s" : ""} distinct${planCount > 1 ? "s" : ""} par Hermes, ${planCount} image${planCount > 1 ? "s" : ""}, à relire avant de générer.${promptsOnly ? " « Prompts only » lu : rien ne part sans ton clic." : ""}${product ? ` Produit : ${product.name}.` : ""}${refs.some((ref) => ref.dataUrl) ? " La 1re référence chargée est la créa que le batch suit ; toutes partent avec chaque prompt." : refs.length ? " Les références partent avec chaque prompt." : ""} `
+              ? `Auto · brief : « Create 5 ads… » donne ${planCount} prompt${planCount > 1 ? "s" : ""} distinct${planCount > 1 ? "s" : ""} par Hermes, ${planCount} image${planCount > 1 ? "s" : ""}, à relire avant de générer.${promptsOnly ? " « Prompts only » lu : rien ne part sans ton clic." : ""}${activeProduct ? ` Produit actif : ${activeProduct.name}${primary ? ", sa référence principale part avec chaque image" : ", sans référence principale (texte seul)"}.` : product ? ` Produit : ${product.name}.` : ""}${inspiration ? " Inspiration jointe : structure et style suivis, faits concurrents écartés." : refs.some((ref) => ref.dataUrl) ? " La 1re référence chargée est la créa que le batch suit." : ""}${!activeProduct && refs.length ? " Les références partent avec chaque prompt." : ""} `
               : null}
             {promptMode === "exact" && !genPaste.trim() && !activePrompts.length && refs.length
               ? `Sans prompt : les références sont reproduites telles quelles × Batch ×${count}.`
@@ -1216,9 +1280,32 @@ export function StaticStudio() {
             onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}
             onRewrite={(index) => void rewritePlanned(index)}
             rewriting={rewriting}
-            actionLabel={(n) => `Utiliser ces ${n} prompt${n > 1 ? "s" : ""}`}
-            onAction={usePlannedPrompts}
+            actionLabel={(n) => (activeProduct ? `Générer la sélection (${n})` : `Utiliser ces ${n} prompt${n > 1 ? "s" : ""}`)}
+            onAction={activeProduct ? () => setPreviewOpen(true) : usePlannedPrompts}
           />
+        ) : null}
+
+        {mode === "prompt" && activeProduct && previewOpen && drafts.length ? (
+          <BatchPreview
+            product={activeProduct}
+            primaryUrl={primary?.url ?? null}
+            inspiration={inspirationImage}
+            inspirationSent={inspirationSent}
+            drafts={drafts}
+            exact={false}
+            ratio={ratio}
+            resolution={resolution}
+            model={primary || inspirationSent ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image"}
+            launching={launching}
+            onCancel={() => setPreviewOpen(false)}
+            onConfirm={() => void confirmProductGeneration()}
+          />
+        ) : null}
+
+        {mode === "prompt" && generation ? (
+          <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70">
+            <GenerationStatus generation={generation} onUpdate={setGeneration} onDismiss={() => setGeneration(null)} />
+          </section>
         ) : null}
 
         <div className="min-h-[48vh] rounded-2xl bg-slate-50/80 p-2 ring-1 ring-slate-900/[0.04] dark:bg-slate-950/40">

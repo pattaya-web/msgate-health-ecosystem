@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
  * avant tout envoi. Chaque écran garde sa propre suite (aperçu, génération).
  */
 
-export type PlanResult = CreativePlan & { engine: string; referenceAttached?: boolean; referenceDescription?: string | null };
+export type PlanResult = CreativePlan & { engine: string; referenceAttached?: boolean; referenceDescription?: string | null; competitorFacts?: string[] };
 
 export type PlanRequest = {
   brief: string;
@@ -71,7 +71,12 @@ export function PlanCards({
         <span className="text-[10.5px] text-slate-400">planifié par {engineLabel(plan.engine)} · {plan.ratio}</span>
         {plan.referenceAttached ? (
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceDescription ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceDescription ?? "Aucun modèle qui voit n'était joignable : le planificateur ne l'a pas lue, mais l'image part avec chaque génération."} data-plan-reference={plan.referenceDescription ? "described" : "attached"}>
-            {plan.referenceDescription ? "Créa de référence lue et suivie" : "Créa de référence jointe (non lue par le planificateur)"}
+            {plan.referenceDescription ? "Inspiration lue et suivie" : "Inspiration jointe (non lue par le planificateur)"}
+          </span>
+        ) : null}
+        {plan.competitorFacts?.length ? (
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800" title={plan.competitorFacts.join(" · ")} data-plan-competitor-facts={plan.competitorFacts.length}>
+            {plan.competitorFacts.length} fait{plan.competitorFacts.length > 1 ? "s" : ""} concurrent{plan.competitorFacts.length > 1 ? "s" : ""} écarté{plan.competitorFacts.length > 1 ? "s" : ""}
           </span>
         ) : null}
         <div className="ml-auto flex items-center gap-1.5 text-[11px]">
@@ -179,8 +184,8 @@ export function CreativeReferenceSlot({ value, onChange, hint }: { value: string
         </label>
       )}
       <div className="min-w-0 text-slate-500">
-        <div className="font-semibold uppercase tracking-wide text-slate-500">Créa de référence{value ? " · jointe" : " · optionnel"}</div>
-        <div className="text-[10.5px] text-slate-400">{hint ?? "Glisse, colle (Ctrl+V dans le brief) ou choisis une créa : le batch suit sa structure et son style, et elle part avec chaque génération."}</div>
+        <div className="font-semibold uppercase tracking-wide text-slate-500">Creative inspiration{value ? " · jointe" : " · optionnel"}</div>
+        <div className="text-[10.5px] text-slate-400">{hint ?? "Pub concurrente ou créa de style : glisse, colle (Ctrl+V dans le brief) ou choisis. Le batch en garde l'angle, la structure et le style ; le produit et ses faits restent les tiens."}</div>
       </div>
     </div>
   );

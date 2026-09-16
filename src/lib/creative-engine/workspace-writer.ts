@@ -23,33 +23,64 @@ export type PlanInput = {
   hasReference: boolean;
   /** Concepts déjà retenus, à éviter quand on réécrit une seule créa. */
   avoid?: string[];
-  /** Une créa de référence est jointe au brief (et à la génération) : chaque prompt suit sa structure. */
+  /** Une créa d'inspiration (pub concurrente, style) est jointe au brief : chaque prompt suit sa structure, jamais ses faits. */
   creativeReferenceAttached?: boolean;
   /** Sa description en mots, quand un modèle qui voit a pu la lire ; null sinon. */
   creativeReferenceDescription?: string | null;
+  /** Les faits propres au concurrent lus sur l'inspiration (marque, origine, garantie, chiffres…) : à ne jamais reprendre. */
+  competitorFacts?: string[];
 };
 
-const DESCRIBE_PROMPT =
-  "Describe this ad creative for an image-generation planner that cannot see it. In 90 to 140 words, plain English, one paragraph: format and layout, subject and framing, where and how big the product is, text blocks (what kind, where, hierarchy; quote short visible text), colours and background, lighting and camera feel, overall style (UGC / studio / editorial / meme / infographic). Facts only, no advice, no markdown.";
+export type CreativeReferenceReading = { description: string; competitorFacts: string[] };
 
-/** Met des mots sur la créa de référence pour que Hermes (texte seul) puisse la suivre ; null si aucun modèle qui voit n'est joignable. */
-export async function describeCreativeReference(dataUrl: string): Promise<string | null> {
+const DESCRIBE_PROMPT =
+  'Analyse this ad creative for an image-generation planner that cannot see it. Return ONLY a JSON object, no markdown: {"description": "...", "competitorFacts": ["..."]}. "description": 90 to 160 words, plain English, one paragraph, the creative DNA — format and layout, marketing angle, hook mechanism, subject and framing, where and how big the product is, text blocks (kind, position, hierarchy), type of proof (before/after, testimonial, stat, badge, comparison…), colours and background, lighting and camera feel, overall style (UGC / studio / editorial / meme / infographic). "competitorFacts": every product- or brand-specific element visible or written — brand and product names, logo wording, slogans, claims, guarantees, country of origin, materials, certifications, statistics, study mentions, prices, badges — as short exact strings (max 20). Facts only, no advice.';
+
+/** Lit la créa d'inspiration pour Hermes (texte seul) : son ADN créatif et les faits du concurrent à écarter ; null si aucun modèle qui voit n'est joignable. */
+export async function describeCreativeReference(dataUrl: string): Promise<CreativeReferenceReading | null> {
   try {
-    const text = (await kieClaude(DESCRIBE_PROMPT, 600, [dataUrl])).trim();
-    return text.length >= 40 ? text.slice(0, 1200) : null;
+    const raw = (await kieClaude(DESCRIBE_PROMPT, 900, [dataUrl])).trim();
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      const parsed = JSON.parse(raw.slice(start, end + 1)) as { description?: unknown; competitorFacts?: unknown };
+      const description = typeof parsed.description === "string" ? parsed.description.trim().slice(0, 1600) : "";
+      const competitorFacts = Array.isArray(parsed.competitorFacts) ? parsed.competitorFacts.filter((entry): entry is string => typeof entry === "string" && entry.trim().length >= 3).map((entry) => entry.trim().slice(0, 80)).slice(0, 20) : [];
+      if (description.length >= 40) return { description, competitorFacts };
+    }
+    // Réponse en prose : on garde la description, sans liste de faits.
+    return raw.length >= 40 ? { description: raw.slice(0, 1600), competitorFacts: [] } : null;
   } catch {
     return null;
   }
 }
 
+/** Mots trop génériques pour compter comme une fuite (« product », « ad »…). */
+const GENERIC_FACT = /^(product|ad|ads|creative|image|photo|the|a|an|new|best|now|today|free|premium|quality)$/i;
+
+/** Les prompts qui reprennent un fait du concurrent : index de créa → faits retrouvés. */
+export function findCompetitorLeaks(prompts: string[], competitorFacts: string[]): Array<{ index: number; facts: string[] }> {
+  const facts = competitorFacts.map((fact) => fact.trim()).filter((fact) => fact.length >= 3 && !GENERIC_FACT.test(fact));
+  return prompts
+    .map((prompt, position) => {
+      const lower = prompt.toLowerCase();
+      return { index: position + 1, facts: facts.filter((fact) => lower.includes(fact.toLowerCase())) };
+    })
+    .filter((entry) => entry.facts.length > 0);
+}
+
 function creativeReferenceBlock(input: PlanInput): string {
   if (!input.creativeReferenceAttached) return "";
   const seen = input.creativeReferenceDescription
-    ? `Description: ${input.creativeReferenceDescription}`
-    : "It could not be described here; the image model will see it at generation time.";
+    ? `What it looks like: ${input.creativeReferenceDescription}`
+    : "It could not be read here; treat the brief's description of it as the guide.";
+  const facts = input.competitorFacts?.length ? `\nCompetitor-specific elements seen on it, FORBIDDEN in every prompt: ${input.competitorFacts.map((fact) => `« ${fact} »`).join(", ")}.` : "";
+  const product = input.product ? "the ACTIVE PRODUCT above" : "the subject of the brief";
   return `
-REFERENCE CREATIVE: the operator attached a real ad creative as the model for this batch; the same image is attached to the image model at generation time. ${seen}
-Every creative keeps its composition, visual hierarchy, framing, text placement and style; only the scene, subject, angle and hook change as the brief asks. Start every "prompt" with this exact sentence: "Follow the attached reference creative's composition, hierarchy and style."`;
+CREATIVE INSPIRATION: the operator attached an ad creative (often a competitor's) as inspiration. ${seen}${facts}
+SOURCE OF TRUTH, in this order: 1) the active product sheet above, 2) its attached product reference photo, 3) this inspiration image — for creative form only.
+CREATIVE TRANSFER, not product swap: understand why this creative works, then rebuild the same logic for ${product}. Keep its marketing angle, hook mechanism, layout, composition, visual hierarchy, type of proof, visual rhythm, photography and annotation style. Replace EVERY product-specific element with the active product's real facts: its name, brand, packaging, mechanism, benefits, origin, guarantee, certifications, statistics. Never reuse the competitor's product, brand, logo, packaging, claims, guarantees, country of origin, materials, certifications, statistics, studies, icons or factual copy. If the active product has no equivalent for an element (e.g. a "Made in …" badge with no known origin), REMOVE that element instead of inventing one.
+Start every "prompt" with this exact sentence: "Follow the inspiration creative's composition, hierarchy and style, with the active product only."`;
 }
 
 const SYSTEM =
@@ -89,28 +120,57 @@ Rules:
 - Follow the brief exactly for style, angle, ratio, product visibility and any distribution it asks for (e.g. « 3 before/after and 2 product-focused » means exactly that split, in that order).
 - The ${input.count} creatives must be genuinely different: vary scene, subject, framing, camera angle, product placement, visual hook, composition, lighting, text hierarchy, proof mechanism and context of use, while keeping the requested style family and the same real product.
 - Each "prompt" is complete and directly usable by an image model: subject, product placement and visibility, setting, lighting, camera or phone look, composition, on-image text only if the brief asks for it. 60 to 160 words. Plain English. No numbering, no reference to other creatives, no product-fidelity boilerplate (it is appended automatically).
-- "angle" is the advertising angle in a few words, "concept" one sentence describing the image idea, "hook" the headline idea (empty string if the brief wants no text).${avoid}
+- "angle" is the advertising angle in a few words, "concept" one sentence describing the image idea, "hook" the headline idea (empty string if the brief wants no text).
+- Branding: never add a standalone logo, corner logo, watermark or branding block; branding exists only as it appears on the real product or packaging, unless the brief explicitly asks for a logo.
+- The brief may be in French, English or both: read it either way and write the prompts in English.${avoid}
 
 Return ONLY this JSON:
 {"count": ${input.count}, "ratio": "${input.ratio}", "format": "static", "creatives": [{"index": 1, "angle": "", "concept": "", "hook": "", "prompt": ""}]}`;
 }
 
-export async function planWorkspaceBatch(input: PlanInput): Promise<CreativePlan & { engine: "hermes" | "claude" }> {
-  const count = Math.min(MAX_PLANNED_CREATIVES, Math.max(1, Math.round(input.count)));
-  const prompt = planPrompt({ ...input, count });
+/** Un plan validé qui reprend un fait du concurrent est rejeté : le planificateur repasse une fois avec la liste des fuites, puis c'est une erreur. */
+function checkLeaks(plan: CreativePlan, competitorFacts: string[] | undefined) {
+  if (!competitorFacts?.length) return plan;
+  const leaks = findCompetitorLeaks(plan.creatives.map((creative) => creative.prompt), competitorFacts);
+  if (leaks.length) throw new CompetitorLeakError(leaks);
+  return plan;
+}
+
+export class CompetitorLeakError extends Error {
+  constructor(public leaks: Array<{ index: number; facts: string[] }>) {
+    super(`le planificateur a repris des faits du concurrent (créa ${leaks.map((leak) => `${leak.index} : ${leak.facts.map((fact) => `« ${fact} »`).join(", ")}`).join(" ; ")})`);
+  }
+}
+
+async function planOnce(input: PlanInput, count: number, extraRule: string): Promise<CreativePlan & { engine: "hermes" | "claude" }> {
+  const prompt = planPrompt({ ...input, count }) + extraRule;
   let hermesReason = hermesAnalysisAvailable() ? "" : "Hermes non configuré";
   if (!hermesReason) {
     try {
       const raw = await askHermesText(prompt, SYSTEM);
-      return { ...validatePlan(raw, count, input.ratio), engine: "hermes" };
+      return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts), engine: "hermes" };
     } catch (error) {
+      if (error instanceof CompetitorLeakError) throw error;
       hermesReason = error instanceof Error ? error.message : "Hermes indisponible";
     }
   }
   try {
     const raw = await kieClaude(prompt, 4000);
-    return { ...validatePlan(raw, count, input.ratio), engine: "claude" };
+    return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts), engine: "claude" };
   } catch (error) {
+    if (error instanceof CompetitorLeakError) throw error;
     throw new Error(`Planification impossible — Hermes : ${hermesReason} ; Kie : ${error instanceof Error ? error.message : "?"}`);
+  }
+}
+
+export async function planWorkspaceBatch(input: PlanInput): Promise<CreativePlan & { engine: "hermes" | "claude" }> {
+  const count = Math.min(MAX_PLANNED_CREATIVES, Math.max(1, Math.round(input.count)));
+  try {
+    return await planOnce(input, count, "");
+  } catch (error) {
+    if (!(error instanceof CompetitorLeakError)) throw error;
+    const facts = [...new Set(error.leaks.flatMap((leak) => leak.facts))];
+    const rule = `\n\nPREVIOUS ATTEMPT REJECTED: these competitor elements appeared in the prompts and must not appear in any form: ${facts.map((fact) => `« ${fact} »`).join(", ")}. Use the active product's own facts or drop the element.`;
+    return planOnce(input, count, rule);
   }
 }
