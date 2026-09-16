@@ -23,6 +23,12 @@ const SORTS: Array<{ id: StaticAdSort; label: string }> = [
   { id: "scaler", label: "Score scaler" },
 ];
 
+/** Hermes regarde environ 40 s par image, par lots de 4 en parallèle : au-delà de 12, la sélection se fait en plusieurs fois. */
+const MAX_ANALYZED = 12;
+const PER_CHUNK = 4;
+// Mesuré : 4 images ≈ 170 s, 8 images en deux lots parallèles + regroupement ≈ 310 s.
+const estimateMinutes = (count: number) => Math.max(1, Math.round((Math.min(count, PER_CHUNK) * 50 + (count > PER_CHUNK ? 110 : 0)) / 60));
+
 const euro = (value: number | null) => (value === null ? "—" : `€${Math.round(value).toLocaleString("fr-FR")}`);
 const int = (value: number | null) => (value === null ? "—" : Math.round(value).toLocaleString("fr-FR"));
 const day = (value: string | null) => (value ? new Date(value).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "2-digit" }) : "—");
@@ -104,6 +110,10 @@ export function CompetitorResearchPanel({ productId, productName, onUse, active 
   /** Hermes regarde les pubs cochées ; rend l'analyse (et la garde pour « Utiliser »). */
   async function analyze(list: CompetitorCreative[]): Promise<CompetitorAnalysis | null> {
     if (!research || !list.length) return null;
+    if (list.length > MAX_ANALYZED) {
+      toast.error(`${MAX_ANALYZED} pubs maximum par analyse : désélectionne-en ${list.length - MAX_ANALYZED}`);
+      return null;
+    }
     setAnalyzing(true);
     setVisionError(null);
     try {
@@ -283,6 +293,7 @@ export function CompetitorResearchPanel({ productId, productName, onUse, active 
               ) : null}
 
               <div className="flex flex-wrap items-center justify-end gap-2">
+                {analyzing ? <span className="text-[11px] text-slate-500" data-competitor-progress>Hermes regarde {selectedList.length} pub{selectedList.length > 1 ? "s" : ""} par lots de {PER_CHUNK} en parallèle, puis dégage les motifs · environ {estimateMinutes(selectedList.length)} min…</span> : selected.size > MAX_ANALYZED ? <span className="text-[11px] text-amber-700 dark:text-amber-300">{MAX_ANALYZED} pubs max par analyse</span> : null}
                 <button type="button" disabled={!selected.size || analyzing} onClick={() => void analyze(selectedList)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" data-competitor-analyze>
                   {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   Analyser la sélection ({selected.size})

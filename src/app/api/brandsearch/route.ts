@@ -7,7 +7,7 @@ import { listProducts } from "@/lib/creative-engine/store";
 import { extensionFor, saveFile } from "@/lib/drive/store";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 /**
  * Passerelle Brandsearch pour SpyShop. La clé ne quitte jamais le serveur ;

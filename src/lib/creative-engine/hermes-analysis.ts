@@ -33,8 +33,8 @@ export function askHermesText(prompt: string, system: string): Promise<string> {
  * model does not support image input ») — joindre des URLs hébergées. Si le
  * modèle ne voit vraiment pas, il le dit en prose : à l'appelant de le détecter.
  */
-export function askHermesVision(prompt: string, system: string, images: string[]): Promise<string> {
-  return askHermes(prompt, system, images);
+export function askHermesVision(prompt: string, system: string, images: string[], timeoutMs = TIMEOUT_MS): Promise<string> {
+  return askHermes(prompt, system, images, timeoutMs);
 }
 
 /** Vrai quand la réponse dit que le modèle ne voit pas l'image (Hermes sur un modèle texte seul). */
@@ -47,11 +47,11 @@ export function hermesCannotSee(text: string): boolean {
   );
 }
 
-async function askHermes(prompt: string, system: string, images: string[]): Promise<string> {
+async function askHermes(prompt: string, system: string, images: string[], timeoutMs = TIMEOUT_MS): Promise<string> {
   const config = hermesChatConfig();
   if (!config) throw new Error("Hermes non configuré (HERMES_API_URL / HERMES_API_SERVER_KEY)");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
       method: "POST",
@@ -79,7 +79,7 @@ async function askHermes(prompt: string, system: string, images: string[]): Prom
     if (!text.trim()) throw new Error("Hermes n'a rien renvoyé");
     return text;
   } catch (error) {
-    if (controller.signal.aborted) throw new Error("Hermes n'a pas répondu dans les 3 minutes");
+    if (controller.signal.aborted) throw new Error(`Hermes n'a pas répondu dans les ${Math.round(timeoutMs / 60_000)} minutes`);
     throw error instanceof Error ? error : new Error("Hermes injoignable");
   } finally {
     clearTimeout(timer);
