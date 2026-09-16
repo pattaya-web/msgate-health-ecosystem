@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
  * avant tout envoi. Chaque écran garde sa propre suite (aperçu, génération).
  */
 
-export type PlanResult = CreativePlan & { engine: string; referenceAttached?: boolean; referenceDescription?: string | null; competitorFacts?: string[] };
+export type PlanResult = CreativePlan & { engine: string; referenceAttached?: boolean; referenceDescription?: string | null; competitorFacts?: string[]; referenceEye?: "hermes" | "claude" | null; referenceReadFailure?: string | null };
 
 export type PlanRequest = {
   brief: string;
@@ -70,8 +70,8 @@ export function PlanCards({
         </div>
         <span className="text-[10.5px] text-slate-400">planifié par {engineLabel(plan.engine)} · {plan.ratio}</span>
         {plan.referenceAttached ? (
-          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceDescription ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceDescription ?? "Aucun modèle qui voit n'était joignable : le planificateur ne l'a pas lue, mais l'image part avec chaque génération."} data-plan-reference={plan.referenceDescription ? "described" : "attached"}>
-            {plan.referenceDescription ? "Inspiration lue et suivie" : "Inspiration jointe (non lue par le planificateur)"}
+          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceDescription ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceDescription ?? `Aucun modèle qui voit n'a répondu${plan.referenceReadFailure ? ` — ${plan.referenceReadFailure}` : ""}. Le planificateur a travaillé depuis le brief seul.`} data-plan-reference={plan.referenceDescription ? "described" : "attached"}>
+            {plan.referenceDescription ? `Inspiration lue par ${plan.referenceEye === "hermes" ? "Hermes" : "Claude"} et suivie` : "Inspiration jointe, NON LUE : aucun modèle qui voit n'a répondu"}
           </span>
         ) : null}
         {plan.competitorFacts?.length ? (

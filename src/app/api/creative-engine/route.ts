@@ -20,7 +20,7 @@ import {
   type GenerateSpec,
 } from "@/lib/creative-engine/store";
 import { extractProductImages } from "@/lib/creative-engine/product-images";
-import { describeCreativeReference, planWorkspaceBatch } from "@/lib/creative-engine/workspace-writer";
+import { planWorkspaceBatch, readCreativeReference, relevantCompetitorFacts } from "@/lib/creative-engine/workspace-writer";
 import type { ProductReferenceType } from "@/lib/creative-engine/types";
 import type { CreativeEmphasis, CreativeStatus, FamilyMixSetting, ReferenceStrength } from "@/lib/creative-engine/types";
 
@@ -147,7 +147,8 @@ export async function POST(request: Request) {
         const product = stored ?? sheet;
         if (!body.brief?.trim()) return NextResponse.json({ error: "Brief manquant" }, { status: 400 });
         const referenceDataUrl = typeof body.referenceDataUrl === "string" && /^data:image\/[a-z0-9.+-]+;base64,/i.test(body.referenceDataUrl) && body.referenceDataUrl.length <= 5_500_000 ? body.referenceDataUrl : null;
-        const reading = referenceDataUrl ? await describeCreativeReference(referenceDataUrl) : null;
+        const outcome = referenceDataUrl ? await readCreativeReference(referenceDataUrl) : null;
+        const reading = outcome?.reading ?? null;
         const plan = await planWorkspaceBatch({
           brief: body.brief,
           count: body.count ?? 1,
@@ -159,7 +160,7 @@ export async function POST(request: Request) {
           creativeReferenceDescription: reading?.description ?? null,
           competitorFacts: reading?.competitorFacts ?? [],
         });
-        return NextResponse.json({ plan: { ...plan, referenceAttached: Boolean(referenceDataUrl), referenceDescription: reading?.description ?? null, competitorFacts: reading?.competitorFacts ?? [] } });
+        return NextResponse.json({ plan: { ...plan, referenceAttached: Boolean(referenceDataUrl), referenceDescription: reading?.description ?? null, competitorFacts: relevantCompetitorFacts(reading?.competitorFacts ?? [], product ? JSON.stringify([product.name, product.store, product.url, "analysis" in product ? product.analysis : null]) : ""), referenceEye: outcome?.eye ?? null, referenceReadFailure: outcome?.reason ?? null } });
       }
       case "product-reference":
         if (!body.productId || !body.referenceUrl) return NextResponse.json({ error: "Produit ou image manquant" }, { status: 400 });

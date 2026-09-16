@@ -761,6 +761,10 @@ export function StaticStudio() {
     setCount(1);
     setPromptMode("exact");
     setPlan(null);
+    // Sans produit actif, l'inspiration est la référence visuelle : elle rejoint les références pour partir avec la génération.
+    if (inspiration && !refs.some((ref) => ref.dataUrl === inspiration)) {
+      setRefs((list) => [{ id: `inspiration-${Date.now()}`, preview: inspiration, dataUrl: inspiration, name: "inspiration.png" }, ...list].slice(0, 8));
+    }
     toast.success(`${chosen.length} prompt${chosen.length > 1 ? "s" : ""} prêt${chosen.length > 1 ? "s" : ""} — clique Générer pour lancer ${chosen.length} image${chosen.length > 1 ? "s" : ""}`);
   }
 

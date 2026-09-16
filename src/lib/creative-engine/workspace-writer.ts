@@ -1,5 +1,5 @@
-import { askHermesText, hermesAnalysisAvailable } from "@/lib/creative-engine/hermes-analysis";
-import { kieClaude } from "@/lib/studio/kie";
+import { askHermesText, askHermesVision, hermesAnalysisAvailable, hermesCannotSee } from "@/lib/creative-engine/hermes-analysis";
+import { kieClaude, uploadBase64 } from "@/lib/studio/kie";
 import type { ProductContext } from "./types";
 import { MAX_PLANNED_CREATIVES, validatePlan, type CreativePlan } from "./workspace-plan";
 
@@ -34,9 +34,56 @@ export type PlanInput = {
 export type CreativeReferenceReading = { description: string; competitorFacts: string[] };
 
 const DESCRIBE_PROMPT =
-  'Analyse this ad creative for an image-generation planner that cannot see it. Return ONLY a JSON object, no markdown: {"description": "...", "competitorFacts": ["..."]}. "description": 90 to 160 words, plain English, one paragraph, the creative DNA — format and layout, marketing angle, hook mechanism, subject and framing, where and how big the product is, text blocks (kind, position, hierarchy), type of proof (before/after, testimonial, stat, badge, comparison…), colours and background, lighting and camera feel, overall style (UGC / studio / editorial / meme / infographic). "competitorFacts": every product- or brand-specific element visible or written — brand and product names, logo wording, slogans, claims, guarantees, country of origin, materials, certifications, statistics, study mentions, prices, badges — as short exact strings (max 20). Facts only, no advice.';
+  'Analyse this ad creative for an image-generation planner that cannot see it. Return ONLY a JSON object, no markdown: {"description": "...", "competitorFacts": ["..."]}. "description": 90 to 160 words, plain English, one paragraph, the creative DNA — format and layout, marketing angle, hook mechanism, subject and framing, where and how big the product is, text blocks (kind, position, hierarchy), type of proof (before/after, testimonial, stat, badge, comparison…), colours and background, lighting and camera feel, overall style (UGC / studio / editorial / meme / infographic). "competitorFacts": ONLY the product- or brand-specific wording that must not be reused for another product — brand and product names, slogans, claims, guarantees, country of origin, named materials, certifications, statistics, study mentions, prices, badge wording — as short exact strings as written (max 20). Never list layout, colours, typography, style, object shapes, or absences (\'no price visible\'): those belong in the description. Facts only, no advice.';
 
-/** Lit la créa d'inspiration pour Hermes (texte seul) : son ADN créatif et les faits du concurrent à écarter ; null si aucun modèle qui voit n'est joignable. */
+const DESCRIBE_SYSTEM =
+  "You are the creative analyst of the MSGate CRM Creative Engine. You look at the attached ad creative and answer with the requested JSON object ONLY. Read-only task: do not browse, do not call tools that write or generate anything.";
+
+/** Ce qu'a donné la lecture : par quel œil, ou pourquoi aucun. */
+export type ReadingOutcome = { reading: CreativeReferenceReading | null; eye: "hermes" | "claude" | null; reason: string | null };
+
+/**
+ * Lit la créa d'inspiration : d'abord Hermes lui-même, avec l'image jointe
+ * (il voit dès qu'il tourne sur un modèle multimodal), sinon Claude via Kie
+ * (ou en direct avec une clé Anthropic). Rend l'ADN créatif et les faits du
+ * concurrent à écarter ; null quand aucun modèle qui voit n'est joignable,
+ * avec la raison pour l'afficher.
+ */
+export async function readCreativeReference(dataUrl: string): Promise<ReadingOutcome> {
+  const reasons: string[] = [];
+  if (hermesAnalysisAvailable()) {
+    try {
+      // Hermes lit une URL https, pas une data URL : l'image est hébergée d'abord (même dépôt que les références envoyées au modèle image).
+      const hosted = await uploadBase64(dataUrl, `inspiration-${Date.now().toString(36)}.png`);
+      const raw = await askHermesVision(DESCRIBE_PROMPT, DESCRIBE_SYSTEM, [hosted]);
+      const reading = parseReading(raw);
+      if (reading && !hermesCannotSee(raw)) return { reading, eye: "hermes", reason: null };
+      reasons.push(hermesCannotSee(raw) ? "Hermes tourne sur un modèle texte seul, il ne voit pas l'image" : "Hermes n'a pas rendu de lecture exploitable");
+    } catch (error) {
+      reasons.push(`Hermes : ${error instanceof Error ? error.message : "injoignable"}`);
+    }
+  } else reasons.push("Hermes non configuré");
+  const reading = await describeCreativeReference(dataUrl);
+  if (reading) return { reading, eye: "claude", reason: null };
+  reasons.push("Claude via Kie injoignable" + (process.env.ANTHROPIC_API_KEY?.trim() ? "" : ", pas de clé Anthropic directe"));
+  return { reading: null, eye: null, reason: reasons.join(" ; ") };
+}
+
+function parseReading(raw: string): CreativeReferenceReading | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { description?: unknown; competitorFacts?: unknown };
+    const description = typeof parsed.description === "string" ? parsed.description.trim().slice(0, 1600) : "";
+    const competitorFacts = Array.isArray(parsed.competitorFacts) ? parsed.competitorFacts.filter((entry): entry is string => typeof entry === "string" && entry.trim().length >= 3).map((entry) => entry.trim().slice(0, 80)).slice(0, 20) : [];
+    return description.length >= 40 ? { description, competitorFacts } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Lecture par Claude via Kie (ou en direct avec ANTHROPIC_API_KEY) ; null si injoignable. */
 export async function describeCreativeReference(dataUrl: string): Promise<CreativeReferenceReading | null> {
   try {
     const raw = (await kieClaude(DESCRIBE_PROMPT, 900, [dataUrl])).trim();
@@ -55,12 +102,26 @@ export async function describeCreativeReference(dataUrl: string): Promise<Creati
   }
 }
 
-/** Mots trop génériques pour compter comme une fuite (« product », « ad »…). */
+/** Mots trop génériques pour compter comme une fuite (« product », « ad »…), et absences (« no price visible »). */
 const GENERIC_FACT = /^(product|ad|ads|creative|image|photo|the|a|an|new|best|now|today|free|premium|quality)$/i;
+const ABSENCE_FACT = /^(no|none|not|without)\b/i;
+
+/**
+ * Les faits concurrents qui comptent vraiment : ni génériques, ni absences,
+ * ni ce que notre propre produit dit aussi (« Beginner » sur les deux packs
+ * n'est pas une fuite). `ownText` : la fiche du produit actif à plat.
+ */
+export function relevantCompetitorFacts(competitorFacts: string[], ownText = ""): string[] {
+  const own = ownText.toLowerCase();
+  return competitorFacts
+    .map((fact) => fact.trim())
+    .filter((fact) => fact.length >= 3 && !GENERIC_FACT.test(fact) && !ABSENCE_FACT.test(fact) && fact.split(/\s+/).length <= 8)
+    .filter((fact) => !own || !own.includes(fact.toLowerCase()));
+}
 
 /** Les prompts qui reprennent un fait du concurrent : index de créa → faits retrouvés. */
-export function findCompetitorLeaks(prompts: string[], competitorFacts: string[]): Array<{ index: number; facts: string[] }> {
-  const facts = competitorFacts.map((fact) => fact.trim()).filter((fact) => fact.length >= 3 && !GENERIC_FACT.test(fact));
+export function findCompetitorLeaks(prompts: string[], competitorFacts: string[], ownText = ""): Array<{ index: number; facts: string[] }> {
+  const facts = relevantCompetitorFacts(competitorFacts, ownText);
   return prompts
     .map((prompt, position) => {
       const lower = prompt.toLowerCase();
@@ -74,7 +135,8 @@ function creativeReferenceBlock(input: PlanInput): string {
   const seen = input.creativeReferenceDescription
     ? `What it looks like: ${input.creativeReferenceDescription}`
     : "It could not be read here; treat the brief's description of it as the guide.";
-  const facts = input.competitorFacts?.length ? `\nCompetitor-specific elements seen on it, FORBIDDEN in every prompt: ${input.competitorFacts.map((fact) => `« ${fact} »`).join(", ")}.` : "";
+  const forbidden = relevantCompetitorFacts(input.competitorFacts ?? [], ownProductText(input.product));
+  const facts = forbidden.length ? `\nCompetitor-specific elements seen on it, FORBIDDEN in every prompt: ${forbidden.map((fact) => `« ${fact} »`).join(", ")}.` : "";
   const product = input.product ? "the ACTIVE PRODUCT above" : "the subject of the brief";
   return `
 CREATIVE INSPIRATION: the operator attached an ad creative (often a competitor's) as inspiration. ${seen}${facts}
@@ -129,9 +191,13 @@ Return ONLY this JSON:
 }
 
 /** Un plan validé qui reprend un fait du concurrent est rejeté : le planificateur repasse une fois avec la liste des fuites, puis c'est une erreur. */
-function checkLeaks(plan: CreativePlan, competitorFacts: string[] | undefined) {
+function ownProductText(product: PlanProduct | null): string {
+  return product ? JSON.stringify([product.name, product.store, product.url, product.analysis]) : "";
+}
+
+function checkLeaks(plan: CreativePlan, competitorFacts: string[] | undefined, product: PlanProduct | null) {
   if (!competitorFacts?.length) return plan;
-  const leaks = findCompetitorLeaks(plan.creatives.map((creative) => creative.prompt), competitorFacts);
+  const leaks = findCompetitorLeaks(plan.creatives.map((creative) => creative.prompt), competitorFacts, ownProductText(product));
   if (leaks.length) throw new CompetitorLeakError(leaks);
   return plan;
 }
@@ -148,7 +214,7 @@ async function planOnce(input: PlanInput, count: number, extraRule: string): Pro
   if (!hermesReason) {
     try {
       const raw = await askHermesText(prompt, SYSTEM);
-      return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts), engine: "hermes" };
+      return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts, input.product), engine: "hermes" };
     } catch (error) {
       if (error instanceof CompetitorLeakError) throw error;
       hermesReason = error instanceof Error ? error.message : "Hermes indisponible";
@@ -156,7 +222,7 @@ async function planOnce(input: PlanInput, count: number, extraRule: string): Pro
   }
   try {
     const raw = await kieClaude(prompt, 4000);
-    return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts), engine: "claude" };
+    return { ...checkLeaks(validatePlan(raw, count, input.ratio), input.competitorFacts, input.product), engine: "claude" };
   } catch (error) {
     if (error instanceof CompetitorLeakError) throw error;
     throw new Error(`Planification impossible — Hermes : ${hermesReason} ; Kie : ${error instanceof Error ? error.message : "?"}`);

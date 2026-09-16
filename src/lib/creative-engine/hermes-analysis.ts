@@ -22,7 +22,32 @@ export function askHermesForAnalysis(prompt: string): Promise<string> {
 }
 
 /** Un tour texte, sans streaming, avec une consigne système : rend le texte brut de Hermes. */
-export async function askHermesText(prompt: string, system: string): Promise<string> {
+export function askHermesText(prompt: string, system: string): Promise<string> {
+  return askHermes(prompt, system, []);
+}
+
+/**
+ * Un tour avec des images jointes au message, au format OpenAI que l'API
+ * Server de Hermes accepte. Mesuré : Hermes lit une image donnée par URL
+ * https (il la charge lui-même et la décrit), mais pas une data URL (« this
+ * model does not support image input ») — joindre des URLs hébergées. Si le
+ * modèle ne voit vraiment pas, il le dit en prose : à l'appelant de le détecter.
+ */
+export function askHermesVision(prompt: string, system: string, images: string[]): Promise<string> {
+  return askHermes(prompt, system, images);
+}
+
+/** Vrai quand la réponse dit que le modèle ne voit pas l'image (Hermes sur un modèle texte seul). */
+export function hermesCannotSee(text: string): boolean {
+  const sample = text.slice(0, 1200);
+  return (
+    /(can(?:'|\u2019|no)?t|cannot|unable to|not able to|was(?:n'?t| not) able to|don'?t have (?:the )?(?:ability|capability)|no (?:ability|way) to|doesn'?t support|does not support|not support(?:ed)?|text-only|text only|only (?:process|handle|read|understand) text)[^.\n]{0,80}(image|picture|photo|visual|vision|see|view)/i.test(sample) ||
+    /(image|picture|photo|visual)s?[^.\n]{0,60}(not supported|unsupported|can(?:'|\u2019|no)?t be (?:seen|viewed|processed|analy[sz]ed))/i.test(sample) ||
+    /no image (?:was )?(?:attached|received|provided)/i.test(sample)
+  );
+}
+
+async function askHermes(prompt: string, system: string, images: string[]): Promise<string> {
   const config = hermesChatConfig();
   if (!config) throw new Error("Hermes non configuré (HERMES_API_URL / HERMES_API_SERVER_KEY)");
   const controller = new AbortController();
@@ -41,7 +66,7 @@ export async function askHermesText(prompt: string, system: string): Promise<str
         stream: false,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: prompt },
+          { role: "user", content: images.length ? [...images.map((url) => ({ type: "image_url" as const, image_url: { url, detail: "high" as const } })), { type: "text" as const, text: prompt }] : prompt },
         ],
       }),
       signal: controller.signal,
