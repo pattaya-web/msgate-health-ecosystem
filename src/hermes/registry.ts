@@ -1,4 +1,5 @@
 import { businessOverviewTool } from "@/hermes/tools/business-overview";
+import { competitorCreativesTool } from "@/hermes/tools/competitor-creatives";
 import type { ReadonlyTool } from "@/hermes/types";
 
 /**
@@ -6,7 +7,7 @@ import type { ReadonlyTool } from "@/hermes/types";
  * src/hermes/tools/ et l'inscrire ici ; rien d'autre à brancher.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const TOOLS: ReadonlyTool<any, unknown>[] = [businessOverviewTool];
+export const TOOLS: ReadonlyTool<any, unknown>[] = [businessOverviewTool, competitorCreativesTool];
 
 export function getTool(name: string) {
   return TOOLS.find((tool) => tool.name === name) ?? null;

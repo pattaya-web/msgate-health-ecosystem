@@ -20,6 +20,8 @@ import JSZip from "jszip";
 import { CreativeBatch } from "@/components/studio/creative-batch";
 import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult } from "@/components/studio/brief-planner";
 import { ActiveProductCard, ProductGallery, useProductContext } from "@/components/studio/product-context";
+import { CompetitorResearchPanel } from "@/components/studio/competitor-research";
+import type { CompetitorInspiration } from "@/lib/brandsearch/types";
 import { BatchPreview, launchFromPrompts, launchedState, type Draft } from "@/components/studio/batch-preview";
 import { GenerationStatus, type GenerationState } from "@/components/ask-hermes/generate-dialog";
 import { composeWorkspacePrompt } from "@/lib/creative-engine/workspace-prompt";
@@ -171,6 +173,8 @@ export function StaticStudio() {
   const [generation, setGeneration] = useState<GenerationState | null>(null);
   /* Creative inspiration : pub concurrente ou créa de style, décrite pour le planificateur ; à défaut, la 1re référence chargée joue ce rôle. */
   const [inspiration, setInspiration] = useState<string | null>(null);
+  /* Pubs concurrentes choisies dans la galerie Brand Search et regardées par Hermes : motifs et ADN pour l'Auto-brief, jamais leurs faits. */
+  const [competitorInspiration, setCompetitorInspiration] = useState<CompetitorInspiration | null>(null);
   const ctx = useProductContext({
     storageKey: "msgate.free-prompt.product",
     onSwitch: () => {
@@ -190,8 +194,8 @@ export function StaticStudio() {
     const facts = ctx.facts;
     return plan.creatives
       .filter((creative) => planSelected.has(creative.index))
-      .map((creative) => ({ index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: composeWorkspacePrompt({ userPrompt: creative.prompt, product: facts, hasReference: Boolean(primary), hasInspiration: Boolean(inspirationImage) }) }));
-  }, [ctx.facts, plan, planSelected, primary, inspirationImage]);
+      .map((creative) => ({ index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: composeWorkspacePrompt({ userPrompt: creative.prompt, product: facts, hasReference: Boolean(primary), hasInspiration: Boolean(inspirationImage) || Boolean(competitorInspiration) }) }));
+  }, [ctx.facts, plan, planSelected, primary, inspirationImage, competitorInspiration]);
   /** Référence ouverte en grand, et index en cours de glisser pour réordonner. */
   const [refZoom, setRefZoom] = useState<RefImage | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -713,6 +717,7 @@ export function StaticStudio() {
         // L'inspiration explicite, sinon la première référence chargée, est la créa que le batch suit.
         referenceDataUrl: inspirationImage,
         ignoreReference,
+        competitorInspiration,
       });
       setPlan(fresh);
       setPlanSelected(new Set(fresh.creatives.map((creative) => creative.index)));
@@ -730,7 +735,7 @@ export function StaticStudio() {
     if (!plan) return;
     setRewriting(index);
     try {
-      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: activeProduct ? Boolean(primary) : refs.length > 0, productId: activeProduct?.id ?? null, product: !activeProduct && product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: inspirationImage })).creatives[0];
+      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: activeProduct ? Boolean(primary) : refs.length > 0, productId: activeProduct?.id ?? null, product: !activeProduct && product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: inspirationImage, competitorInspiration })).creatives[0];
       if (!fresh) throw new Error("Aucune créa renvoyée");
       setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
     } catch (error) {
@@ -1273,6 +1278,23 @@ export function StaticStudio() {
           </p>
         </div>
 
+        {mode === "prompt" && promptMode === "auto" ? (
+          <CompetitorResearchPanel
+            productId={activeProduct?.id ?? null}
+            productName={activeProduct?.name ?? null}
+            active={competitorInspiration ? { domain: competitorInspiration.domain, ads: competitorInspiration.creatives.length } : null}
+            onUse={(next) => {
+              setCompetitorInspiration(next);
+              setPlan(null);
+            }}
+          />
+        ) : null}
+        {mode === "prompt" && promptMode === "auto" && competitorInspiration ? (
+          <div className="flex items-center gap-2 rounded-xl bg-sky-50 px-3 py-1.5 text-[11.5px] text-sky-900 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800" data-competitor-inspiration>
+            <span>Inspiration Brand Search : <span className="font-semibold">{competitorInspiration.domain}</span> · {competitorInspiration.creatives.length} pub{competitorInspiration.creatives.length > 1 ? "s" : ""} · {competitorInspiration.patterns.length} motif{competitorInspiration.patterns.length > 1 ? "s" : ""}{activeProduct ? ` → adaptées à ${activeProduct.name}` : ""}</span>
+            <button type="button" onClick={() => setCompetitorInspiration(null)} className="ml-auto text-sky-700 hover:text-sky-900 dark:text-sky-300" aria-label="Retirer l'inspiration concurrente" data-competitor-inspiration-clear>×</button>
+          </div>
+        ) : null}
         {mode === "prompt" && promptMode === "auto" && visionWarning ? <VisionWarning message={visionWarning} busy={planning} onContinue={() => void planFromBrief(true)} onDismiss={() => setVisionWarning(null)} /> : null}
 
         {mode === "prompt" && promptMode === "auto" && plan ? (

@@ -22,11 +22,33 @@ import {
 import { extractProductImages } from "@/lib/creative-engine/product-images";
 import { planWorkspaceBatch, VisionUnavailableError } from "@/lib/creative-engine/workspace-writer";
 import { uploadBase64 } from "@/lib/studio/kie";
+import type { CompetitorInspiration } from "@/lib/brandsearch/types";
 import type { ProductReferenceType } from "@/lib/creative-engine/types";
 import type { CreativeEmphasis, CreativeStatus, FamilyMixSetting, ReferenceStrength } from "@/lib/creative-engine/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+/** Ce qui entre du navigateur est borné : douze pubs, huit motifs, chaînes courtes. */
+function sanitizeCompetitorInspiration(raw: CompetitorInspiration | null | undefined): CompetitorInspiration | null {
+  if (!raw || typeof raw !== "object" || typeof raw.domain !== "string" || !Array.isArray(raw.creatives)) return null;
+  const str = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
+  const list = (value: unknown, max: number) => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim().slice(0, 120)).filter(Boolean).slice(0, max) : []);
+  const creatives = raw.creatives.slice(0, 12).map((creative) => ({
+    id: str(creative?.id, 80),
+    archetype: str(creative?.archetype, 120),
+    angle: str(creative?.angle, 200),
+    hookMechanism: str(creative?.hookMechanism, 300),
+    layout: str(creative?.layout, 400),
+    elements: list(creative?.elements, 16),
+    proof: str(creative?.proof, 300),
+    competitorFacts: list(creative?.competitorFacts, 20),
+    headline: typeof creative?.headline === "string" ? creative.headline.trim().slice(0, 200) : null,
+  })).filter((creative) => creative.id);
+  if (!creatives.length) return null;
+  const patterns = (Array.isArray(raw.patterns) ? raw.patterns : []).slice(0, 8).map((pattern) => ({ name: str(pattern?.name, 120), description: str(pattern?.description, 600), mechanism: str(pattern?.mechanism, 400), adIds: list(pattern?.adIds, 30) })).filter((pattern) => pattern.name);
+  return { domain: str(raw.domain, 255).toLowerCase(), patterns, creatives };
+}
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -74,6 +96,8 @@ type Body = {
   referenceDataUrl?: string | null;
   /** Vrai pour planifier depuis le texte seul quand Hermes ne peut pas voir l'image (choix de l'opérateur). */
   ignoreReference?: boolean;
+  /** Pubs concurrentes sélectionnées et analysées (galerie Brand Search du prompt libre). */
+  competitorInspiration?: CompetitorInspiration | null;
   url?: string;
   store?: string;
   productId?: string;
@@ -169,6 +193,7 @@ export async function POST(request: Request) {
             avoid: (body.avoid ?? []).map(String).slice(0, 30),
             referenceImageUrl,
             referenceAttached: Boolean(referenceDataUrl),
+            competitorInspiration: sanitizeCompetitorInspiration(body.competitorInspiration),
           });
           return NextResponse.json({ plan });
         } catch (error) {

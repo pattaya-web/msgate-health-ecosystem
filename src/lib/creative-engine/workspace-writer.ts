@@ -1,5 +1,6 @@
 import { askHermesText, askHermesVision, hermesAnalysisAvailable, hermesCannotSee } from "@/lib/creative-engine/hermes-analysis";
 import { kieClaude } from "@/lib/studio/kie";
+import type { CompetitorInspiration } from "@/lib/brandsearch/types";
 import type { ProductContext } from "./types";
 import { MAX_PLANNED_CREATIVES, parseLenientJson, PlanValidationError, validatePlan, type CreativePlan } from "./workspace-plan";
 
@@ -29,6 +30,8 @@ export type PlanInput = {
   referenceImageUrl?: string | null;
   /** Une créa était jointe (même si l'opérateur a choisi de planifier sans la faire lire). */
   referenceAttached?: boolean;
+  /** Pubs concurrentes choisies par l'opérateur dans la galerie Brand Search, déjà regardées par Hermes : motifs et ADN, jamais leurs faits. */
+  competitorInspiration?: CompetitorInspiration | null;
 };
 
 /** Ce qu'Hermes a vu sur l'inspiration, tel qu'il le rend dans le JSON du plan. */
@@ -36,6 +39,7 @@ export type ReferenceReading = { seen: boolean; summary: string; elements: strin
 
 export type PlanOutcome = CreativePlan & {
   engine: "hermes" | "claude";
+  competitorInspiration: { domain: string; ads: number; patterns: number } | null;
   referenceAttached: boolean;
   referenceSeen: boolean;
   referenceSummary: string | null;
@@ -102,6 +106,30 @@ CREATIVE INSPIRATION: the operator attached an inspiration image, but it is not 
   return "";
 }
 
+function competitorInspirationBlock(input: PlanInput): string {
+  const inspiration = input.competitorInspiration;
+  if (!inspiration || !inspiration.creatives.length) return "";
+  const forbidden = relevantCompetitorFacts(inspiration.creatives.flatMap((creative) => creative.competitorFacts), ownProductText(input.product));
+  const patterns = inspiration.patterns.length
+    ? inspiration.patterns.map((pattern, index) => `  ${String.fromCharCode(65 + index)}. ${pattern.name} — ${pattern.description}${pattern.mechanism ? ` Mechanism: ${pattern.mechanism}` : ""} (${pattern.adIds.length} ad${pattern.adIds.length > 1 ? "s" : ""})`).join("\n")
+    : "  (no cluster: use the per-ad DNA below)";
+  const ads = inspiration.creatives
+    .map((creative) => `  - ad ${creative.id}: ${creative.archetype || "?"} — angle: ${creative.angle}; hook mechanism: ${creative.hookMechanism}; layout: ${creative.layout}; elements: ${creative.elements.join(", ") || "—"}; proof: ${creative.proof || "—"}${creative.headline ? `; headline as written: ${JSON.stringify(creative.headline)}` : ""}`)
+    .join("\n");
+  const target = input.product ? "the ACTIVE PRODUCT above" : "the subject of the brief";
+  const sentence = input.product ? "Follow the selected competitor patterns' composition, hierarchy and style, with the active product only." : "Follow the selected competitor patterns' composition, hierarchy and style.";
+  return `
+COMPETITOR INSPIRATION (Brand Search · ${inspiration.domain} · ${inspiration.creatives.length} static ad${inspiration.creatives.length > 1 ? "s" : ""} selected by the operator and already analysed visually by you):
+Recurring creative patterns:
+${patterns}
+Per-ad creative DNA:
+${ads}
+SOURCE OF TRUTH, in this order: 1) the active product sheet above, 2) its attached product reference photo, 3) these competitor ads — creative form only.
+CREATIVE TRANSFER, not product swap: rebuild the patterns and mechanisms above for ${target}. Keep angle, hook mechanism, layout, composition, visual hierarchy, type of proof, direct-response structure, annotation and photography style. Replace EVERY product-specific element with the active product's real facts; never reuse the competitor's product, brand, logo, packaging, claims, guarantees, country of origin, materials, certifications, statistics, studies, exact claims or factual copy. If the active product has no equivalent for an element, REMOVE it instead of inventing one.${forbidden.length ? `\nCompetitor-specific wording seen on those ads, FORBIDDEN in every prompt: ${forbidden.map((fact) => `« ${fact} »`).join(", ")}.` : ""}
+Distribute the requested creatives across the patterns unless the brief says otherwise, and name the pattern in "angle".
+Start every "prompt" with this exact sentence: "${sentence}"`;
+}
+
 const SYSTEM =
   "You are the creative planner of the MSGate CRM Creative Engine. You turn an operator's brief into distinct static-ad concepts, each with a generation-ready image prompt. When an image is attached, look at it and analyse it yourself. Answer with the requested JSON object ONLY: no prose, no markdown fences. Read-only task: do not browse beyond the attached image, do not call tools that write or generate anything.";
 
@@ -125,7 +153,7 @@ export function planPrompt(input: PlanInput): string {
       ? "NO PRODUCT SHEET: the brief describes the subject. Reference image(s) are attached at generation time as the visual source of truth: every prompt shows exactly what they show, never a redesigned or imagined version."
       : "NO PRODUCT SHEET: the brief is the only source. Describe the subject consistently across creatives.";
   const avoid = input.avoid?.length ? `\nAlready used concepts, do NOT repeat them: ${input.avoid.map((entry) => `« ${entry} »`).join(", ")}.` : "";
-  const reference = creativeReferenceBlock(input);
+  const reference = creativeReferenceBlock(input) + competitorInspirationBlock(input);
   const referenceJson = input.referenceImageUrl || input.referenceAttached ? ', "reference": {"seen": true, "summary": "", "elements": [""], "competitorFacts": [""]}' : "";
   return `Plan ${input.count} static ad creative${input.count > 1 ? "s" : ""} from the operator's brief. Each creative is ONE future image (never a collage or several ads in one image), format ${input.ratio}.
 
@@ -178,15 +206,17 @@ function checkLeaks(plan: CreativePlan, competitorFacts: string[], product: Plan
 }
 
 function outcome(plan: CreativePlan, engine: "hermes" | "claude", input: PlanInput, reading: ReferenceReading | null): PlanOutcome {
-  checkLeaks(plan, reading?.competitorFacts ?? [], input.product);
+  const competitorFacts = input.competitorInspiration?.creatives.flatMap((creative) => creative.competitorFacts) ?? [];
+  checkLeaks(plan, [...(reading?.competitorFacts ?? []), ...competitorFacts], input.product);
   return {
     ...plan,
     engine,
+    competitorInspiration: input.competitorInspiration?.creatives.length ? { domain: input.competitorInspiration.domain, ads: input.competitorInspiration.creatives.length, patterns: input.competitorInspiration.patterns.length } : null,
     referenceAttached: Boolean(input.referenceAttached || input.referenceImageUrl),
     referenceSeen: Boolean(input.referenceImageUrl) && reading?.seen === true,
     referenceSummary: reading?.seen ? reading.summary || null : null,
     referenceElements: reading?.seen ? reading.elements : [],
-    competitorFacts: reading?.seen ? relevantCompetitorFacts(reading.competitorFacts, ownProductText(input.product)) : [],
+    competitorFacts: relevantCompetitorFacts([...(reading?.seen ? reading.competitorFacts : []), ...competitorFacts], ownProductText(input.product)),
   };
 }
 

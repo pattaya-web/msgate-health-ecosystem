@@ -58,3 +58,4 @@ frontière lecture seule. Configuration côté agent :
 | Outil | Rôle |
 |---|---|
 | `get_business_overview` | Revenus par catégorie, dépenses pub, ROAS, remboursements, chargebacks, abonnements, taux d'approbation, alertes Disputifier, boutiques et produits, sur une fenêtre de dates |
+| `search_competitor_creatives` | Les pubs statiques Meta d'un concurrent chez Brand Search (domaine, statut, tri, dépense min, dates, plateformes, pays UE, langues, recherche), avec les seuls signaux fournis (dépense et portée UE estimées, rang, jours actifs, doublons), le texte, le CTA et l'URL d'image (3 jours). Un crédit Brand Search par pub |

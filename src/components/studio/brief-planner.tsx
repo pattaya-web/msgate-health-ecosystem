@@ -4,6 +4,7 @@ import { useState, type DragEvent } from "react";
 import { ImagePlus, Loader2, RefreshCw, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { fileToDataUrl } from "@/components/mass-test/engine-client";
+import type { CompetitorInspiration } from "@/lib/brandsearch/types";
 import type { CreativePlan, PlannedCreative } from "@/lib/creative-engine/workspace-plan";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,8 @@ export type PlanResult = CreativePlan & {
   referenceElements?: string[];
   /** Faits propres au concurrent lus sur l'image et écartés (avec un produit actif). */
   competitorFacts?: string[];
+  /** Pubs concurrentes Brand Search utilisées comme inspiration. */
+  competitorInspiration?: { domain: string; ads: number; patterns: number } | null;
 };
 
 /** Hermes tourne sur un modèle qui ne voit pas : l'opérateur choisit de continuer en texte seul ou non. */
@@ -43,6 +46,8 @@ export type PlanRequest = {
   referenceDataUrl?: string | null;
   /** Planifier depuis le texte seul, l'image restant jointe à la génération. */
   ignoreReference?: boolean;
+  /** Pubs concurrentes sélectionnées et analysées dans la galerie Brand Search. */
+  competitorInspiration?: CompetitorInspiration | null;
 };
 
 export async function requestPlan(input: PlanRequest): Promise<PlanResult> {
@@ -114,6 +119,11 @@ export function PlanCards({
         {plan.referenceAttached ? (
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceSeen ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceSeen ? plan.referenceSummary ?? "" : "Planifié depuis le texte seul : le modèle Hermes actuel n'a pas regardé l'image."} data-plan-reference={plan.referenceSeen ? "seen" : "unseen"}>
             {plan.referenceSeen ? (withProduct ? "Produit actif + référence lue par Hermes" : "Référence lue par Hermes") : "Référence non lisible par le modèle Hermes actuel"}
+          </span>
+        ) : null}
+        {plan.competitorInspiration ? (
+          <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-800" data-plan-competitor={plan.competitorInspiration.ads}>
+            Inspiration Brand Search · {plan.competitorInspiration.domain} · {plan.competitorInspiration.ads} pub{plan.competitorInspiration.ads > 1 ? "s" : ""} · {plan.competitorInspiration.patterns} motif{plan.competitorInspiration.patterns > 1 ? "s" : ""}
           </span>
         ) : null}
         {plan.competitorFacts?.length ? (

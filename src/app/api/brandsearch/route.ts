@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { bestMedia, brandByUrl, brandMetaAds, discoverBrands, downloadAdMedia, isBrandsearchReady, type BsMetaAd } from "@/lib/brandsearch/client";
+import { analyzeCompetitorCreatives, MAX_ANALYZED_CREATIVES, VisionUnavailableError } from "@/lib/brandsearch/analysis";
+import { researchCompetitorCreatives } from "@/lib/brandsearch/research";
+import type { CompetitorCreative } from "@/lib/brandsearch/types";
+import { listProducts } from "@/lib/creative-engine/store";
 import { extensionFor, saveFile } from "@/lib/drive/store";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /**
  * Passerelle Brandsearch pour SpyShop. La clé ne quitte jamais le serveur ;
@@ -33,6 +37,27 @@ export async function GET(request: Request) {
         if (!url) return NextResponse.json({ error: "URL manquante" }, { status: 400 });
         return NextResponse.json({ brand: await brandByUrl(url) });
       }
+      case "static-ads": {
+        // Les créas statiques d'un concurrent, pour la galerie du prompt libre et l'outil Hermes.
+        const domain = params.get("domain");
+        if (!domain) return NextResponse.json({ error: "Domaine manquant" }, { status: 400 });
+        const sort = params.get("sort") ?? "spend";
+        const status = params.get("status") ?? "active";
+        return NextResponse.json(
+          await researchCompetitorCreatives({
+            domain,
+            limit: Math.min(30, Math.max(1, Number(params.get("limit") || 20))),
+            page: Math.max(1, Number(params.get("page") || 1)),
+            status: status === "inactive" || status === "all" ? status : "active",
+            sort: ["spend", "reach", "rank", "active", "recent", "scaler"].includes(sort) ? (sort as "spend") : "spend",
+            minSpendEur: Number(params.get("min_spend") || 0) || undefined,
+            startedFrom: params.get("from") || undefined,
+            startedTo: params.get("to") || undefined,
+            languages: params.get("languages")?.split(",").filter(Boolean),
+            q: params.get("q") || undefined,
+          })
+        );
+      }
       case "ads": {
         const brand = params.get("brand");
         if (!brand) return NextResponse.json({ error: "Marque manquante" }, { status: 400 });
@@ -54,10 +79,14 @@ export async function GET(request: Request) {
 }
 
 type Body = {
-  action?: "save-ad";
+  action?: "save-ad" | "analyze-creatives";
   /** Dossier Drive de destination, ex. « Creative Spy/Marque ». */
   folder?: string;
   ad?: BsMetaAd;
+  /** analyze-creatives : le domaine, les pubs sélectionnées (telles que renvoyées par static-ads) et le produit actif s'il y en a un. */
+  domain?: string;
+  creatives?: CompetitorCreative[];
+  productId?: string | null;
 };
 
 /**
@@ -71,6 +100,19 @@ export async function POST(request: Request) {
     body = (await request.json()) as Body;
   } catch {
     return NextResponse.json({ error: "Requête illisible" }, { status: 400 });
+  }
+  if (body.action === "analyze-creatives") {
+    // Hermes regarde les pubs choisies par l'opérateur (URLs Brand Search) : ADN de chacune, motifs récurrents, recommandations. Rien n'est écrit ni généré.
+    const domain = typeof body.domain === "string" ? body.domain.trim().toLowerCase() : "";
+    const creatives = Array.isArray(body.creatives) ? body.creatives.filter((creative) => creative && typeof creative.id === "string" && typeof creative.imageUrl === "string" && /^https:\/\/[a-z0-9.-]*brandsearch\.co\//i.test(creative.imageOriginalUrl ?? creative.imageUrl ?? "")).slice(0, MAX_ANALYZED_CREATIVES) : [];
+    if (!domain || !creatives.length) return NextResponse.json({ error: "Domaine ou pubs manquants" }, { status: 400 });
+    const product = body.productId ? (await listProducts()).find((item) => item.id === body.productId) ?? null : null;
+    try {
+      return NextResponse.json({ analysis: await analyzeCompetitorCreatives({ domain, creatives, productName: product?.name ?? null }) });
+    } catch (error) {
+      if (error instanceof VisionUnavailableError) return NextResponse.json({ error: error.message, visionUnavailable: true }, { status: 422 });
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Analyse impossible" }, { status: 502 });
+    }
   }
   if (body.action !== "save-ad" || !body.ad || typeof body.folder !== "string") {
     return NextResponse.json({ error: "Pub ou dossier manquant" }, { status: 400 });

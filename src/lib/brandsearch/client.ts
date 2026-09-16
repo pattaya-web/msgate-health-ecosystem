@@ -21,7 +21,7 @@ export function isBrandsearchReady() {
   return Boolean(process.env.BRANDSEARCH_API_KEY?.trim());
 }
 
-async function get<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
+async function getWithMeta<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<{ body: T; creditsCharged: number | null }> {
   const url = new URL(`${BASE}${path}`);
   for (const [name, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") url.searchParams.set(name, String(value));
@@ -36,7 +36,12 @@ async function get<T>(path: string, params: Record<string, string | number | boo
     const message = body.message || body.detail || body.error || `Brandsearch HTTP ${res.status}`;
     throw new Error(String(message));
   }
-  return body;
+  const credits = Number(res.headers.get("x-credits-used"));
+  return { body, creditsCharged: Number.isFinite(credits) ? credits : null };
+}
+
+async function get<T>(path: string, params: Record<string, string | number | boolean | undefined> = {}): Promise<T> {
+  return (await getWithMeta<T>(path, params)).body;
 }
 
 export type BsBrand = {
@@ -163,4 +168,72 @@ export function bestMedia(ad: BsMetaAd): { url: string; ext: string } | null {
   if (ad.image_original_url) return { url: ad.image_original_url, ext: "jpg" };
   if (ad.image_url) return { url: ad.image_url, ext: "jpg" };
   return null;
+}
+
+
+/* ------------------------------------------------------------------------- */
+/* Recherche concurrente : les pubs statiques d'un domaine, filtres réels de   */
+/* GET /v1/meta-ads/search (brand_ids, is_image, status, spend_min, dates,     */
+/* platforms, eu_countries, languages, q, sort_by).                            */
+/* ------------------------------------------------------------------------- */
+
+export type BsStaticAd = BsMetaAd & {
+  eu_daily_spend?: number;
+  reach_rank?: number;
+  is_duplicate?: boolean;
+  duplicate_count?: number;
+  copy_word_count?: number;
+  cards_count?: number;
+  categories?: string[];
+  target_gender?: string;
+  target_ages?: string[];
+  created_at?: string;
+};
+
+const STATIC_AD_FIELDS =
+  "id,ad_id,brand_id,status,start_date,end_date,total_active_time,creative,cards_count,is_video,is_image,is_duplicate,duplicate_count,platforms,eu_total_spend,eu_daily_spend,eu_total_reach,reach_rank,funnel_type,language,copy_word_count,image_url,image_original_url,thumbnail_url,dashboard_url";
+
+const SORT_FIELD: Record<string, string> = { spend: "eu_total_spend", reach: "eu_total_reach", rank: "reach_rank", active: "total_active_time", recent: "start_date", scaler: "scaler" };
+
+export type StaticAdSearchInput = {
+  domain: string;
+  limit?: number;
+  page?: number;
+  status?: "active" | "inactive" | "all";
+  sort?: "spend" | "reach" | "rank" | "active" | "recent" | "scaler";
+  minSpendEur?: number;
+  startedFrom?: string;
+  startedTo?: string;
+  platforms?: string[];
+  euCountries?: string[];
+  languages?: string[];
+  q?: string;
+};
+
+/** Les pubs image d'une marque, un crédit par ligne. Le rang de portée se trie en croissant (1 = meilleur). */
+export async function searchStaticAds(input: StaticAdSearchInput) {
+  const sort = SORT_FIELD[input.sort ?? "spend"] ?? "eu_total_spend";
+  const { body, creditsCharged } = await getWithMeta<{ data: BsStaticAd[]; pagination?: { page: number; page_size: number; total: number; total_pages: number } }>("/v1/meta-ads/search", {
+    brand_ids: input.domain,
+    is_image: true,
+    status: input.status && input.status !== "all" ? input.status : undefined,
+    spend_min: input.minSpendEur,
+    ad_started_from: input.startedFrom,
+    ad_started_to: input.startedTo,
+    platforms: input.platforms?.length ? input.platforms.join(",") : undefined,
+    eu_countries: input.euCountries?.length ? input.euCountries.join(",") : undefined,
+    languages: input.languages?.length ? input.languages.join(",") : undefined,
+    q: input.q,
+    sort_by: sort,
+    sort_order: sort === "reach_rank" ? "asc" : "desc",
+    page: Math.max(1, input.page ?? 1),
+    page_size: Math.min(100, Math.max(1, input.limit ?? 20)),
+    fields: STATIC_AD_FIELDS,
+  });
+  return { data: body.data ?? [], pagination: body.pagination, creditsCharged };
+}
+
+/** Compteurs de quota et de crédits (endpoint gratuit). */
+export async function brandsearchUsage() {
+  return get<{ daily_limit?: number; daily_used?: number; daily_remaining?: number; monthly_limit?: number; monthly_remaining?: number; credits_used_today?: number; credits_used_this_month?: number }>("/v1/usage");
 }
