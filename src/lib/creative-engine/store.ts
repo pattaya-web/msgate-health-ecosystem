@@ -314,7 +314,8 @@ function modelFor(inputs: string[]) {
 }
 
 async function launch(item: BatchItem, batch: TestBatch) {
-  const inputs = [...batch.referenceUrls, ...batch.productImageUrls].slice(0, MAX_REFS);
+  // Lots de prompts (espace produit, Ask Hermes) : la créa dit elle-même si la photo du produit doit partir ; rien n'est joint en douce.
+  const inputs = batch.source && !item.referenceUsed ? [] : [...batch.referenceUrls, ...batch.productImageUrls].slice(0, MAX_REFS);
   try {
     item.taskId = inputs.length
       ? await createKieTask(MODEL_IMAGE_TO_IMAGE, { prompt: item.prompt, input_urls: inputs, aspect_ratio: batch.ratio, resolution: batch.resolution })

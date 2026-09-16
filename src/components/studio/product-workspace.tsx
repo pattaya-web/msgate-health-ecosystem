@@ -8,7 +8,7 @@ import { GenerationStatus, type GenerationState } from "@/components/ask-hermes/
 import { fileToDataUrl, itemImageUrl, panel } from "@/components/mass-test/engine-client";
 import { PageHeader } from "@/components/shared/page-states";
 import { BatchPreview, launchFromPrompts, launchedState, type Draft } from "@/components/studio/batch-preview";
-import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult } from "@/components/studio/brief-planner";
+import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, ReferenceModeControl, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult, type ReferenceMode } from "@/components/studio/brief-planner";
 import { CreativeResults, type ResultItem } from "@/components/studio/creative-results";
 import { ActiveProductCard, ProductGallery, useProductContext } from "@/components/studio/product-context";
 import { isPromptsOnly, parseRequestedCount, parseRequestedRatio } from "@/lib/creative-engine/workspace-plan";
@@ -36,7 +36,8 @@ export function ProductWorkspace() {
   const [countOverride, setCountOverride] = useState<number | null>(null);
   const [ratio, setRatio] = useState<Ratio>("3:4");
   const [resolution, setResolution] = useState<"1K" | "2K">("1K");
-  const [useReference, setUseReference] = useState(true);
+  /* Photo du produit au modèle image : auto = Hermes décide par créa ; le produit reste le contexte commercial dans tous les cas. */
+  const [referenceMode, setReferenceMode] = useState<ReferenceMode>("auto");
   const [plan, setPlan] = useState<PlanResult | null>(null);
   /* Une créa d'inspiration (pub concurrente, style) : décrite pour le planificateur ; la référence produit reste la seule vérité visuelle. */
   const [creativeRef, setCreativeRef] = useState<string | null>(null);
@@ -55,7 +56,7 @@ export function ProductWorkspace() {
       setPreviewOpen(false);
       setGeneration(null);
     },
-    onPrimarySet: () => setUseReference(true),
+    onPrimarySet: () => setReferenceMode("auto"),
   });
   const { active, primary, facts, batches, reload } = ctx;
   const detectedCount = useMemo(() => parseRequestedCount(brief), [brief]);
@@ -110,20 +111,24 @@ export function ProductWorkspace() {
       : null
   );
 
-  const referenceMode = Boolean(useReference && primary);
+  const productRefActive = Boolean(primary) && referenceMode !== "never";
   /* L'inspiration ne part au modèle image que faute de référence produit : sinon la seule image envoyée est le vrai produit. */
-  const inspirationSent = Boolean(creativeRef) && !referenceMode;
-  const model = referenceMode || inspirationSent ? IMAGE_MODEL : TEXT_MODEL;
+  const inspirationSent = Boolean(creativeRef) && !productRefActive;
+  const model = productRefActive || inspirationSent ? IMAGE_MODEL : TEXT_MODEL;
 
   /** Les créas qui partiront : en mode exact, le texte tel quel ; en mode auto, les cartes cochées du plan. */
   const drafts = useMemo<Draft[]>(() => {
     if (!facts) return [];
-    const compose = (userPrompt: string) => composeWorkspacePrompt({ userPrompt, product: facts, hasReference: referenceMode, hasInspiration: Boolean(creativeRef) });
-    if (mode === "exact") return brief.trim() ? [{ index: 1, userPrompt: brief.trim(), label: "exact prompt", final: compose(brief) }] : [];
+    // Par créa : la photo ne part (et la consigne de fidélité n'est ajoutée) que si la créa la veut ; les faits produit servent à toutes.
+    const compose = (userPrompt: string, withReference: boolean) => composeWorkspacePrompt({ userPrompt, product: facts, hasReference: withReference, hasInspiration: Boolean(creativeRef) });
+    if (mode === "exact") return brief.trim() ? [{ index: 1, userPrompt: brief.trim(), label: "exact prompt", final: compose(brief, productRefActive), useProductReference: productRefActive }] : [];
     return (plan?.creatives ?? [])
       .filter((creative) => selected.has(creative.index))
-      .map((creative) => ({ index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: compose(creative.prompt) }));
-  }, [facts, mode, brief, plan, selected, referenceMode, creativeRef]);
+      .map((creative) => {
+        const withReference = productRefActive && (referenceMode === "always" || creative.useProductReference !== false);
+        return { index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: compose(creative.prompt, withReference), useProductReference: withReference };
+      });
+  }, [facts, mode, brief, plan, selected, productRefActive, referenceMode, creativeRef]);
 
   async function prepare(ignoreReference = false) {
     if (!active || !brief.trim()) return;
@@ -137,7 +142,7 @@ export function ProductWorkspace() {
     setPreviewOpen(false);
     setVisionWarning(null);
     try {
-      const fresh = await requestPlan({ productId: active.id, brief, count, ratio: wantedRatio ?? ratio, hasReference: referenceMode, referenceDataUrl: creativeRef, ignoreReference });
+      const fresh = await requestPlan({ productId: active.id, brief, count, ratio: wantedRatio ?? ratio, hasReference: Boolean(primary), referenceMode, referenceDataUrl: creativeRef, ignoreReference });
       setPlan(fresh);
       setSelected(new Set(fresh.creatives.map((creative) => creative.index)));
       toast.success(`${fresh.creatives.length} créa${fresh.creatives.length > 1 ? "s" : ""} planifiée${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}${fresh.referenceSeen ? " · référence lue" : ""}`);
@@ -154,7 +159,7 @@ export function ProductWorkspace() {
     if (!active || !plan) return;
     setRewriting(index);
     try {
-      const fresh = (await requestPlan({ productId: active.id, brief, count: 1, ratio, hasReference: referenceMode, avoid: avoidList(plan, index), referenceDataUrl: creativeRef })).creatives[0];
+      const fresh = (await requestPlan({ productId: active.id, brief, count: 1, ratio, hasReference: Boolean(primary), referenceMode, avoid: avoidList(plan, index), referenceDataUrl: creativeRef })).creatives[0];
       if (!fresh) throw new Error("Aucune créa renvoyée");
       setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
     } catch (error) {
@@ -174,7 +179,7 @@ export function ProductWorkspace() {
         brief: mode === "exact" ? null : brief,
         ratio,
         resolution,
-        primaryUrl: referenceMode && primary ? primary.url : null,
+        primaryUrl: productRefActive && primary ? primary.url : null,
         inspiration: inspirationSent ? creativeRef : null,
       });
       setGeneration(launchedState(batch));
@@ -285,10 +290,7 @@ export function ProductWorkspace() {
                   <option value="2K">2K</option>
                 </select>
               </label>
-              <label className={cn("flex items-center gap-1.5 text-[11px]", primary ? "text-slate-700 dark:text-slate-200" : "text-slate-400")} title={primary ? "La référence principale est envoyée au modèle image-to-image" : "Choisis d'abord une référence principale"}>
-                <input type="checkbox" checked={referenceMode} disabled={!primary} onChange={(event) => setUseReference(event.target.checked)} data-use-reference />
-                Utiliser la référence produit
-              </label>
+              <ReferenceModeControl value={referenceMode} onChange={setReferenceMode} disabled={!primary} />
               <button
                 type="button"
                 disabled={!active || !brief.trim() || planning}
@@ -303,7 +305,7 @@ export function ProductWorkspace() {
             <p className="mt-1.5 text-[11px] text-slate-400">
               {mode === "auto" ? `${count} créa${count > 1 ? "s" : ""} = ${count} image${count > 1 ? "s" : ""} distincte${count > 1 ? "s" : ""}. ` : ""}
               {promptsOnly ? "« Prompts only » lu dans le brief : rien ne sera généré sans ton clic. " : ""}
-              {primary ? (referenceMode ? `La référence principale part avec chaque prompt (image-to-image)${creativeRef ? " ; l'inspiration guide les prompts sans être envoyée au modèle" : ""}.` : creativeRef ? "Référence produit désactivée ; l'inspiration part avec chaque image, le produit ne sera pas fidèle." : "Référence désactivée : génération texte seul, le produit ne sera pas fidèle.") : creativeRef ? "L'inspiration part avec chaque image (image-to-image) ; sans référence produit, le modèle inventera l'apparence du produit." : "Sans référence principale, la génération est en texte seul : le modèle inventera l'apparence du produit."}
+              {primary ? (referenceMode === "auto" ? `Photo produit en auto : Hermes décide par créa si la vraie photo part au modèle ; le produit reste le contexte de toutes${creativeRef ? " ; l'inspiration guide les prompts sans être envoyée au modèle" : ""}.` : referenceMode === "always" ? "La photo du produit part avec chaque créa (image-to-image)." : creativeRef ? "Photo produit jamais envoyée ; l'inspiration part avec chaque image, le produit ne sera pas fidèle." : "Photo produit jamais envoyée : génération texte seul, le produit reste le contexte.") : creativeRef ? "L'inspiration part avec chaque image (image-to-image) ; sans référence produit, le modèle inventera l'apparence du produit." : "Sans référence principale, la génération est en texte seul : le modèle inventera l'apparence du produit."}
             </p>
           </section>
 
@@ -320,13 +322,15 @@ export function ProductWorkspace() {
               rewriting={rewriting}
               actionLabel={(n) => `Générer la sélection (${n})`}
               onAction={() => setPreviewOpen(true)}
+              referenceAvailable={Boolean(primary) && referenceMode === "auto"}
+              onToggleReference={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { useProductReference: value }) : current))}
             />
           ) : null}
 
           {previewOpen && active && drafts.length ? (
             <BatchPreview
               product={active}
-              primaryUrl={referenceMode && primary ? primary.url : null}
+              primaryUrl={productRefActive && primary ? primary.url : null}
               inspiration={creativeRef}
               inspirationSent={inspirationSent}
               drafts={drafts}

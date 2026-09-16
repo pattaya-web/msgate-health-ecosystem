@@ -26,7 +26,8 @@ const schema = z
   .object({
     confirm: z.literal("generate"),
     prompts: z
-      .array(z.object({ prompt: z.string().trim().min(20).max(8000), userPrompt: z.string().max(8000).optional(), angle: z.string().max(120).optional(), hook: z.string().max(300).optional(), label: z.string().max(120).optional() }))
+      .array(z.object({ prompt: z.string().trim().min(20).max(8000), userPrompt: z.string().max(8000).optional(), angle: z.string().max(120).optional(), hook: z.string().max(300).optional(), useProductReference: z.boolean().optional(),
+          label: z.string().max(120).optional() }))
       .min(1)
       .max(30),
     productId: z.string().regex(SAFE_ID).nullable().optional(),

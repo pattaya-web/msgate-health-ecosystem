@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  * le clic de confirmation.
  */
 
-export type Draft = { index: number; userPrompt: string; angle?: string; hook?: string; label?: string; final: string };
+export type Draft = { index: number; userPrompt: string; angle?: string; hook?: string; label?: string; final: string; /** La photo du produit part pour cette créa (image-to-image) ; sinon texte seul. */ useProductReference?: boolean };
 
 export function BatchPreview({
   product,
@@ -45,7 +45,8 @@ export function BatchPreview({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const imageMode = Boolean(primaryUrl) || inspirationSent;
+  const withReference = primaryUrl ? drafts.filter((draft) => draft.useProductReference !== false).length : 0;
+  const imageMode = withReference > 0 || inspirationSent;
   return (
     <section className={cn(panel, "ring-2 ring-slate-900/20 dark:ring-slate-100/20")} data-preview>
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Aperçu avant génération · aucun crédit dépensé avant confirmation</div>
@@ -77,16 +78,19 @@ export function BatchPreview({
           )}
         </dd>
         <dt className="text-slate-500">Images</dt>
-        <dd data-preview-count={drafts.length}>{drafts.length} image{drafts.length > 1 ? "s" : ""} · {ratio} · {resolution}</dd>
+        <dd data-preview-count={drafts.length}>{drafts.length} image{drafts.length > 1 ? "s" : ""} · {ratio} · {resolution}{primaryUrl ? <span className="ml-2 text-[10.5px] text-slate-500" data-preview-with-reference={withReference}>· photo produit envoyée pour {withReference}/{drafts.length}, texte seul pour {drafts.length - withReference}</span> : null}</dd>
         <dt className="text-slate-500">Model</dt>
-        <dd className="font-mono text-[11px]" data-preview-model={model}>{model}</dd>
+        <dd className="font-mono text-[11px]" data-preview-model={model}>{primaryUrl && withReference && withReference < drafts.length ? "gpt-image-2-image-to-image / gpt-image-2-text-to-image" : model}</dd>
         <dt className="text-slate-500">Reference mode</dt>
         <dd data-preview-reference-mode={imageMode ? "image" : "text"}>{imageMode ? "Image reference enabled" : "Image reference disabled (text-to-image)"}</dd>
       </dl>
       <div className="mt-2 max-h-80 space-y-2 overflow-y-auto">
         {drafts.map((draft, position) => (
           <div key={draft.index} className="rounded-lg bg-slate-50 p-2 dark:bg-slate-800" data-preview-draft={draft.index}>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">{exact ? "User prompt" : `Creative ${String(position + 1).padStart(2, "0")}${draft.angle ? ` · ${draft.angle}` : ""}`}</div>
+            <div className="flex items-center gap-2 text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">
+              <span>{exact ? "User prompt" : `Creative ${String(position + 1).padStart(2, "0")}${draft.angle ? ` · ${draft.angle}` : ""}`}</span>
+              {primaryUrl ? <span className={cn("rounded px-1.5 py-0.5 text-[9.5px]", draft.useProductReference !== false ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800")} data-preview-draft-reference={draft.useProductReference !== false ? "on" : "off"}>Photo produit {draft.useProductReference !== false ? "ON" : "OFF"}</span> : null}
+            </div>
             <div className="mt-0.5 whitespace-pre-wrap text-[11.5px] text-slate-800 dark:text-slate-200" data-preview-user-prompt>{draft.userPrompt}</div>
             <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Final generation prompt</div>
             <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-white p-2 font-mono text-[10.5px] leading-relaxed text-slate-700 dark:bg-slate-900 dark:text-slate-300" data-preview-final-prompt>{draft.final}</pre>
@@ -132,14 +136,15 @@ export async function launchFromPrompts(input: {
     body: JSON.stringify({
       confirm: "generate",
       source: "product-workspace",
-      prompts: input.drafts.map((draft) => ({ prompt: draft.final, userPrompt: input.brief?.trim() || draft.userPrompt, angle: draft.angle, hook: draft.hook, label: draft.label })),
+      prompts: input.drafts.map((draft) => ({ prompt: draft.final, userPrompt: input.brief?.trim() || draft.userPrompt, angle: draft.angle, hook: draft.hook, label: draft.label, useProductReference: input.primaryUrl ? draft.useProductReference !== false : false })),
       productId: input.product.id,
       productName: input.product.name,
       productUrl: input.product.url,
       store: input.product.store,
       ratio: input.ratio,
       resolution: input.resolution,
-      referenceUrls: input.primaryUrl ? [input.primaryUrl] : [],
+      // La photo n'est jointe au lot que si au moins une créa la veut ; chaque créa dit ensuite si elle part avec ou en texte seul.
+      referenceUrls: input.primaryUrl && input.drafts.some((draft) => draft.useProductReference !== false) ? [input.primaryUrl] : [],
       referenceDataUrls: !input.primaryUrl && input.inspiration ? [input.inspiration] : [],
       primaryReferenceUrl: input.primaryUrl,
       useProductImages: false,

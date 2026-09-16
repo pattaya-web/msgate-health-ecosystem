@@ -48,7 +48,33 @@ export type PlanRequest = {
   ignoreReference?: boolean;
   /** Pubs concurrentes sélectionnées et analysées dans la galerie Brand Search. */
   competitorInspiration?: CompetitorInspiration | null;
+  /** Photo du produit au modèle image : auto (Hermes décide par créa), always, never. */
+  referenceMode?: ReferenceMode;
 };
+
+export type ReferenceMode = "auto" | "always" | "never";
+
+/** Le réglage du lot : la photo du produit part-elle au modèle image ? Le produit reste le contexte dans tous les cas. */
+export function ReferenceModeControl({ value, onChange, disabled }: { value: ReferenceMode; onChange: (mode: ReferenceMode) => void; disabled?: boolean }) {
+  return (
+    <div className={cn("flex flex-wrap items-center gap-1.5 text-[11px]", disabled ? "opacity-50" : "")} title={disabled ? "Choisis d'abord une référence principale sur le produit" : "La photo du produit ne part au modèle image que pour les créas qui montrent vraiment le produit ; ses faits servent à toutes"}>
+      <span className="font-semibold uppercase tracking-wide text-slate-500">Photo produit</span>
+      <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="radiogroup" aria-label="Photo du produit au modèle image">
+        {(
+          [
+            ["auto", "Auto · recommandé"],
+            ["always", "Toujours"],
+            ["never", "Jamais"],
+          ] as const
+        ).map(([id, label]) => (
+          <button key={id} type="button" role="radio" aria-checked={value === id} disabled={disabled} onClick={() => onChange(id)} className={cn("rounded px-2 py-0.5 text-[10.5px] font-medium", value === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")} data-reference-mode={id}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export async function requestPlan(input: PlanRequest): Promise<PlanResult> {
   const res = await fetch("/api/creative-engine", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "workspace-plan", ...input }) });
@@ -94,6 +120,8 @@ export function PlanCards({
   actionLabel,
   onAction,
   busy,
+  referenceAvailable = false,
+  onToggleReference,
 }: {
   plan: PlanResult;
   /** Un produit actif accompagnait la planification (le statut le dit). */
@@ -107,8 +135,12 @@ export function PlanCards({
   actionLabel: (count: number) => string;
   onAction: () => void;
   busy?: boolean;
+  /** Une photo du produit existe : chaque carte dit si elle part au modèle, et l'opérateur peut changer. */
+  referenceAvailable?: boolean;
+  onToggleReference?: (index: number, value: boolean) => void;
 }) {
   const planned = plan.creatives;
+  const withReference = referenceAvailable ? planned.filter((creative) => creative.useProductReference !== false).length : 0;
   return (
     <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-plan>
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -116,6 +148,7 @@ export function PlanCards({
           Batch : {planned.length} créa{planned.length > 1 ? "s" : ""} = {planned.length} image{planned.length > 1 ? "s" : ""}
         </div>
         <span className="text-[10.5px] text-slate-400">planifié par {engineLabel(plan.engine)} · {plan.ratio}</span>
+        {referenceAvailable ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300" data-plan-reference-count={withReference}>Photo produit : {withReference}/{planned.length} créa{planned.length > 1 ? "s" : ""}</span> : null}
         {plan.referenceAttached ? (
           <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", plan.referenceSeen ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800")} title={plan.referenceSeen ? plan.referenceSummary ?? "" : "Planifié depuis le texte seul : le modèle Hermes actuel n'a pas regardé l'image."} data-plan-reference={plan.referenceSeen ? "seen" : "unseen"}>
             {plan.referenceSeen ? (withProduct ? "Produit actif + référence lue par Hermes" : "Référence lue par Hermes") : "Référence non lisible par le modèle Hermes actuel"}
@@ -166,6 +199,17 @@ export function PlanCards({
                 <div className="flex flex-wrap items-center gap-x-2 text-[11px]">
                   <span className="font-semibold uppercase tracking-wide text-slate-500">Creative {String(creative.index).padStart(2, "0")}</span>
                   {creative.angle ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200" data-angle>{creative.angle}</span> : null}
+                  {referenceAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => onToggleReference?.(creative.index, creative.useProductReference === false)}
+                      className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", creative.useProductReference !== false ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800" : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700")}
+                      title={creative.useProductReference !== false ? "La vraie photo du produit part au modèle pour cette créa (image-to-image). Clic : la retirer." : "Texte seul : le produit reste le contexte, sa photo ne part pas. Clic : l'envoyer."}
+                      data-card-reference={creative.useProductReference !== false ? "on" : "off"}
+                    >
+                      Photo produit : {creative.useProductReference !== false ? "ON" : "OFF"}
+                    </button>
+                  ) : null}
                   <button type="button" disabled={rewriting !== null} onClick={() => onRewrite(creative.index)} className="ml-auto inline-flex items-center gap-1 text-[10.5px] text-slate-500 hover:text-slate-800 disabled:opacity-50 dark:hover:text-slate-200" title="Demander un autre concept pour cette créa">
                     {rewriting === creative.index ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Réécrire
                   </button>

@@ -2,7 +2,7 @@ import { askHermesText, askHermesVision, hermesAnalysisAvailable, hermesCannotSe
 import { kieClaude } from "@/lib/studio/kie";
 import type { CompetitorInspiration } from "@/lib/brandsearch/types";
 import type { ProductContext } from "./types";
-import { MAX_PLANNED_CREATIVES, parseLenientJson, PlanValidationError, validatePlan, type CreativePlan } from "./workspace-plan";
+import { guessProductReference, MAX_PLANNED_CREATIVES, parseLenientJson, PlanValidationError, validatePlan, type CreativePlan } from "./workspace-plan";
 
 /**
  * Le planificateur de brief : un brief en langage naturel (« Create 5 ultra
@@ -23,7 +23,10 @@ export type PlanInput = {
   count: number;
   ratio: string;
   product: PlanProduct | null;
+  /** Une vraie photo du produit existe (référence principale) et peut partir au modèle image. */
   hasReference: boolean;
+  /** auto : le planificateur décide par créa ; always : toutes ; never : aucune (le produit reste le contexte commercial). */
+  referenceMode?: "auto" | "always" | "never";
   /** Concepts déjà retenus, à éviter quand on réécrit une seule créa. */
   avoid?: string[];
   /** La créa d'inspiration, hébergée en https, jointe à la requête Hermes comme image. */
@@ -145,7 +148,11 @@ export function planPrompt(input: PlanInput): string {
     a?.features?.length ? `- physical description / visual points: ${a.features.slice(0, 5).join(" | ")}` : "",
     a?.transformation ? `- transformation: ${a.transformation}` : "",
     input.hasReference
-      ? "- a real photo of the product is attached at generation time as the visual source of truth: every prompt shows THIS exact product, never a redesigned or imagined one"
+      ? (input.referenceMode ?? "auto") === "never"
+        ? "- a real photo of the product exists but will NOT be sent to the image model for this batch: the product is the commercial context, never shown physically; sell the outcome, the problem, the transformation, the mechanism"
+        : (input.referenceMode ?? "auto") === "always"
+          ? "- a real photo of the product is attached to EVERY creative as the visual source of truth: every prompt shows THIS exact product, never a redesigned or imagined one"
+          : "- a real photo of the product exists and can be attached PER CREATIVE as the visual source of truth (see the product-reference rule below): when it is, the prompt shows THIS exact product, never a redesigned or imagined one"
       : "- no product photo is attached: describe the product consistently from the facts above",
   ]
     .filter(Boolean)
@@ -155,6 +162,15 @@ export function planPrompt(input: PlanInput): string {
   const avoid = input.avoid?.length ? `\nAlready used concepts, do NOT repeat them: ${input.avoid.map((entry) => `« ${entry} »`).join(", ")}.` : "";
   const reference = creativeReferenceBlock(input) + competitorInspirationBlock(input);
   const referenceJson = input.referenceImageUrl || input.referenceAttached ? ', "reference": {"seen": true, "summary": "", "elements": [""], "competitorFacts": [""]}' : "";
+  const mode = input.referenceMode ?? "auto";
+  const perCreativeFlag = input.hasReference && input.product ? ', "useProductReference": true' : "";
+  const referenceRule = input.hasReference && input.product
+    ? mode === "never"
+      ? "\n- PRODUCT REFERENCE: off for this batch. Do not show the physical product; set \"useProductReference\": false on every creative."
+      : mode === "always"
+        ? "\n- PRODUCT REFERENCE: on for this batch. Every creative shows the real product; set \"useProductReference\": true on every creative."
+        : "\n- PRODUCT REFERENCE, decided per creative: the active product is the commercial context of every creative, but do not force the physical product into every image. A creative may sell the outcome, the transformation, the jawline, attractiveness, the problem, the scientific mechanism or a before/after without showing the product: set \"useProductReference\": false for those (before/after → off; result-focused → off unless the product is actually visible; scientific / anatomy explainer → off unless the product is explicitly part of the composition). Set \"useProductReference\": true only when seeing the real product materially improves the creative: product focus, packaging + benefits, product in hand, UGC showing the product. Never add the product at the bottom of an image or a packshot just because a reference exists; when it is off, the prompt must not describe the product's appearance."
+    : "";
   return `Plan ${input.count} static ad creative${input.count > 1 ? "s" : ""} from the operator's brief. Each creative is ONE future image (never a collage or several ads in one image), format ${input.ratio}.
 
 ${facts}
@@ -169,11 +185,11 @@ Rules:
 - The ${input.count} creatives must be genuinely different: vary scene, subject, framing, camera angle, product placement, visual hook, composition, lighting, text hierarchy, proof mechanism and context of use, while keeping the requested style family and the same real product.
 - Each "prompt" is complete and directly usable by an image model: subject, product placement and visibility, setting, lighting, camera or phone look, composition, on-image text only if the brief asks for it. 60 to 160 words. Plain English. No numbering, no reference to other creatives, no product-fidelity boilerplate (it is appended automatically).
 - "angle" is the advertising angle in a few words, "concept" one sentence describing the image idea, "hook" the headline idea (empty string if the brief wants no text).
-- Branding: never add a standalone logo, corner logo, watermark or branding block; branding exists only as it appears on the real product or packaging, unless the brief explicitly asks for a logo.
+- Branding: never add a standalone logo, corner logo, watermark or branding block; branding exists only as it appears on the real product or packaging, unless the brief explicitly asks for a logo.${referenceRule}
 - The brief may be in French, English or both: read it either way and write the prompts in English.${avoid}
 
 Return ONLY this JSON:
-{"count": ${input.count}, "ratio": "${input.ratio}", "format": "static", "creatives": [{"index": 1, "angle": "", "concept": "", "hook": "", "prompt": ""}]${referenceJson}}`;
+{"count": ${input.count}, "ratio": "${input.ratio}", "format": "static", "creatives": [{"index": 1, "angle": "", "concept": "", "hook": "", "prompt": ""${perCreativeFlag}}]${referenceJson}}`;
 }
 
 /** La partie « reference » du JSON rendu par le planificateur, tolérante aux champs manquants. */
@@ -205,7 +221,21 @@ function checkLeaks(plan: CreativePlan, competitorFacts: string[], product: Plan
   if (leaks.length) throw new CompetitorLeakError(leaks);
 }
 
-function outcome(plan: CreativePlan, engine: "hermes" | "claude", input: PlanInput, reading: ReferenceReading | null): PlanOutcome {
+/** Le mode du lot tranche ; en auto, l'avis du planificateur, sinon une lecture du prompt. Sans photo produit, le champ n'existe pas. */
+function applyReferenceMode(plan: CreativePlan, input: PlanInput): CreativePlan {
+  if (!input.hasReference || !input.product) return { ...plan, creatives: plan.creatives.map((creative) => { const { useProductReference, ...rest } = creative; void useProductReference; return rest; }) };
+  const mode = input.referenceMode ?? "auto";
+  return {
+    ...plan,
+    creatives: plan.creatives.map((creative) => ({
+      ...creative,
+      useProductReference: mode === "always" ? true : mode === "never" ? false : creative.useProductReference ?? guessProductReference(creative.prompt, input.product?.name ?? ""),
+    })),
+  };
+}
+
+function outcome(rawPlan: CreativePlan, engine: "hermes" | "claude", input: PlanInput, reading: ReferenceReading | null): PlanOutcome {
+  const plan = applyReferenceMode(rawPlan, input);
   const competitorFacts = input.competitorInspiration?.creatives.flatMap((creative) => creative.competitorFacts) ?? [];
   checkLeaks(plan, [...(reading?.competitorFacts ?? []), ...competitorFacts], input.product);
   return {

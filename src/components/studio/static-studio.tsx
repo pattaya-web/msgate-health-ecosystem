@@ -18,7 +18,7 @@ import {
 import { toast } from "sonner";
 import JSZip from "jszip";
 import { CreativeBatch } from "@/components/studio/creative-batch";
-import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult } from "@/components/studio/brief-planner";
+import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, ReferenceModeControl, requestPlan, VisionUnavailableError, VisionWarning, type PlanResult, type ReferenceMode } from "@/components/studio/brief-planner";
 import { ActiveProductCard, ProductGallery, useProductContext } from "@/components/studio/product-context";
 import { CompetitorResearchPanel } from "@/components/studio/competitor-research";
 import type { CompetitorAnalysis, CompetitorInspiration, CompetitorResearch } from "@/lib/brandsearch/types";
@@ -182,6 +182,12 @@ export function StaticStudio() {
   const [inspirationView, setInspirationView] = useState<"ads" | "analysis" | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [productEdit, setProductEdit] = useState(false);
+  /* Photo du produit au modèle image : auto = Hermes décide par créa ; le produit reste le contexte commercial dans tous les cas. */
+  const [referenceMode, setReferenceMode] = useState<ReferenceMode>("auto");
+  /* Volets : chaque étape se plie ; « planned » s'ouvre tout seul quand un plan arrive. */
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const isOpen = (id: string) => !folded.has(id);
+  const toggleFold = (id: string) => setFolded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const ctx = useProductContext({
     storageKey: "msgate.free-prompt.product",
     onSwitch: () => {
@@ -195,14 +201,19 @@ export function StaticStudio() {
   const primary = ctx.primary;
   const inspirationImage = inspiration ?? refs.find((ref) => ref.dataUrl)?.dataUrl ?? null;
   /* Avec un produit, l'inspiration guide les prompts ; elle ne part au modèle qu'à défaut de référence produit. */
-  const inspirationSent = Boolean(inspirationImage) && !primary;
+  const productRefActive = Boolean(primary) && referenceMode !== "never";
+  const inspirationSent = Boolean(inspirationImage) && !productRefActive;
   const drafts = useMemo<Draft[]>(() => {
     if (!ctx.facts || !plan) return [];
     const facts = ctx.facts;
+    // Par créa : la photo ne part (et la consigne de fidélité n'est ajoutée) que si la créa la veut ; les faits produit servent à toutes.
     return plan.creatives
       .filter((creative) => planSelected.has(creative.index))
-      .map((creative) => ({ index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: composeWorkspacePrompt({ userPrompt: creative.prompt, product: facts, hasReference: Boolean(primary), hasInspiration: Boolean(inspirationImage) || Boolean(competitorInspiration) }) }));
-  }, [ctx.facts, plan, planSelected, primary, inspirationImage, competitorInspiration]);
+      .map((creative) => {
+        const withReference = productRefActive && (referenceMode === "always" || creative.useProductReference !== false);
+        return { index: creative.index, userPrompt: creative.prompt, angle: creative.angle, hook: creative.hook, label: creative.concept.slice(0, 120), final: composeWorkspacePrompt({ userPrompt: creative.prompt, product: facts, hasReference: withReference, hasInspiration: Boolean(inspirationImage) || Boolean(competitorInspiration) }), useProductReference: withReference };
+      });
+  }, [ctx.facts, plan, planSelected, productRefActive, referenceMode, inspirationImage, competitorInspiration]);
   /** Référence ouverte en grand, et index en cours de glisser pour réordonner. */
   const [refZoom, setRefZoom] = useState<RefImage | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -719,6 +730,7 @@ export function StaticStudio() {
         count: planCount,
         ratio: wantedRatio ?? ratio,
         hasReference: activeProduct ? Boolean(primary) : refs.length > 0,
+        referenceMode,
         productId: activeProduct?.id ?? null,
         product: !activeProduct && product ? { name: product.name, ...(product.brand ? { store: product.brand } : {}), ...(productUrl.trim() ? { url: productUrl.trim() } : {}), ...(product.price ? { price: product.price } : {}) } : null,
         // L'inspiration explicite, sinon la première référence chargée, est la créa que le batch suit.
@@ -728,6 +740,7 @@ export function StaticStudio() {
       });
       setPlan(fresh);
       setPlanSelected(new Set(fresh.creatives.map((creative) => creative.index)));
+      setFolded((current) => { const next = new Set(current); next.delete("planned"); return next; });
       toast.success(`${fresh.creatives.length} prompt${fresh.creatives.length > 1 ? "s" : ""} planifié${fresh.creatives.length > 1 ? "s" : ""} par ${fresh.engine === "hermes" ? "Hermes" : "Claude"}${fresh.referenceSeen ? " · référence lue" : ""}`);
     } catch (error) {
       setPlan(null);
@@ -742,7 +755,7 @@ export function StaticStudio() {
     if (!plan) return;
     setRewriting(index);
     try {
-      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: activeProduct ? Boolean(primary) : refs.length > 0, productId: activeProduct?.id ?? null, product: !activeProduct && product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: inspirationImage, competitorInspiration })).creatives[0];
+      const fresh = (await requestPlan({ brief: genPaste, count: 1, ratio, hasReference: activeProduct ? Boolean(primary) : refs.length > 0, productId: activeProduct?.id ?? null, product: !activeProduct && product ? { name: product.name } : null, avoid: avoidList(plan, index), referenceDataUrl: inspirationImage, competitorInspiration, referenceMode })).creatives[0];
       if (!fresh) throw new Error("Aucune créa renvoyée");
       setPlan((current) => (current ? patchPlan(current, index, fresh) : current));
     } catch (error) {
@@ -757,7 +770,7 @@ export function StaticStudio() {
     if (!activeProduct || !drafts.length) return;
     setLaunching(true);
     try {
-      const batch = await launchFromPrompts({ product: activeProduct, drafts, brief: genPaste, ratio, resolution, primaryUrl: primary?.url ?? null, inspiration: inspirationSent ? inspirationImage : null });
+      const batch = await launchFromPrompts({ product: activeProduct, drafts, brief: genPaste, ratio, resolution, primaryUrl: productRefActive && primary ? primary.url : null, inspiration: inspirationSent ? inspirationImage : null });
       setGeneration(launchedState(batch));
       setPreviewOpen(false);
       toast.success(`Lot #${String(batch.number).padStart(3, "0")} lancé · ${batch.items.length} image${batch.items.length > 1 ? "s" : ""} — visible dans l'onglet Produit et ici une fois sorties`);
@@ -966,10 +979,11 @@ export function StaticStudio() {
               <span className="font-semibold text-slate-700 dark:text-slate-200">Produit</span> = ce qui doit rester vrai · <span className="font-semibold text-slate-700 dark:text-slate-200">Inspiration</span> = l&apos;allure que la créa doit avoir · <span className="font-semibold text-slate-700 dark:text-slate-200">Auto-brief</span> = ce que tu demandes à Hermes.
             </p>
 
+            <div className="grid items-start gap-3 lg:grid-cols-2" data-row="context">
             {/* ---------------------------------------------- 1. PRODUIT */}
             <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-step="product" data-free-product-context>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <StepTitle n={1} title="Produit" optional />
+                <StepTitle n={1} title="Produit" optional open={isOpen("product")} onToggle={() => toggleFold("product")} summary={activeProduct ? `${activeProduct.name}${primary ? " · ✓ référence" : " · sans référence"}` : "aucun produit"} />
                 {activeProduct ? (
                   <div className="flex items-center gap-2 text-[11px]">
                     <button type="button" onClick={() => setProductEdit((value) => !value)} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300" data-product-change>
@@ -981,6 +995,7 @@ export function StaticStudio() {
                   </div>
                 ) : null}
               </div>
+              {isOpen("product") ? (<>
               {activeProduct ? (
                 <div className="flex flex-wrap items-center gap-4 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60" data-product-summary>
                   <div className="flex min-w-0 items-center gap-3">
@@ -1050,12 +1065,13 @@ export function StaticStudio() {
                   {pageLabel ? <p className="basis-full text-[11px] text-emerald-700 dark:text-emerald-400">Page lue : {pageLabel}</p> : null}
                 </div>
               ) : null}
+              </>) : null}
             </section>
 
             {/* ---------------------------------------------- 2. INSPIRATION */}
             <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-step="inspiration">
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                <StepTitle n={2} title="Inspiration créative" optional />
+                <StepTitle n={2} title="Inspiration créative" optional open={isOpen("inspiration")} onToggle={() => toggleFold("inspiration")} summary={competitorInspiration ? `${competitorInspiration.domain} · ${competitorInspiration.creatives.length} pubs` : inspirationImage ? "image jointe" : "aucune"} />
                 <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Source d'inspiration">
                   {(
                     [
@@ -1069,6 +1085,7 @@ export function StaticStudio() {
                   ))}
                 </div>
               </div>
+              {isOpen("inspiration") ? (<>
               <p className="mb-2 text-[11px] text-slate-500">L&apos;inspiration guide le style, la mise en page, l&apos;angle, les accroches et la structure visuelle. Elle ne remplace jamais ton produit.</p>
 
               {competitorInspiration ? (
@@ -1243,12 +1260,16 @@ export function StaticStudio() {
                   }}
                 />
               )}
+              </>) : null}
             </section>
 
+            </div>
+
+            <div className="grid items-start gap-3 lg:grid-cols-2" data-row="brief">
             {/* ---------------------------------------------- 3. AUTO-BRIEF */}
             <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-step="brief">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <StepTitle n={3} title="Auto-brief" />
+                <StepTitle n={3} title="Auto-brief" open={isOpen("brief")} onToggle={() => toggleFold("brief")} summary={genPaste.trim() ? genPaste.trim().slice(0, 60) : "à écrire"} />
                 <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Mode du prompt">
                   {(
                     [
@@ -1262,12 +1283,13 @@ export function StaticStudio() {
                   ))}
                 </div>
               </div>
+              {isOpen("brief") ? (<>
               {promptMode === "auto" ? (
                 <div className="mb-2 rounded-xl bg-slate-50 p-2 text-[11.5px] dark:bg-slate-800/60" data-brief-context>
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Hermes va utiliser</div>
                   <ul className="mt-0.5 grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
                     <li className={activeProduct ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{activeProduct ? `✓ Produit actif : ${activeProduct.name}` : "○ Aucun produit actif"}</li>
-                    <li className={primary ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{primary ? "✓ Référence produit principale" : activeProduct ? "○ Pas de référence produit (texte seul)" : "○ Pas de référence produit"}</li>
+                    <li className={primary ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{primary ? `✓ Photo produit : ${referenceMode === "auto" ? "auto, Hermes décide par créa" : referenceMode === "always" ? "toujours envoyée" : "jamais envoyée (contexte seulement)"}` : activeProduct ? "○ Pas de photo produit (texte seul)" : "○ Pas de photo produit"}</li>
                     <li className={inspirationImage ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{inspirationImage ? "✓ Image d'inspiration" : "○ Pas d'image d'inspiration"}</li>
                     <li className={competitorInspiration ? "text-emerald-700 dark:text-emerald-300" : "text-slate-500"}>{competitorInspiration ? `✓ ${competitorInspiration.creatives.length} pub${competitorInspiration.creatives.length > 1 ? "s" : ""} concurrente${competitorInspiration.creatives.length > 1 ? "s" : ""} (${competitorInspiration.domain}) · ${competitorInspiration.patterns.length} motif${competitorInspiration.patterns.length > 1 ? "s" : ""} extrait${competitorInspiration.patterns.length > 1 ? "s" : ""}` : "○ Pas d'inspiration Brand Search"}</li>
                   </ul>
@@ -1318,6 +1340,7 @@ export function StaticStudio() {
                     ))}
                   </Picker>
                 ) : null}
+                {activeProduct && promptMode === "auto" ? <ReferenceModeControl value={referenceMode} onChange={setReferenceMode} disabled={!primary} /> : null}
                 <button type="button" onClick={() => setAdvancedOpen((value) => !value)} className="text-[11px] text-slate-500 underline-offset-2 hover:underline" data-advanced-toggle>
                   {advancedOpen ? "Masquer les réglages avancés" : "Réglages avancés"}
                 </button>
@@ -1419,26 +1442,40 @@ export function StaticStudio() {
                       : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt.`}
               </p>
               {promptMode === "auto" && visionWarning ? <div className="mt-2"><VisionWarning message={visionWarning} busy={planning} onContinue={() => void planFromBrief(true)} onDismiss={() => setVisionWarning(null)} /></div> : null}
+              </>) : null}
             </section>
 
-            {/* ---------------------------------------------- 4. CRÉAS PLANIFIÉES */}
-            {promptMode === "auto" && plan ? (
-              <section data-step="planned">
-                <div className="mb-1.5 px-1"><StepTitle n={4} title="Créas planifiées" /></div>
-                <PlanCards
-                  plan={plan}
-                  withProduct={Boolean(activeProduct)}
-                  selected={planSelected}
-                  onSelect={setPlanSelected}
-                  onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}
-                  onRewrite={(index) => void rewritePlanned(index)}
-                  rewriting={rewriting}
-                  actionLabel={(n) => (activeProduct ? `Générer la sélection (${n})` : `Utiliser ces ${n} prompt${n > 1 ? "s" : ""}`)}
-                  onAction={activeProduct ? () => setPreviewOpen(true) : usePlannedPrompts}
-                />
-                {!activeProduct ? <p className="mt-1 px-1 text-[11px] text-slate-400">Sans produit rattaché, les prompts choisis reviennent dans l&apos;Auto-brief (étape 3) et partent avec « Générer ».</p> : null}
-              </section>
-            ) : null}
+            {/* ---------------------------------------------- 4. CRÉAS PLANIFIÉES (volet) */}
+            <section className="rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70" data-step="planned">
+              <div className="flex items-center justify-between gap-2">
+                <StepTitle n={4} title="Créas planifiées" open={isOpen("planned")} onToggle={() => toggleFold("planned")} summary={plan ? `${plan.creatives.length} créas · ${planSelected.size} cochées` : "rien encore"} />
+                {plan && isOpen("planned") ? <span className="text-[10.5px] text-slate-400">{planSelected.size}/{plan.creatives.length} cochées</span> : null}
+              </div>
+              {isOpen("planned") ? (
+                promptMode === "auto" && plan ? (
+                  <div className="mt-2 max-h-[70vh] overflow-y-auto pr-1">
+                    <PlanCards
+                      plan={plan}
+                      withProduct={Boolean(activeProduct)}
+                      selected={planSelected}
+                      onSelect={setPlanSelected}
+                      onEdit={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { prompt: value }) : current))}
+                      onRewrite={(index) => void rewritePlanned(index)}
+                      rewriting={rewriting}
+                      actionLabel={(n) => (activeProduct ? `Générer la sélection (${n})` : `Utiliser ces ${n} prompt${n > 1 ? "s" : ""}`)}
+                      onAction={activeProduct ? () => setPreviewOpen(true) : usePlannedPrompts}
+                      referenceAvailable={Boolean(activeProduct && primary) && referenceMode === "auto"}
+                      onToggleReference={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { useProductReference: value }) : current))}
+                    />
+                    {!activeProduct ? <p className="mt-1 px-1 text-[11px] text-slate-400">Sans produit rattaché, les prompts choisis reviennent dans l&apos;Auto-brief (étape 3) et partent avec « Générer ».</p> : null}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[12px] text-slate-500">Les créas apparaissent ici après « Planifier ». Chaque carte se coche, se modifie, se réécrit ; avec un produit, chaque carte dit si sa vraie photo part au modèle.</p>
+                )
+              ) : null}
+            </section>
+
+            </div>
 
             {/* ---------------------------------------------- 5. GÉNÉRER */}
             {(activeProduct && previewOpen && drafts.length) || generation ? (
@@ -1872,13 +1909,21 @@ function fileToDataUrl(file: File) {
  * reste lisible en thème sombre sans avoir à repeindre un portail.
  */
 /** Le numéro et le nom d'une étape du prompt libre : la page se lit de haut en bas. */
-function StepTitle({ n, title, optional = false }: { n: number; title: string; optional?: boolean }) {
-  return (
-    <div className="flex items-center gap-2" data-step-title={n}>
+function StepTitle({ n, title, optional = false, open, onToggle, summary }: { n: number; title: string; optional?: boolean; open?: boolean; onToggle?: () => void; summary?: string | null }) {
+  const body = (
+    <>
       <span className="grid h-5 w-5 place-items-center rounded-full bg-slate-900 text-[10.5px] font-bold text-white dark:bg-white dark:text-slate-900">{n}</span>
       <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">{title}</span>
       {optional ? <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">optionnel</span> : null}
-    </div>
+      {onToggle ? <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", open ? "" : "-rotate-90")} /> : null}
+      {onToggle && !open && summary ? <span className="truncate text-[11px] font-normal normal-case tracking-normal text-slate-500">· {summary}</span> : null}
+    </>
+  );
+  if (!onToggle) return <div className="flex items-center gap-2" data-step-title={n}>{body}</div>;
+  return (
+    <button type="button" onClick={onToggle} className="flex min-w-0 items-center gap-2 text-left" data-step-title={n} data-step-open={open ? "true" : "false"} aria-expanded={open}>
+      {body}
+    </button>
   );
 }
 

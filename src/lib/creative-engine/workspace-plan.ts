@@ -12,7 +12,16 @@ export type PlannedCreative = {
   concept: string;
   hook: string;
   prompt: string;
+  /** La vraie photo du produit doit-elle partir au modèle image pour cette créa ? Absent quand aucune référence n'existe. */
+  useProductReference?: boolean;
 };
+
+/** Faute d'avis du planificateur, la photo part quand le prompt montre matériellement le produit. */
+export function guessProductReference(prompt: string, productName: string): boolean {
+  const lower = prompt.toLowerCase();
+  const name = productName.toLowerCase().split(/[\s®™-]+/).filter((part) => part.length > 3)[0];
+  return /\b(product|packaging|packshot|in hand|holding|holds|unboxing|box|device|trainer|bottle|jar|pouch|kit)\b/.test(lower) || (Boolean(name) && lower.includes(name));
+}
 
 export type CreativePlan = {
   count: number;
@@ -104,7 +113,7 @@ export function validatePlan(raw: string, count: number, fallbackRatio: string):
   const creatives: PlannedCreative[] = parsed.creatives
     .map((entry, index) => {
       const record = (entry ?? {}) as Record<string, unknown>;
-      return { index: index + 1, angle: str(record.angle), concept: str(record.concept), hook: str(record.hook), prompt: str(record.prompt) };
+      return { index: index + 1, angle: str(record.angle), concept: str(record.concept), hook: str(record.hook), prompt: str(record.prompt), ...(typeof record.useProductReference === "boolean" ? { useProductReference: record.useProductReference } : {}) };
     })
     .filter((creative) => creative.prompt.length >= 40);
   if (creatives.length < count) throw new PlanValidationError(`${creatives.length} prompt(s) exploitable(s) sur ${count} demandés`);

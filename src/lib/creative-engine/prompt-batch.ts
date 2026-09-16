@@ -18,6 +18,8 @@ export type PromptSpec = {
   angle?: string;
   hook?: string;
   label?: string;
+  /** Faux : cette créa part en texte seul, sans la photo du produit, même si le lot en a une. */
+  useProductReference?: boolean;
 };
 
 export type PromptBatchSpec = {
@@ -62,9 +64,11 @@ export function buildPromptBatch(input: {
   const store = product?.store ?? spec.store?.trim() ?? (spec.source === "product-workspace" ? "Espace produit" : "Ask Hermes");
   const productName = product?.name ?? spec.productName.trim();
   const inputs = [...spec.referenceUrls, ...spec.productImageUrls];
-  const model = inputs.length ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image";
   const items: BatchItem[] = spec.prompts.map((entry, index) => {
     const angle = entry.angle?.trim() || "Ask Hermes";
+    // La photo du produit part seulement si cette créa la veut : les autres restent en texte seul.
+    const useReference = inputs.length > 0 && entry.useProductReference !== false;
+    const model = useReference ? "gpt-image-2-image-to-image" : "gpt-image-2-text-to-image";
     return {
       id: ids.items[index],
       name: creativeName(store, productName, angle, ASK_HERMES_FAMILY.label, index + 1),
@@ -76,7 +80,7 @@ export function buildPromptBatch(input: {
       file: null,
       status: "generated",
       model,
-      referenceUsed: spec.referenceUrls.length > 0,
+      referenceUsed: useReference,
       generatedAt: null,
       parentId: null,
       ...(entry.userPrompt?.trim() ? { userPrompt: entry.userPrompt.trim() } : {}),
@@ -94,7 +98,7 @@ export function buildPromptBatch(input: {
       subject: null,
       productVisibility: "medium",
       physicalProductAllowed: true,
-      referenceStrategy: spec.referenceUrls.length ? "reference" : "none",
+      referenceStrategy: useReference ? "reference" : "none",
       visualConcept: "",
       singleCreativeOnly: true,
     };

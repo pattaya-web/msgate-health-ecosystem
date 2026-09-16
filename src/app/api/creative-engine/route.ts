@@ -98,6 +98,8 @@ type Body = {
   ignoreReference?: boolean;
   /** Pubs concurrentes sélectionnées et analysées (galerie Brand Search du prompt libre). */
   competitorInspiration?: CompetitorInspiration | null;
+  /** Photo du produit au modèle image : auto (par créa), always, never. */
+  referenceMode?: "auto" | "always" | "never";
   url?: string;
   store?: string;
   productId?: string;
@@ -194,6 +196,7 @@ export async function POST(request: Request) {
             referenceImageUrl,
             referenceAttached: Boolean(referenceDataUrl),
             competitorInspiration: sanitizeCompetitorInspiration(body.competitorInspiration),
+            referenceMode: body.referenceMode === "always" || body.referenceMode === "never" ? body.referenceMode : "auto",
           });
           return NextResponse.json({ plan });
         } catch (error) {
