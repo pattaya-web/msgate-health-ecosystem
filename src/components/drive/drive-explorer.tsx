@@ -121,6 +121,7 @@ export function DriveExplorer() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [picker, setPicker] = useState<{ mode: "move" | "copy"; paths: string[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastPick = useRef<string | null>(null);
@@ -290,6 +291,11 @@ export function DriveExplorer() {
     if (!clipboard) return;
     await transfer(clipboard.paths, into, clipboard.mode === "cut" ? "move" : "copy");
     if (clipboard.mode === "cut") setClipboard(null);
+  }
+
+  /** « Déplacer vers… » / « Copier vers… » : on choisit le dossier de destination dans l'arbre entier. */
+  function openPicker(target: string, mode: "move" | "copy") {
+    setPicker({ mode, paths: targetsOf(target) });
   }
 
   /** Un dépôt sur un dossier : des fichiers du disque, ou des vignettes du Drive. */
@@ -519,6 +525,7 @@ export function DriveExplorer() {
               <span className="inline-flex items-center gap-1 font-medium text-slate-700 dark:text-slate-200" data-drive-selected={selected.size}>
                 <CheckSquare className="h-3.5 w-3.5" /> {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
               </span>
+              <button type="button" onClick={() => openPicker([...selected][0], "move")} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300" data-drive-move-to><FolderInput className="h-3.5 w-3.5" /> Déplacer vers…</button>
               <button type="button" onClick={() => copyToClipboard([...selected][0], "copy")} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">Copier</button>
               <button type="button" onClick={() => copyToClipboard([...selected][0], "cut")} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">Couper</button>
               <button type="button" onClick={() => void remove([...selected][0])} className="rounded-md border border-rose-200 px-2 py-0.5 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-500/10">Supprimer</button>
@@ -608,6 +615,8 @@ export function DriveExplorer() {
               <MenuItem icon={menu.target.kind === "folder" ? FolderOpen : Maximize2} label={menu.target.kind === "folder" ? "Ouvrir" : "Aperçu"} onClick={() => { const t = menu.target!; setMenu(null); if (t.kind === "folder") setPath(t.path); else setPreview(rawFiles.find((file) => file.path === t.path) ?? null); }} />
               {menu.target.kind === "file" ? <MenuItem icon={Download} label="Télécharger" href={fileUrl(menu.target.path, true)} onClick={() => setMenu(null)} /> : null}
               <MenuItem icon={Pencil} label="Renommer" shortcut="F2" onClick={() => { const t = menu.target!; setMenu(null); void renameItem(t.path, t.name); }} data="rename" />
+              <MenuItem icon={FolderInput} label="Déplacer vers…" onClick={() => { const t = menu.target!; setMenu(null); openPicker(t.path, "move"); }} data="move-to" />
+              <MenuItem icon={Copy} label="Copier vers…" onClick={() => { const t = menu.target!; setMenu(null); openPicker(t.path, "copy"); }} data="copy-to" />
               <MenuItem icon={Copy} label="Copier" shortcut="Ctrl+C" onClick={() => { const t = menu.target!; setMenu(null); copyToClipboard(t.path, "copy"); }} data="copy" />
               <MenuItem icon={Scissors} label="Couper" shortcut="Ctrl+X" onClick={() => { const t = menu.target!; setMenu(null); copyToClipboard(t.path, "cut"); }} data="cut" />
               {menu.target.kind === "folder" && clipboard ? <MenuItem icon={ClipboardPaste} label={`Coller dedans (${clipboard.paths.length})`} onClick={() => { const t = menu.target!; setMenu(null); void paste(t.path); }} data="paste-into" /> : null}
@@ -623,6 +632,19 @@ export function DriveExplorer() {
             </>
           )}
         </div>
+      ) : null}
+
+      {picker ? (
+        <DestinationPicker
+          mode={picker.mode}
+          sources={picker.paths}
+          current={path}
+          onClose={() => setPicker(null)}
+          onPick={(dest) => {
+            setPicker(null);
+            void transfer(picker.paths, dest, picker.mode);
+          }}
+        />
       ) : null}
 
       {preview ? (
@@ -668,9 +690,9 @@ export function DriveExplorer() {
                 <Pencil className="h-3.5 w-3.5" />
                 Renommer
               </button>
-              <button type="button" onClick={() => { copyToClipboard(preview.path, "cut"); setPreview(null); }} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
+              <button type="button" onClick={() => { openPicker(preview.path, "move"); setPreview(null); }} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
                 <FolderInput className="h-3.5 w-3.5" />
-                Couper pour déplacer
+                Déplacer vers…
               </button>
               <button type="button" onClick={() => { copyToClipboard(preview.path, "copy"); setPreview(null); }} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
                 <Copy className="h-3.5 w-3.5" />
@@ -699,6 +721,87 @@ function MenuItem({ icon: Icon, label, shortcut, onClick, href, danger = false, 
   );
   if (href) return <a href={href} className={className} onClick={onClick} data-menu-item={data}>{inner}</a>;
   return <button type="button" className={className} onClick={onClick} data-menu-item={data}>{inner}</button>;
+}
+
+/**
+ * Le choix d'un dossier de destination : l'arbre entier du Drive, filtrable,
+ * sans les éléments déplacés ni leurs sous-dossiers (un dossier ne rentre pas
+ * dans lui-même) ni le dossier où ils sont déjà.
+ */
+function DestinationPicker({ mode, sources, current, onClose, onPick }: { mode: "move" | "copy"; sources: string[]; current: string; onClose: () => void; onPick: (dest: string) => void }) {
+  const [tree, setTree] = useState<string[] | null>(null);
+  const [needle, setNeedle] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/drive?tree=1", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((body: { folders?: string[] }) => {
+        if (alive) setTree(body.folders ?? []);
+      })
+      .catch(() => {
+        if (alive) setTree([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const parents = new Set(sources.map((source) => source.split("/").slice(0, -1).join("/")));
+  const blocked = (dest: string) => sources.some((source) => dest === source || dest.startsWith(`${source}/`)) || (mode === "move" && parents.has(dest));
+  const q = needle.trim().toLowerCase();
+  const options = ["", ...(tree ?? [])].filter((dest) => !q || dest.toLowerCase().includes(q));
+  const label = sources.length > 1 ? `${sources.length} éléments` : `« ${baseName(sources[0])} »`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={onClose} onContextMenu={(event) => event.preventDefault()}>
+      <div className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()} data-drive-picker={mode}>
+        <div className="flex items-start justify-between gap-2 p-4 pb-2">
+          <div>
+            <div className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">{mode === "move" ? "Déplacer" : "Copier"} {label}</div>
+            <div className="text-[11px] text-slate-500">Choisis le dossier de destination.</div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Fermer">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-4 pb-2">
+          <input autoFocus value={needle} onChange={(event) => setNeedle(event.target.value)} placeholder="Filtrer les dossiers" className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] dark:border-slate-700 dark:bg-slate-950" />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          {tree === null ? (
+            <div className="flex items-center gap-2 p-3 text-[12px] text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Lecture des dossiers…</div>
+          ) : (
+            options.map((dest) => {
+              const depth = dest ? dest.split("/").length : 0;
+              const off = blocked(dest);
+              return (
+                <button
+                  key={dest || "__root"}
+                  type="button"
+                  disabled={off}
+                  onClick={() => onPick(dest)}
+                  className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-800", dest === current && "font-semibold")}
+                  style={{ paddingLeft: 8 + depth * 14 }}
+                  data-drive-dest={dest}
+                >
+                  {dest ? <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" /> : <HardDrive className="h-3.5 w-3.5 shrink-0 text-slate-500" />}
+                  <span className="truncate">{dest ? baseName(dest) : "Drive (racine)"}</span>
+                  {dest === current ? <span className="ml-auto text-[10px] text-slate-400">ici</span> : null}
+                  {off && dest !== current ? <span className="ml-auto text-[10px] text-slate-400">{parents.has(dest) ? "déjà là" : "lui-même"}</span> : null}
+                </button>
+              );
+            })
+          )}
+          {tree !== null && !options.length ? <div className="p-3 text-[12px] text-slate-500">Aucun dossier ne correspond.</div> : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** Un fil d'Ariane qui accepte aussi un dépôt : lâcher sur « Drive » range à la racine. */
@@ -768,13 +871,13 @@ function FolderTile({ folder, selected, receiving, cut, onOpen, onPick, onMenu, 
       data-drive-folder={folder.path}
       data-selected={selected ? "true" : "false"}
     >
-      <button type="button" onClick={(event) => { event.stopPropagation(); if (event.ctrlKey || event.metaKey || event.shiftKey) onPick(event); else onOpen(); }} className="flex min-w-0 flex-1 items-center gap-2 text-left" title="Ouvrir · Ctrl/Maj + clic : sélectionner">
+      <div role="button" tabIndex={0} onClick={(event) => { event.stopPropagation(); if (event.ctrlKey || event.metaKey || event.shiftKey) onPick(event); else onOpen(); }} onKeyDown={(event) => { if (event.key === "Enter") onOpen(); }} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left" title="Ouvrir · Ctrl/Maj + clic : sélectionner · glisser pour déplacer">
         {receiving ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-emerald-500" /> : <FolderOpen className="h-5 w-5 shrink-0 text-amber-500" />}
         <span className="min-w-0">
           <span className="block truncate text-[12px] font-medium text-slate-900 dark:text-slate-100">{folder.name}</span>
           <span className="block text-[10px] text-slate-500">{receiving ? "Réception…" : `${folder.count} élément(s)`}</span>
         </span>
-      </button>
+      </div>
       <input type="checkbox" checked={selected} onChange={() => undefined} onClick={(event) => { event.stopPropagation(); onPick({ ...event, ctrlKey: true } as React.MouseEvent); }} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 data-[on=true]:opacity-100" data-on={selected ? "true" : "false"} aria-label={`Sélectionner ${folder.name}`} />
     </div>
   );
