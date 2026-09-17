@@ -1,11 +1,40 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Eraser, Loader2, Redo2, Undo2, Upload } from "lucide-react";
+import { Download, Eraser, ImageOff, Loader2, Redo2, ScanSearch, Undo2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { assetProxy, pollStudioTask, studioPost } from "@/lib/studio/client";
 import { STUDIO_REMOVE_SOURCE_KEY } from "@/lib/studio/library-types";
 import { cn } from "@/lib/utils";
+
+/**
+ * Remove Magic : on enlève ce qui gêne sur une image, en trois gestes.
+ *
+ * - Pinceau : on peint la zone, un vrai modèle d'inpainting (Ideogram v3, mode
+ *   turbo) rebouche uniquement cette zone, en quelques secondes.
+ * - Auto : pas de pinceau, le modèle repère lui-même les textes, logos et
+ *   filigranes (ou ce qu'on lui décrit) et les efface.
+ * - Fond : le fond disparaît, on récupère un PNG transparent.
+ *
+ * Chaque passe s'empile dans l'historique : Undo / Redo, avant / après, et on
+ * enchaîne les passes sur le résultat précédent.
+ */
+
+type Mode = "brush" | "auto" | "background";
+
+const MODES: Array<{ id: Mode; label: string; hint: string }> = [
+  { id: "brush", label: "Pinceau", hint: "Peins la zone à enlever, l'IA la rebouche." },
+  { id: "auto", label: "Auto", hint: "Vide : l'IA enlève tous les textes, logos et badges (≈40 s). Décris une cible : elle n'enlève que ça (≈15 s)." },
+  { id: "background", label: "Fond", hint: "Enlève le fond, garde le sujet en PNG transparent." },
+];
+
+/** Un damier sous l'image : la transparence d'un PNG sans fond se voit. */
+const CHECKER = {
+  backgroundImage:
+    "linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(0,0,0,0.08) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.08) 75%), linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.08) 75%)",
+  backgroundSize: "20px 20px",
+  backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
+};
 
 /** L'image déposée par l'aperçu d'une créa (« Effacer avec l'IA »), consommée au premier rendu. */
 function takeHandoff(): string | null {
@@ -34,8 +63,12 @@ export function RemoveStudio() {
   const [maskCursor, setMaskCursor] = useState(-1);
   const [painted, setPainted] = useState(false);
   const [brush, setBrush] = useState(28);
+  const [mode, setMode] = useState<Mode>("brush");
+  const [what, setWhat] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const [compare, setCompare] = useState(false);
   const [split, setSplit] = useState(50);
 
@@ -179,6 +212,8 @@ export function RemoveStudio() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -193,33 +228,59 @@ export function RemoveStudio() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  async function erase() {
-    const img = imgRef.current;
+  /* Le compteur de secondes pendant une passe : on voit que ça avance. */
+  useEffect(() => {
+    if (startedAt === null) return;
+    const timer = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 500);
+    return () => clearInterval(timer);
+  }, [startedAt]);
+
+  /** Le masque noir sur blanc attendu par le modèle d'inpainting : noir = à reboucher. */
+  function buildMask(): string {
     const mask = maskRef.current;
-    if (!working || !img || !mask || !painted) {
-      toast.error("Gomme le logo ou le texte, puis clique Effacer");
+    if (!mask || !mask.width) throw new Error("Zone à effacer manquante");
+    const out = document.createElement("canvas");
+    out.width = mask.width;
+    out.height = mask.height;
+    const ctx = out.getContext("2d");
+    const from = mask.getContext("2d");
+    if (!ctx || !from) throw new Error("Canvas indisponible");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    const alpha = from.getImageData(0, 0, mask.width, mask.height).data;
+    const pixels = ctx.getImageData(0, 0, out.width, out.height);
+    for (let i = 0; i < alpha.length; i += 4) {
+      if (alpha[i + 3] > 30) {
+        pixels.data[i] = 0;
+        pixels.data[i + 1] = 0;
+        pixels.data[i + 2] = 0;
+      }
+    }
+    ctx.putImageData(pixels, 0, 0);
+    return out.toDataURL("image/png");
+  }
+
+  async function run(which: Mode) {
+    if (!working) {
+      toast.error("Dépose d'abord une photo");
+      return;
+    }
+    if (which === "brush" && !painted) {
+      toast.error("Peins la zone à enlever, puis clique Effacer la zone");
       return;
     }
     setBusy(true);
     setCompare(false);
+    setStartedAt(Date.now());
+    setElapsed(0);
     try {
-      setStatus("Préparation…");
-      if (!img.naturalWidth) throw new Error("Image pas encore chargée");
-      const mix = document.createElement("canvas");
-      mix.width = img.naturalWidth;
-      mix.height = img.naturalHeight;
-      const ctx = mix.getContext("2d");
-      if (!ctx) throw new Error("Canvas indisponible");
-      ctx.drawImage(img, 0, 0);
-      ctx.drawImage(mask, 0, 0);
       setStatus("Envoi…");
-      const started = await studioPost<{ taskId: string }>({
-        action: "remove",
-        imageDataUrl: mix.toDataURL("image/jpeg", 0.82),
-        resolution: "1K",
-      });
-      setStatus("Gommage IA…");
-      const done = await pollStudioTask(started.taskId, 40);
+      const payload: Record<string, unknown> = { action: "remove", removeMode: which, imageDataUrl: working, imageWidth: imgRef.current?.naturalWidth, imageHeight: imgRef.current?.naturalHeight };
+      if (which === "brush") payload.maskDataUrl = buildMask();
+      if (which === "auto" && what.trim()) payload.removeWhat = what.trim();
+      const started = await studioPost<{ taskId: string }>(payload);
+      setStatus(which === "brush" ? "Rebouchage de la zone…" : which === "auto" ? (what.trim() ? "Effacement de la cible…" : "Nettoyage de tous les textes…") : "Détourage…");
+      const done = await pollStudioTask(started.taskId, 90);
       if (!done.urls[0]) throw new Error("Aucune image renvoyée");
       setStatus("Résultat…");
       const blob = await fetch(assetProxy(done.urls[0])).then((res) => {
@@ -232,13 +293,14 @@ export function RemoveStudio() {
       clearMask();
       setCompare(true);
       setSplit(50);
-      toast.success("Gommage prêt");
+      toast.success(which === "background" ? "Fond enlevé" : "Gommage prêt");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Effacer impossible";
       toast.error(/no message available/i.test(message) ? "Gommage échoué — réessaie" : message);
     } finally {
       setBusy(false);
       setStatus("");
+      setStartedAt(null);
     }
   }
 
@@ -246,51 +308,94 @@ export function RemoveStudio() {
     if (!working) return;
     const a = document.createElement("a");
     a.href = working;
-    a.download = "gomme.png";
+    a.download = working.startsWith("data:image/png") ? "gomme.png" : "gomme.jpg";
     a.click();
   }
 
+  const current = MODES.find((entry) => entry.id === mode) ?? MODES[0];
+  const button = "inline-flex h-8 items-center gap-1 rounded-lg bg-white px-2.5 text-[12px] font-medium ring-1 ring-slate-900/[0.08] disabled:opacity-40 dark:bg-slate-900";
+  const primary = "inline-flex h-8 items-center gap-1 rounded-lg bg-slate-900 px-3 text-[12px] font-medium text-white disabled:opacity-40 dark:bg-white dark:text-slate-900";
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-remove-studio>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          onClick={undo}
-          disabled={!canUndo || busy}
-          className="inline-flex h-8 items-center gap-1 rounded-lg bg-white px-2.5 text-[12px] font-medium ring-1 ring-slate-900/[0.08] disabled:opacity-40 dark:bg-slate-900"
-        >
+        <div className="flex items-center rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Mode">
+          {MODES.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={mode === entry.id}
+              disabled={busy}
+              onClick={() => setMode(entry.id)}
+              className={cn("rounded-md px-2.5 py-1 text-[12px] font-medium", mode === entry.id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")}
+              data-remove-mode={entry.id}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] text-slate-500">{current.hint}</span>
+        {working ? (
+          <label className="ml-auto cursor-pointer text-[11px] font-medium text-slate-500">
+            Autre photo
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
+          </label>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button type="button" onClick={undo} disabled={!canUndo || busy} className={button}>
           <Undo2 className="h-3.5 w-3.5" />
           Undo
         </button>
-        <button
-          type="button"
-          onClick={redo}
-          disabled={!canRedo || busy}
-          className="inline-flex h-8 items-center gap-1 rounded-lg bg-white px-2.5 text-[12px] font-medium ring-1 ring-slate-900/[0.08] disabled:opacity-40 dark:bg-slate-900"
-        >
+        <button type="button" onClick={redo} disabled={!canRedo || busy} className={button}>
           <Redo2 className="h-3.5 w-3.5" />
           Redo
         </button>
-        <label className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800">
-          Pinceau {brush}px
-          <input
-            type="range"
-            min={6}
-            max={90}
-            value={brush}
-            onChange={(e) => setBrush(Number(e.target.value))}
-            className="w-28"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => void erase()}
-          disabled={busy || !painted}
-          className="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-900 px-3 text-[12px] font-medium text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eraser className="h-3.5 w-3.5" />}
-          {busy ? status || "Gommage…" : "Effacer"}
-        </button>
+
+        {mode === "brush" ? (
+          <>
+            <label className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium dark:bg-slate-800">
+              Pinceau {brush}px
+              <input type="range" min={6} max={90} value={brush} onChange={(e) => setBrush(Number(e.target.value))} className="w-28" />
+            </label>
+            <button type="button" onClick={() => void run("brush")} disabled={busy || !painted} className={primary} data-remove-run="brush">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eraser className="h-3.5 w-3.5" />}
+              Effacer la zone
+            </button>
+          </>
+        ) : null}
+
+        {mode === "auto" ? (
+          <>
+            <input
+              value={what}
+              onChange={(e) => setWhat(e.target.value)}
+              placeholder="Quoi enlever ? (vide = tout : textes, logos, badges)"
+              disabled={busy}
+              className="h-8 w-72 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] dark:border-slate-700 dark:bg-slate-950"
+              data-remove-what
+            />
+            <button type="button" onClick={() => void run("auto")} disabled={busy || !working} className={primary} data-remove-run="auto">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ScanSearch className="h-3.5 w-3.5" />}
+              Détecter et effacer
+            </button>
+          </>
+        ) : null}
+
+        {mode === "background" ? (
+          <button type="button" onClick={() => void run("background")} disabled={busy || !working} className={primary} data-remove-run="background">
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageOff className="h-3.5 w-3.5" />}
+            Supprimer le fond
+          </button>
+        ) : null}
+
+        {busy ? (
+          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500" data-remove-status>
+            {status || "Gommage…"} {elapsed}s
+          </span>
+        ) : null}
+
         <button
           type="button"
           onClick={() => setCompare((v) => !v)}
@@ -302,26 +407,15 @@ export function RemoveStudio() {
         >
           Avant / après
         </button>
-        <button
-          type="button"
-          onClick={download}
-          disabled={!hasResult}
-          className="inline-flex h-8 items-center gap-1 rounded-lg bg-white px-2.5 text-[12px] font-medium ring-1 ring-slate-900/[0.08] disabled:opacity-40 dark:bg-slate-900"
-        >
+        <button type="button" onClick={download} disabled={!hasResult} className={button}>
           <Download className="h-3.5 w-3.5" />
           Download
         </button>
-        {working ? (
-          <label className="ml-auto cursor-pointer text-[11px] font-medium text-slate-500">
-            Autre photo
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-          </label>
-        ) : null}
       </div>
 
       <div className="overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-900/[0.06] dark:bg-slate-900">
         {working ? (
-          <div className="relative mx-auto w-fit max-w-full select-none">
+          <div className="relative mx-auto w-fit max-w-full select-none" style={CHECKER}>
             {compare && hasResult ? (
               <div className="relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -355,10 +449,10 @@ export function RemoveStudio() {
                 />
                 <canvas
                   ref={maskRef}
-                  className="absolute inset-0 h-full w-full touch-none"
+                  className={cn("absolute inset-0 h-full w-full touch-none", mode !== "brush" && "pointer-events-none")}
                   style={{ cursor: busy ? "wait" : "crosshair" }}
                   onPointerDown={(e) => {
-                    if (busy) return;
+                    if (busy || mode !== "brush") return;
                     drawing.current = true;
                     (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
                     paint(e);
@@ -370,7 +464,7 @@ export function RemoveStudio() {
                 {busy ? (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/35 text-[13px] font-medium text-white">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {status || "Gommage…"}
+                    {status || "Gommage…"} {elapsed}s
                   </div>
                 ) : null}
               </>
@@ -379,7 +473,7 @@ export function RemoveStudio() {
         ) : (
           <label className="flex min-h-[48vh] cursor-pointer flex-col items-center justify-center gap-2 text-[12px] text-slate-500">
             <Upload className="h-5 w-5" />
-            Drop une photo — gomme le logo ou le texte, puis Effacer
+            Drop une photo — pinceau, détection auto ou suppression du fond
             <input type="file" accept="image/*" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
           </label>
         )}

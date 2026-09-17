@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { expandBrief } from "@/lib/studio/expand";
 import { modelFamily, resolveModel } from "@/lib/studio/models";
 import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
-import type { Ratio } from "@/lib/studio/ratios";
+import { RATIOS, type Ratio } from "@/lib/studio/ratios";
 import { expandVoiceScripts } from "@/lib/studio/vo-scripts";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,23 @@ const CREATE_GAP_MS = 900;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Resolution = "1K" | "2K";
+
+/** Le ratio nommé le plus proche du cadre de l'image : le résultat garde ses proportions. */
+function nearestRatio(width?: number, height?: number): Ratio {
+  if (!width || !height) return "3:4";
+  const target = width / height;
+  let best: Ratio = RATIOS[0].id;
+  let gap = Infinity;
+  for (const entry of RATIOS) {
+    const [w, h] = entry.id.split(":").map(Number);
+    const diff = Math.abs(w / h - target);
+    if (diff < gap) {
+      gap = diff;
+      best = entry.id;
+    }
+  }
+  return best;
+}
 
 export async function GET(request: Request) {
   const taskId = new URL(request.url).searchParams.get("taskId")?.trim();
@@ -48,6 +65,13 @@ export async function POST(request: Request) {
       fileName?: string;
       referenceUrls?: string[];
       removeWhat?: string;
+      /** Remove Magic : pinceau (masque), auto (détection) ou fond. */
+      removeMode?: "brush" | "auto" | "background";
+      /** Masque noir sur blanc, mêmes dimensions que l'image : noir = à reboucher. */
+      maskDataUrl?: string;
+      /** Dimensions de l'image envoyée, pour garder son cadre quand le modèle exige un ratio nommé. */
+      imageWidth?: number;
+      imageHeight?: number;
       text?: string;
       voice?: string;
       timestamps?: boolean;
@@ -145,15 +169,51 @@ export async function POST(request: Request) {
 
     if (body.action === "remove") {
       if (!body.imageDataUrl) return NextResponse.json({ error: "Image manquante" }, { status: 400 });
-      const uploaded = await uploadBase64(body.imageDataUrl, `remove-${Date.now()}.png`);
-      const taskId = await createKieTask("gpt-image-2-image-to-image", {
+      const mode = body.removeMode ?? "brush";
+      const stamp = Date.now();
+      const ext = body.imageDataUrl.startsWith("data:image/png") ? "png" : "jpg";
+      const image = await uploadBase64(body.imageDataUrl, `remove-${stamp}.${ext}`);
+      if (mode === "background") {
+        // Recraft : un détourage dédié, quelques secondes, PNG transparent.
+        const taskId = await createKieTask("recraft/remove-background", { image });
+        return NextResponse.json({ taskId, mode });
+      }
+      if (mode === "auto") {
+        // Pas de masque : le modèle repère lui-même ce qu'il faut enlever.
+        // Une cible décrite → Nano Banana Edit (≈15 s, ne touche que la cible).
+        // Rien de décrit → Nano Banana Pro (≈40 s), le seul qui nettoie vraiment tous les textes et badges d'un coup.
+        const what = body.removeWhat?.trim();
+        if (what) {
+          const taskId = await createKieTask("google/nano-banana-edit", {
+            prompt: `Remove ${what} from this image. Fill the freed area with the surrounding background so nothing looks edited. Keep everything else exactly identical: same framing, same colors, same product, same people, same lighting. Do not add any text, logo or object.`,
+            image_urls: [image],
+            aspect_ratio: "auto",
+            output_format: "png",
+          });
+          return NextResponse.json({ taskId, mode });
+        }
+        const taskId = await createKieTask("nano-banana-pro", {
+          prompt:
+            "Remove every piece of text, caption, headline, logo, watermark, badge, sticker and overlaid graphic from this image. Fill the freed areas with the surrounding background so nothing looks edited. Keep everything else exactly identical: same framing, same colors, same product, same people, same lighting. Do not add any text, logo or object.",
+          image_input: [image],
+          aspect_ratio: nearestRatio(body.imageWidth, body.imageHeight),
+          resolution: "1K",
+          output_format: "png",
+        });
+        return NextResponse.json({ taskId, mode });
+      }
+      // Pinceau : Ideogram v3 Edit, un vrai inpainting qui ne touche que la zone noire du masque.
+      if (!body.maskDataUrl) return NextResponse.json({ error: "Zone à effacer manquante" }, { status: 400 });
+      const mask = await uploadBase64(body.maskDataUrl, `remove-mask-${stamp}.png`);
+      const taskId = await createKieTask("ideogram/v3-edit", {
         prompt:
-          "Inpaint and remove whatever is covered by the bright magenta/pink brush strokes. Restore a clean photoreal background. Keep every unmarked pixel unchanged. Do not add text, logos, or new objects.",
-        input_urls: [uploaded],
-        aspect_ratio: "auto",
-        resolution: "1K",
+          "Fill the masked area with the surrounding background so the removed element disappears completely: continue the same surface, texture, lighting, colors and perspective seamlessly, as if nothing had ever been there. Do not add any text, letters, logo, object or person.",
+        image_url: image,
+        mask_url: mask,
+        rendering_speed: "TURBO",
+        expand_prompt: false,
       });
-      return NextResponse.json({ taskId });
+      return NextResponse.json({ taskId, mode });
     }
 
     if (body.action === "tts") {
