@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   cleanName,
   cleanPath,
+  copyEntry,
   createFolder,
   extensionFor,
   listAllFolders,
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
 }
 
 type Body = {
-  action?: "mkdir" | "delete" | "rename" | "move" | "import";
+  action?: "mkdir" | "delete" | "rename" | "move" | "copy" | "import";
   path?: string;
   name?: string;
   into?: string;
@@ -92,6 +93,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ path: await renameEntry(rel, body.name) });
       case "move":
         return NextResponse.json({ path: await moveEntry(rel, cleanPath(body.into)) });
+      case "copy":
+        return NextResponse.json({ path: await copyEntry(rel, cleanPath(body.into)) });
       case "import":
         if (!body.url?.trim()) return NextResponse.json({ error: "URL manquante" }, { status: 400 });
         return NextResponse.json({ path: await importFromUrl(request, body.url, cleanPath(body.into), body.name) });

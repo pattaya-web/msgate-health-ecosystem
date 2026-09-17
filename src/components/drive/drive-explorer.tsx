@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDownAZ,
+  ArrowUpAZ,
+  CheckSquare,
   ChevronRight,
+  ClipboardPaste,
+  Copy,
   Download,
   FileAudio,
   File as FileIcon,
@@ -14,6 +19,7 @@ import {
   Loader2,
   Maximize2,
   Pencil,
+  Scissors,
   Search,
   Trash2,
   Upload,
@@ -33,18 +39,27 @@ import { cn } from "@/lib/utils";
  * plus : pas de tags, pas de statut, un arbre de dossiers qu'on lit d'un
  * coup d'œil.
  *
- * Tout se fait à la souris : un fichier lâché sur un dossier y entre, un
- * fichier lâché ailleurs entre dans le dossier ouvert, et une vignette du
- * Drive se glisse d'un dossier à l'autre.
+ * Tout se fait à la souris, comme dans un explorateur de fichiers : un
+ * fichier lâché sur un dossier y entre, un dossier se glisse dans un autre,
+ * une sélection (clic, Ctrl/Maj + clic) se déplace d'un bloc, le clic droit
+ * ouvre renommer / copier / couper / coller / supprimer, et la liste se trie
+ * et se filtre comme on veut. Le tri est retenu d'une visite à l'autre.
  */
 
 const panel = "rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-slate-100/[0.06]";
 
-/** Type MIME maison posé sur un glisser interne : il distingue un déplacement d'un dépôt. */
+/** Type MIME maison posé sur un glisser interne : il distingue un déplacement d'un dépôt. Les chemins sont séparés par des sauts de ligne. */
 const INTERNAL = "text/x-drive-path";
 
 /** Les formats que le navigateur sait lire en ligne ; les autres gardent une icône. */
 const PLAYABLE = /\.(mp4|webm|m4v)$/i;
+
+const SORT_KEY = "msgate.drive.sort";
+
+type SortBy = "name" | "date" | "size" | "kind";
+type TypeFilter = "all" | "image" | "video" | "audio" | "file";
+type Clipboard = { mode: "copy" | "cut"; paths: string[] };
+type Menu = { x: number; y: number; target: { path: string; name: string; kind: "folder" | "file" } | null };
 
 function fileUrl(path: string, download = false) {
   return `/api/drive/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
@@ -55,6 +70,10 @@ function formatSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} Go`;
+}
+
+function baseName(path: string) {
+  return path.split("/").pop() ?? path;
 }
 
 async function driveJson<T>(body: Record<string, unknown>): Promise<T> {
@@ -68,6 +87,25 @@ async function driveJson<T>(body: Record<string, unknown>): Promise<T> {
   return data;
 }
 
+function loadSort(): { by: SortBy; dir: "asc" | "desc" } {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SORT_KEY) || "") as { by?: SortBy; dir?: "asc" | "desc" };
+    if (parsed && ["name", "date", "size", "kind"].includes(parsed.by ?? "") && (parsed.dir === "asc" || parsed.dir === "desc")) return { by: parsed.by as SortBy, dir: parsed.dir };
+  } catch {
+    // premier passage ou stockage indisponible
+  }
+  return { by: "name", dir: "asc" };
+}
+
+/** Les chemins d'un glisser interne : la sélection entière si l'élément saisi en fait partie, sinon lui seul. */
+function readInternal(transfer: DataTransfer): string[] {
+  return transfer
+    .getData(INTERNAL)
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function DriveExplorer() {
   const [path, setPath] = useState("");
   const [listing, setListing] = useState<DriveListing | null>(null);
@@ -77,8 +115,15 @@ export function DriveExplorer() {
   const [uploading, setUploading] = useState<{ count: number; into: string } | null>(null);
   const [dragDepth, setDragDepth] = useState(0);
   const [preview, setPreview] = useState<DriveFile | null>(null);
-  const [moving, setMoving] = useState<{ path: string; name: string } | null>(null);
+  const [sort, setSort] = useState<{ by: SortBy; dir: "asc" | "desc" }>(loadSort);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [filter, setFilter] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [clipboard, setClipboard] = useState<Clipboard | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastPick = useRef<string | null>(null);
 
   const load = useCallback(async (target: string) => {
     setLoading(true);
@@ -123,6 +168,29 @@ export function DriveExplorer() {
     return () => clearTimeout(timer);
   }, [query]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+    } catch {
+      // le tri tient pour la session
+    }
+  }, [sort]);
+
+  /* Le menu contextuel se ferme au clic ailleurs ou à Échap. */
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
   const crumbs = useMemo(() => {
     const parts = path.split("/").filter(Boolean);
     return parts.map((name, index) => ({ name, path: parts.slice(0, index + 1).join("/") }));
@@ -139,7 +207,7 @@ export function DriveExplorer() {
       const res = await fetch("/api/drive", { method: "POST", body: form });
       const body = (await res.json()) as { saved?: string[]; error?: string };
       if (!res.ok) throw new Error(body.error);
-      toast.success(`${body.saved?.length ?? 0} fichier(s) déposé(s) dans ${into ? `« ${into.split("/").pop()} »` : "le Drive"}`);
+      toast.success(`${body.saved?.length ?? 0} fichier(s) déposé(s) dans ${into ? `« ${baseName(into)} »` : "le Drive"}`);
       await load(path);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Envoi impossible");
@@ -148,26 +216,37 @@ export function DriveExplorer() {
     }
   }
 
-  async function newFolder() {
+  async function newFolder(into = path) {
     const name = window.prompt("Nom du dossier");
     if (!name?.trim()) return;
     try {
-      await driveJson({ action: "mkdir", path, name });
+      await driveJson({ action: "mkdir", path: into, name });
       await load(path);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Dossier impossible");
     }
   }
 
-  async function remove(target: string, label: string) {
-    if (!window.confirm(`Supprimer « ${label} » ? C'est définitif.`)) return;
+  /** Les cibles d'une action : la sélection si l'élément visé en fait partie, sinon lui seul. */
+  function targetsOf(target: string): string[] {
+    return selected.has(target) && selected.size > 1 ? [...selected] : [target];
+  }
+
+  async function remove(target: string) {
+    const targets = targetsOf(target);
+    const label = targets.length > 1 ? `${targets.length} éléments` : `« ${baseName(target)} »`;
+    if (!window.confirm(`Supprimer ${label} ? C'est définitif.`)) return;
+    setBusy("Suppression…");
     try {
-      await driveJson({ action: "delete", path: target });
+      for (const entry of targets) await driveJson({ action: "delete", path: entry });
       setPreview(null);
+      setSelected(new Set());
       await load(path);
-      if (results) setResults(results.filter((file) => file.path !== target));
+      if (results) setResults(results.filter((file) => !targets.includes(file.path)));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Suppression impossible");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -177,35 +256,139 @@ export function DriveExplorer() {
     try {
       await driveJson({ action: "rename", path: target, name });
       setPreview(null);
+      setSelected(new Set());
       await load(path);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Renommage impossible");
     }
   }
 
-  async function moveEntry(source: string, into: string) {
-    if (!source || source === into || into.startsWith(`${source}/`)) return;
+  /** Déplace (ou copie) une liste d'entrées dans un dossier ; un dossier ne rentre jamais dans lui-même. */
+  async function transfer(sources: string[], into: string, mode: "move" | "copy") {
+    const list = sources.filter((source) => source && source !== into && !into.startsWith(`${source}/`) && (mode === "copy" || source.split("/").slice(0, -1).join("/") !== into));
+    if (!list.length) return;
+    setBusy(mode === "move" ? "Déplacement…" : "Copie…");
     try {
-      await driveJson({ action: "move", path: source, into });
-      toast.success(`« ${source.split("/").pop()} » déplacé dans ${into ? `« ${into.split("/").pop()} »` : "la racine"}`);
-      setMoving(null);
+      for (const source of list) await driveJson({ action: mode, path: source, into });
+      toast.success(`${list.length > 1 ? `${list.length} éléments` : `« ${baseName(list[0]) } »`} ${mode === "move" ? "déplacé" : "copié"}${list.length > 1 ? "s" : ""} dans ${into ? `« ${baseName(into)} »` : "la racine"}`);
+      setSelected(new Set());
       await load(path);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Déplacement impossible");
+      toast.error(error instanceof Error ? error.message : "Opération impossible");
+    } finally {
+      setBusy(null);
     }
   }
 
-  /** Un dépôt sur un dossier : des fichiers du disque, ou une vignette du Drive. */
-  function dropInto(into: string, transfer: DataTransfer) {
-    const internal = transfer.getData(INTERNAL);
-    if (internal) return void moveEntry(internal, into);
-    if (transfer.files?.length) return void upload(transfer.files, into);
+  function copyToClipboard(target: string, mode: "copy" | "cut") {
+    const paths = targetsOf(target);
+    setClipboard({ mode, paths });
+    toast.success(`${paths.length > 1 ? `${paths.length} éléments` : `« ${baseName(target)} »`} ${mode === "copy" ? "copié" : "coupé"}${paths.length > 1 ? "s" : ""} — colle dans un dossier (Ctrl+V ou clic droit)`);
   }
 
-  const folders = listing?.folders ?? [];
-  const files = results ?? listing?.files ?? [];
+  async function paste(into = path) {
+    if (!clipboard) return;
+    await transfer(clipboard.paths, into, clipboard.mode === "cut" ? "move" : "copy");
+    if (clipboard.mode === "cut") setClipboard(null);
+  }
+
+  /** Un dépôt sur un dossier : des fichiers du disque, ou des vignettes du Drive. */
+  function dropInto(into: string, transfer_: DataTransfer) {
+    const internal = readInternal(transfer_);
+    if (internal.length) return void transfer(internal, into, "move");
+    if (transfer_.files?.length) return void upload(transfer_.files, into);
+  }
+
+  /** Clic simple : sélection ; Ctrl : ajoute ; Maj : plage depuis le dernier cliqué. */
+  function pick(target: string, event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, order: string[]) {
+    setSelected((current) => {
+      const next = new Set(event.ctrlKey || event.metaKey || event.shiftKey ? current : []);
+      if (event.shiftKey && lastPick.current && order.includes(lastPick.current)) {
+        const a = order.indexOf(lastPick.current);
+        const b = order.indexOf(target);
+        for (const entry of order.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(entry);
+      } else if ((event.ctrlKey || event.metaKey) && next.has(target)) next.delete(target);
+      else next.add(target);
+      return next;
+    });
+    lastPick.current = target;
+  }
+
+  /** Ce que porte un glisser : la sélection si l'élément saisi en fait partie. */
+  function dragPayload(target: string) {
+    return targetsOf(target).join("\n");
+  }
+
   const searching = results !== null;
+  const rawFolders = useMemo(() => listing?.folders ?? [], [listing]);
+  const rawFiles = useMemo(() => results ?? listing?.files ?? [], [results, listing]);
+  const needle = filter.trim().toLowerCase();
+  const folders = useMemo(() => {
+    const list = rawFolders.filter((folder) => !needle || folder.name.toLowerCase().includes(needle));
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => (sort.by === "size" ? (a.count - b.count) * dir : a.name.localeCompare(b.name, "fr") * dir));
+  }, [rawFolders, needle, sort]);
+  const files = useMemo(() => {
+    const list = rawFiles.filter((file) => (typeFilter === "all" || file.kind === typeFilter) && (!needle || file.name.toLowerCase().includes(needle)));
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      switch (sort.by) {
+        case "date":
+          return (new Date(a.mtime).getTime() - new Date(b.mtime).getTime()) * dir;
+        case "size":
+          return (a.size - b.size) * dir;
+        case "kind":
+          return (a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, "fr")) * dir;
+        default:
+          return a.name.localeCompare(b.name, "fr") * dir;
+      }
+    });
+  }, [rawFiles, typeFilter, needle, sort]);
+  const order = useMemo(() => [...folders.map((folder) => folder.path), ...files.map((file) => file.path)], [folders, files]);
   const dragging = dragDepth > 0;
+  const counts = useMemo(() => ({ image: rawFiles.filter((f) => f.kind === "image").length, video: rawFiles.filter((f) => f.kind === "video").length, audio: rawFiles.filter((f) => f.kind === "audio").length, file: rawFiles.filter((f) => f.kind === "file").length }), [rawFiles]);
+
+  /* Raccourcis clavier : Ctrl+C / X / V, Suppr, F2, Ctrl+A, Échap. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (preview) return;
+      const one = selected.size === 1 ? [...selected][0] : null;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selected.size) {
+        event.preventDefault();
+        setClipboard({ mode: "copy", paths: [...selected] });
+        toast.success(`${selected.size} élément(s) copié(s)`);
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "x" && selected.size) {
+        event.preventDefault();
+        setClipboard({ mode: "cut", paths: [...selected] });
+        toast.success(`${selected.size} élément(s) coupé(s)`);
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && clipboard) {
+        event.preventDefault();
+        void paste(path);
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        setSelected(new Set(order));
+      } else if (event.key === "Delete" && selected.size) {
+        event.preventDefault();
+        void remove([...selected][0]);
+      } else if (event.key === "F2" && one) {
+        event.preventDefault();
+        void renameItem(one, baseName(one));
+      } else if (event.key === "Escape") {
+        setSelected(new Set());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  function openMenu(event: React.MouseEvent, target: Menu["target"]) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (target && !selected.has(target.path)) setSelected(new Set([target.path]));
+    setMenu({ x: Math.min(event.clientX, window.innerWidth - 240), y: Math.min(event.clientY, window.innerHeight - 320), target });
+  }
 
   return (
     <div
@@ -220,10 +403,14 @@ export function DriveExplorer() {
         setDragDepth(0);
         dropInto(path, event.dataTransfer);
       }}
+      onContextMenu={(event) => openMenu(event, null)}
+      onClick={() => setSelected(new Set())}
+      className="min-h-[75vh]"
+      data-drive
     >
       <PageHeader
         title="Drive"
-        description="Tes créas retenues, tes médias, tes pubs : des dossiers, et tout se retrouve par le nom. Lâche un fichier sur un dossier pour l'y ranger."
+        description="Tes créas retenues, tes médias, tes pubs : des dossiers, et tout se retrouve par le nom. Glisse pour ranger, clic droit pour renommer, copier, coller, supprimer."
         actions={
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => void newFolder()}>
@@ -248,7 +435,7 @@ export function DriveExplorer() {
         }
       />
 
-      <div className={cn(panel, "mb-4 flex flex-wrap items-center gap-2")}>
+      <div className={cn(panel, "mb-3 flex flex-wrap items-center gap-2")} onClick={(event) => event.stopPropagation()}>
         <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-[12px]">
           <CrumbButton
             active={!path}
@@ -256,7 +443,7 @@ export function DriveExplorer() {
               setPath("");
               setQuery("");
             }}
-            onDropInto={(transfer) => dropInto("", transfer)}
+            onDropInto={(t) => dropInto("", t)}
           >
             <HardDrive className="h-3.5 w-3.5" />
             Drive
@@ -270,7 +457,7 @@ export function DriveExplorer() {
                   setPath(crumb.path);
                   setQuery("");
                 }}
-                onDropInto={(transfer) => dropInto(crumb.path, transfer)}
+                onDropInto={(t) => dropInto(crumb.path, t)}
               >
                 {crumb.name}
               </CrumbButton>
@@ -293,23 +480,64 @@ export function DriveExplorer() {
         </div>
       </div>
 
-      {moving ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-          <FolderInput className="h-3.5 w-3.5" />
-          Déplacer « {moving.name} » : ouvre le dossier de destination, puis
-          <Button size="sm" variant="outline" onClick={() => void moveEntry(moving.path, path)}>
-            Déposer ici{path ? ` (${path.split("/").pop()})` : " (racine)"}
-          </Button>
-          <button type="button" onClick={() => setMoving(null)} className="text-[11px] underline-offset-2 hover:underline">
-            Annuler
+      {/* Tri, filtres et actions sur la sélection : la barre d'un explorateur. */}
+      <div className={cn(panel, "mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px]")} onClick={(event) => event.stopPropagation()} data-drive-toolbar>
+        <label className="flex items-center gap-1 text-slate-500">
+          <span className="font-semibold uppercase tracking-wide">Trier</span>
+          <select value={sort.by} onChange={(event) => setSort((current) => ({ ...current, by: event.target.value as SortBy }))} className="rounded-lg bg-slate-100 px-2 py-1 font-medium dark:bg-slate-800" data-drive-sort>
+            <option value="name">Nom</option>
+            <option value="date">Date</option>
+            <option value="size">Taille</option>
+            <option value="kind">Type</option>
+          </select>
+          <button type="button" onClick={() => setSort((current) => ({ ...current, dir: current.dir === "asc" ? "desc" : "asc" }))} className="rounded-lg bg-slate-100 p-1 text-slate-600 hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300" title={sort.dir === "asc" ? "Croissant" : "Décroissant"} data-drive-sort-dir={sort.dir}>
+            {sort.dir === "asc" ? <ArrowDownAZ className="h-3.5 w-3.5" /> : <ArrowUpAZ className="h-3.5 w-3.5" />}
           </button>
+        </label>
+        <div className="flex items-center gap-1 text-slate-500">
+          <span className="font-semibold uppercase tracking-wide">Type</span>
+          <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group">
+            {(
+              [
+                ["all", "Tout"],
+                ["image", `Images${counts.image ? ` ${counts.image}` : ""}`],
+                ["video", `Vidéos${counts.video ? ` ${counts.video}` : ""}`],
+                ["audio", `Audio${counts.audio ? ` ${counts.audio}` : ""}`],
+                ["file", `Autres${counts.file ? ` ${counts.file}` : ""}`],
+              ] as const
+            ).map(([id, label]) => (
+              <button key={id} type="button" aria-pressed={typeFilter === id} onClick={() => setTypeFilter(id)} className={cn("rounded px-2 py-0.5 text-[10.5px] font-medium", typeFilter === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100" : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200")} data-drive-type={id}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-      ) : null}
+        <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filtrer ce dossier" className="w-40 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-950" data-drive-filter />
+        <div className="ml-auto flex items-center gap-2">
+          {selected.size ? (
+            <>
+              <span className="inline-flex items-center gap-1 font-medium text-slate-700 dark:text-slate-200" data-drive-selected={selected.size}>
+                <CheckSquare className="h-3.5 w-3.5" /> {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
+              </span>
+              <button type="button" onClick={() => copyToClipboard([...selected][0], "copy")} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">Copier</button>
+              <button type="button" onClick={() => copyToClipboard([...selected][0], "cut")} className="rounded-md border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">Couper</button>
+              <button type="button" onClick={() => void remove([...selected][0])} className="rounded-md border border-rose-200 px-2 py-0.5 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-500/10">Supprimer</button>
+              <button type="button" onClick={() => setSelected(new Set())} className="text-slate-400 hover:text-slate-700" aria-label="Désélectionner"><X className="h-3.5 w-3.5" /></button>
+            </>
+          ) : null}
+          {clipboard ? (
+            <button type="button" onClick={() => void paste(path)} className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-0.5 font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900" title={clipboard.paths.map(baseName).join(", ")} data-drive-paste>
+              <ClipboardPaste className="h-3.5 w-3.5" /> Coller {clipboard.paths.length} ici{clipboard.mode === "cut" ? " (déplacer)" : " (copier)"}
+            </button>
+          ) : null}
+          {busy ? <span className="inline-flex items-center gap-1 text-slate-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> {busy}</span> : null}
+        </div>
+      </div>
 
       {dragging ? (
         <div className="pointer-events-none fixed inset-x-0 top-4 z-40 flex justify-center">
           <div className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12px] font-semibold text-white shadow-lg">
-            Lâche sur un dossier pour l&apos;y ranger, ou n&apos;importe où pour déposer dans {path ? `« ${path.split("/").pop()} »` : "le Drive"}
+            Lâche sur un dossier pour l&apos;y ranger, ou n&apos;importe où pour déposer dans {path ? `« ${baseName(path)} »` : "le Drive"}
           </div>
         </div>
       ) : null}
@@ -321,17 +549,19 @@ export function DriveExplorer() {
       ) : null}
 
       {!searching && folders.length ? (
-        <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" data-drive-folders>
           {folders.map((folder) => (
             <FolderTile
               key={folder.path}
               folder={folder}
+              selected={selected.has(folder.path)}
               receiving={uploading?.into === folder.path}
+              cut={clipboard?.mode === "cut" && clipboard.paths.includes(folder.path)}
               onOpen={() => setPath(folder.path)}
-              onRename={() => void renameItem(folder.path, folder.name)}
-              onMove={() => setMoving({ path: folder.path, name: folder.name })}
-              onDelete={() => void remove(folder.path, folder.name)}
-              onDropInto={(transfer) => dropInto(folder.path, transfer)}
+              onPick={(event) => pick(folder.path, event, order)}
+              onMenu={(event) => openMenu(event, { path: folder.path, name: folder.name, kind: "folder" })}
+              dragPayload={() => dragPayload(folder.path)}
+              onDropInto={(t) => dropInto(folder.path, t)}
             />
           ))}
         </div>
@@ -344,27 +574,55 @@ export function DriveExplorer() {
       ) : null}
 
       {files.length ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6" data-drive-files>
           {files.map((file) => (
             <FileTile
               key={file.path}
               file={file}
               showPath={searching}
+              selected={selected.has(file.path)}
+              cut={clipboard?.mode === "cut" && clipboard.paths.includes(file.path)}
               onOpen={() => setPreview(file)}
+              onPick={(event) => pick(file.path, event, order)}
+              onMenu={(event) => openMenu(event, { path: file.path, name: file.name, kind: "file" })}
+              dragPayload={() => dragPayload(file.path)}
               onGoTo={() => {
                 setQuery("");
                 setPath(file.path.split("/").slice(0, -1).join("/"));
               }}
-              onMove={() => setMoving({ path: file.path, name: file.name })}
-              onDelete={() => void remove(file.path, file.name)}
             />
           ))}
         </div>
       ) : listing && !folders.length && !loading ? (
         <EmptyState
-          title={searching ? "Rien trouvé" : "Dossier vide"}
-          description={searching ? "Essaie un autre mot du nom de fichier." : "Glisse des fichiers ici, ou clique « Envoyer des fichiers ». Crée des dossiers par boutique ou par campagne."}
+          title={searching ? "Rien trouvé" : needle || typeFilter !== "all" ? "Rien ne passe ce filtre" : "Dossier vide"}
+          description={searching ? "Essaie un autre mot du nom de fichier." : needle || typeFilter !== "all" ? "Change le filtre de type ou le texte du filtre." : "Glisse des fichiers ici, ou clique « Envoyer des fichiers ». Crée des dossiers par boutique ou par campagne."}
         />
+      ) : null}
+
+      {menu ? (
+        <div className="fixed z-50 w-56 overflow-hidden rounded-xl bg-white py-1 text-[12px] shadow-2xl ring-1 ring-slate-900/10 dark:bg-slate-900 dark:ring-slate-100/10" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()} onContextMenu={(event) => event.preventDefault()} data-drive-menu>
+          {menu.target ? (
+            <>
+              <div className="truncate px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">{selected.size > 1 && selected.has(menu.target.path) ? `${selected.size} éléments` : menu.target.name}</div>
+              <MenuItem icon={menu.target.kind === "folder" ? FolderOpen : Maximize2} label={menu.target.kind === "folder" ? "Ouvrir" : "Aperçu"} onClick={() => { const t = menu.target!; setMenu(null); if (t.kind === "folder") setPath(t.path); else setPreview(rawFiles.find((file) => file.path === t.path) ?? null); }} />
+              {menu.target.kind === "file" ? <MenuItem icon={Download} label="Télécharger" href={fileUrl(menu.target.path, true)} onClick={() => setMenu(null)} /> : null}
+              <MenuItem icon={Pencil} label="Renommer" shortcut="F2" onClick={() => { const t = menu.target!; setMenu(null); void renameItem(t.path, t.name); }} data="rename" />
+              <MenuItem icon={Copy} label="Copier" shortcut="Ctrl+C" onClick={() => { const t = menu.target!; setMenu(null); copyToClipboard(t.path, "copy"); }} data="copy" />
+              <MenuItem icon={Scissors} label="Couper" shortcut="Ctrl+X" onClick={() => { const t = menu.target!; setMenu(null); copyToClipboard(t.path, "cut"); }} data="cut" />
+              {menu.target.kind === "folder" && clipboard ? <MenuItem icon={ClipboardPaste} label={`Coller dedans (${clipboard.paths.length})`} onClick={() => { const t = menu.target!; setMenu(null); void paste(t.path); }} data="paste-into" /> : null}
+              <MenuItem icon={Trash2} label="Supprimer" shortcut="Suppr" danger onClick={() => { const t = menu.target!; setMenu(null); void remove(t.path); }} data="delete" />
+            </>
+          ) : (
+            <>
+              <div className="truncate px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">{path ? baseName(path) : "Drive"}</div>
+              <MenuItem icon={FolderPlus} label="Nouveau dossier" onClick={() => { setMenu(null); void newFolder(path); }} data="mkdir" />
+              <MenuItem icon={Upload} label="Envoyer des fichiers" onClick={() => { setMenu(null); inputRef.current?.click(); }} />
+              {clipboard ? <MenuItem icon={ClipboardPaste} label={`Coller ici (${clipboard.paths.length})`} shortcut="Ctrl+V" onClick={() => { setMenu(null); void paste(path); }} data="paste" /> : null}
+              <MenuItem icon={CheckSquare} label="Tout sélectionner" shortcut="Ctrl+A" onClick={() => { setMenu(null); setSelected(new Set(order)); }} />
+            </>
+          )}
+        </div>
       ) : null}
 
       {preview ? (
@@ -402,37 +660,23 @@ export function DriveExplorer() {
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <a
-                href={fileUrl(preview.path, true)}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900"
-              >
+              <a href={fileUrl(preview.path, true)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 text-[12px] font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900">
                 <Download className="h-3.5 w-3.5" />
                 Télécharger
               </a>
-              <button
-                type="button"
-                onClick={() => void renameItem(preview.path, preview.name)}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
-              >
+              <button type="button" onClick={() => void renameItem(preview.path, preview.name)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
                 <Pencil className="h-3.5 w-3.5" />
                 Renommer
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMoving({ path: preview.path, name: preview.name });
-                  setPreview(null);
-                }}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
-              >
+              <button type="button" onClick={() => { copyToClipboard(preview.path, "cut"); setPreview(null); }} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
                 <FolderInput className="h-3.5 w-3.5" />
-                Déplacer
+                Couper pour déplacer
               </button>
-              <button
-                type="button"
-                onClick={() => void remove(preview.path, preview.name)}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-              >
+              <button type="button" onClick={() => { copyToClipboard(preview.path, "copy"); setPreview(null); }} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
+                <Copy className="h-3.5 w-3.5" />
+                Copier
+              </button>
+              <button type="button" onClick={() => void remove(preview.path)} className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10">
                 <Trash2 className="h-3.5 w-3.5" />
                 Supprimer
               </button>
@@ -444,18 +688,21 @@ export function DriveExplorer() {
   );
 }
 
+function MenuItem({ icon: Icon, label, shortcut, onClick, href, danger = false, data }: { icon: React.ComponentType<{ className?: string }>; label: string; shortcut?: string; onClick: () => void; href?: string; danger?: boolean; data?: string }) {
+  const className = cn("flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800", danger ? "text-rose-600" : "text-slate-700 dark:text-slate-200");
+  const inner = (
+    <>
+      <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+      <span className="flex-1 truncate">{label}</span>
+      {shortcut ? <span className="text-[10px] text-slate-400">{shortcut}</span> : null}
+    </>
+  );
+  if (href) return <a href={href} className={className} onClick={onClick} data-menu-item={data}>{inner}</a>;
+  return <button type="button" className={className} onClick={onClick} data-menu-item={data}>{inner}</button>;
+}
+
 /** Un fil d'Ariane qui accepte aussi un dépôt : lâcher sur « Drive » range à la racine. */
-function CrumbButton({
-  active,
-  onClick,
-  onDropInto,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  onDropInto: (transfer: DataTransfer) => void;
-  children: React.ReactNode;
-}) {
+function CrumbButton({ active, onClick, onDropInto, children }: { active: boolean; onClick: () => void; onDropInto: (transfer: DataTransfer) => void; children: React.ReactNode }) {
   const [over, setOver] = useState(false);
   return (
     <button
@@ -483,29 +730,13 @@ function CrumbButton({
   );
 }
 
-function FolderTile({
-  folder,
-  receiving,
-  onOpen,
-  onRename,
-  onMove,
-  onDelete,
-  onDropInto,
-}: {
-  folder: DriveFolder;
-  receiving: boolean;
-  onOpen: () => void;
-  onRename: () => void;
-  onMove: () => void;
-  onDelete: () => void;
-  onDropInto: (transfer: DataTransfer) => void;
-}) {
+function FolderTile({ folder, selected, receiving, cut, onOpen, onPick, onMenu, dragPayload, onDropInto }: { folder: DriveFolder; selected: boolean; receiving: boolean; cut: boolean; onOpen: () => void; onPick: (event: React.MouseEvent) => void; onMenu: (event: React.MouseEvent) => void; dragPayload: () => string; onDropInto: (transfer: DataTransfer) => void }) {
   const [over, setOver] = useState(false);
   return (
     <div
       draggable
       onDragStart={(event) => {
-        event.dataTransfer.setData(INTERNAL, folder.path);
+        event.dataTransfer.setData(INTERNAL, dragPayload());
         event.dataTransfer.effectAllowed = "move";
       }}
       onDragOver={(event) => {
@@ -520,66 +751,60 @@ function FolderTile({
         setOver(false);
         onDropInto(event.dataTransfer);
       }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(event);
+      }}
+      onDoubleClick={onOpen}
+      onContextMenu={onMenu}
       className={cn(
         panel,
-        "group flex items-center gap-2 transition-shadow",
+        "group flex cursor-default select-none items-center gap-2 transition-shadow",
+        selected && "ring-2 ring-slate-900 dark:ring-slate-100",
         over && "bg-emerald-50 ring-2 ring-emerald-400 dark:bg-emerald-500/10",
-        receiving && "opacity-70"
+        receiving && "opacity-70",
+        cut && "opacity-50"
       )}
+      data-drive-folder={folder.path}
+      data-selected={selected ? "true" : "false"}
     >
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+      <button type="button" onClick={(event) => { event.stopPropagation(); if (event.ctrlKey || event.metaKey || event.shiftKey) onPick(event); else onOpen(); }} className="flex min-w-0 flex-1 items-center gap-2 text-left" title="Ouvrir · Ctrl/Maj + clic : sélectionner">
         {receiving ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-emerald-500" /> : <FolderOpen className="h-5 w-5 shrink-0 text-amber-500" />}
         <span className="min-w-0">
           <span className="block truncate text-[12px] font-medium text-slate-900 dark:text-slate-100">{folder.name}</span>
           <span className="block text-[10px] text-slate-500">{receiving ? "Réception…" : `${folder.count} élément(s)`}</span>
         </span>
       </button>
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-        <button type="button" onClick={onRename} title="Renommer" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800">
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
-        <button type="button" onClick={onMove} title="Déplacer" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800">
-          <FolderInput className="h-3.5 w-3.5" />
-        </button>
-        <button type="button" onClick={onDelete} title="Supprimer" className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      <input type="checkbox" checked={selected} onChange={() => undefined} onClick={(event) => { event.stopPropagation(); onPick({ ...event, ctrlKey: true } as React.MouseEvent); }} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 data-[on=true]:opacity-100" data-on={selected ? "true" : "false"} aria-label={`Sélectionner ${folder.name}`} />
     </div>
   );
 }
 
-function FileTile({
-  file,
-  showPath,
-  onOpen,
-  onGoTo,
-  onMove,
-  onDelete,
-}: {
-  file: DriveFile;
-  showPath: boolean;
-  onOpen: () => void;
-  onGoTo: () => void;
-  onMove: () => void;
-  onDelete: () => void;
-}) {
+function FileTile({ file, showPath, selected, cut, onOpen, onPick, onMenu, dragPayload, onGoTo }: { file: DriveFile; showPath: boolean; selected: boolean; cut: boolean; onOpen: () => void; onPick: (event: React.MouseEvent) => void; onMenu: (event: React.MouseEvent) => void; dragPayload: () => string; onGoTo: () => void }) {
   const src = fileUrl(file.path);
   const playable = file.kind === "video" && PLAYABLE.test(file.name);
   return (
     <div
-      className="group"
+      className={cn("group select-none", cut && "opacity-50")}
       draggable
       onDragStart={(event) => {
-        event.dataTransfer.setData(INTERNAL, file.path);
+        event.dataTransfer.setData(INTERNAL, dragPayload());
         event.dataTransfer.effectAllowed = "move";
       }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(event);
+      }}
+      onDoubleClick={onOpen}
+      onContextMenu={onMenu}
+      data-drive-file={file.path}
+      data-selected={selected ? "true" : "false"}
     >
-      <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-900/[0.06] dark:bg-slate-800 dark:ring-slate-100/[0.06]">
-        <button type="button" onClick={onOpen} className="h-full w-full" title="Ouvrir">
+      <div className={cn("relative aspect-[3/4] overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-900/[0.06] dark:bg-slate-800 dark:ring-slate-100/[0.06]", selected && "ring-2 ring-slate-900 dark:ring-slate-100")}>
+        <div className="h-full w-full" title="Clic : sélectionner · double-clic : ouvrir">
           {file.kind === "image" ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" />
+            <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" draggable={false} />
           ) : playable ? (
             <video src={`${src}#t=0.5`} muted playsInline preload="metadata" className="h-full w-full object-cover" />
           ) : (
@@ -588,20 +813,15 @@ function FileTile({
               <span className="text-[10px] uppercase">{file.name.split(".").pop()}</span>
             </div>
           )}
-        </button>
-        <div className="absolute inset-x-1 top-1 flex items-center justify-between opacity-0 transition-opacity group-hover:opacity-100">
-          <a href={fileUrl(file.path, true)} title="Télécharger" className="rounded-md bg-slate-950/60 p-1 text-white hover:bg-slate-950/80">
-            <Download className="h-3 w-3" />
-          </a>
+        </div>
+        <input type="checkbox" checked={selected} onChange={() => undefined} onClick={(event) => { event.stopPropagation(); onPick({ ...event, ctrlKey: true } as React.MouseEvent); }} className="absolute left-1.5 top-1.5 opacity-0 transition-opacity group-hover:opacity-100 data-[on=true]:opacity-100" data-on={selected ? "true" : "false"} aria-label={`Sélectionner ${file.name}`} />
+        <div className="absolute inset-x-1 top-1 flex items-center justify-end opacity-0 transition-opacity group-hover:opacity-100">
           <div className="flex items-center gap-0.5">
-            <button type="button" onClick={onMove} title="Déplacer" className="rounded-md bg-slate-950/60 p-1 text-white hover:bg-slate-950/80">
-              <FolderInput className="h-3 w-3" />
-            </button>
-            <button type="button" onClick={onOpen} title="Agrandir" className="rounded-md bg-slate-950/60 p-1 text-white hover:bg-slate-950/80">
+            <a href={fileUrl(file.path, true)} title="Télécharger" onClick={(event) => event.stopPropagation()} className="rounded-md bg-slate-950/60 p-1 text-white hover:bg-slate-950/80">
+              <Download className="h-3 w-3" />
+            </a>
+            <button type="button" onClick={(event) => { event.stopPropagation(); onOpen(); }} title="Agrandir" className="rounded-md bg-slate-950/60 p-1 text-white hover:bg-slate-950/80">
               <Maximize2 className="h-3 w-3" />
-            </button>
-            <button type="button" onClick={onDelete} title="Supprimer" className="rounded-md bg-slate-950/60 p-1 text-white hover:bg-rose-600">
-              <Trash2 className="h-3 w-3" />
             </button>
           </div>
         </div>
@@ -612,7 +832,7 @@ function FileTile({
       <div className="flex items-center justify-between text-[10px] text-slate-400">
         <span>{formatSize(file.size)}</span>
         {showPath ? (
-          <button type="button" onClick={onGoTo} className="truncate hover:underline" title={file.path}>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onGoTo(); }} className="truncate hover:underline" title={file.path}>
             {file.path.split("/").slice(0, -1).join(" / ") || "Racine"}
           </button>
         ) : null}

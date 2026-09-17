@@ -37,7 +37,7 @@ const HERMES_FORBIDDEN_NAMES = [
   },
   { name: "@/lib/metrics/spend-store", importNames: ["setSpend", "setSpendBulk"] },
   { name: "@/lib/meta/registry", importNames: ["addStoredToken", "removeStoredToken", "setAutoDetect", "rememberAccounts", "acknowledgeAccounts", "getExtraTokens"] },
-  { name: "@/lib/drive/store", importNames: ["createFolder", "saveFile", "removeEntry", "renameEntry", "moveEntry"] },
+  { name: "@/lib/drive/store", importNames: ["createFolder", "saveFile", "removeEntry", "renameEntry", "moveEntry", "copyEntry"] },
   { name: "@/lib/spyshop/store", importNames: ["addProject", "removeProject", "addShop", "removeShop", "updateShop", "checkShop"] },
   { name: "@/lib/ugc/store", importNames: ["createBatch", "applyResults", "stitchAngle", "deleteBatch"] },
   { name: "@/lib/studio/library", importNames: ["saveStaticCreative", "deleteStaticCreative"] },

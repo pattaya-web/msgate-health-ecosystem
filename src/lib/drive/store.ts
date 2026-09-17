@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import { mirror } from "@/lib/storage";
 
@@ -225,6 +225,21 @@ export async function moveEntry(rel: string, intoRel: string) {
     const sideName = sidecarName(finalName);
     await rename(abs(side), path.join(dir, sideName)).catch(() => undefined);
   }
+  return next;
+}
+
+/** Copie un fichier ou un dossier (récursif) dans un autre dossier, sans écraser : « nom (2) » si le nom est pris. */
+export async function copyEntry(rel: string, intoRel: string) {
+  if (!rel) throw new Error("La racine ne se copie pas");
+  const name = rel.split("/").pop() as string;
+  if (intoRel === rel || intoRel.startsWith(`${rel}/`)) throw new Error("Un dossier ne se copie pas dans lui-même");
+  const dir = abs(intoRel);
+  await mkdir(dir, { recursive: true });
+  const finalName = await freeName(dir, name);
+  const next = intoRel ? `${intoRel}/${finalName}` : finalName;
+  await cp(abs(rel), abs(next), { recursive: true, errorOnExist: true, force: false });
+  const side = await sidecarOf(rel);
+  if (side) await cp(abs(side), path.join(dir, sidecarName(finalName)), { force: false }).catch(() => undefined);
   return next;
 }
 
