@@ -30,7 +30,11 @@ export const BRANDING_RULE =
 export const INSPIRATION_RULE =
   "INSPIRATION: the composition and style may be adapted from a reference ad, but the product shown is exactly the PRODUCT above — never another product, brand, logo, packaging, claim, badge, origin, guarantee or certification.";
 
-export function composeWorkspacePrompt(input: { userPrompt: string; product: WorkspaceProductFacts; hasReference: boolean; hasInspiration?: boolean }): string {
+/** Sans logo : rien d'ajouté, et rien de repris de la photo du produit non plus. Remplace la règle de branding. */
+export const NO_LOGO_INSTRUCTION =
+  "NO LOGO: the creative shows no logo, wordmark, brand badge, monogram, watermark or brand-name typography anywhere — not overlaid, not in a corner, not on the packaging, not in the background. If the product reference photo carries a logo or brand name, render that surface plain and unbranded.";
+
+export function composeWorkspacePrompt(input: { userPrompt: string; product: WorkspaceProductFacts; hasReference: boolean; hasInspiration?: boolean; noLogo?: boolean }): string {
   const user = input.userPrompt.trim();
   const { product } = input;
   const descriptor = [product.productType, product.category ? `(${product.category})` : ""].filter(Boolean).join(" ");
@@ -39,5 +43,5 @@ export function composeWorkspacePrompt(input: { userPrompt: string; product: Wor
   const summary = !descriptor && product.description ? product.description.trim().replace(/\s+/g, " ").slice(0, 200) : "";
   const productLine = `PRODUCT: ${product.name}${product.store ? ` by ${product.store}` : ""}${descriptor ? ` — ${descriptor}` : ""}${summary ? ` — ${summary}` : ""}${product.price ? ` — price ${product.price}` : ""}.${facts ? ` ${facts}.` : ""}`;
   // Une créa = une image : la règle du moteur ferme la porte aux collages, quel que soit le brief.
-  return [user, "", productLine, input.hasReference ? FIDELITY_INSTRUCTION : "", input.hasInspiration ? INSPIRATION_RULE : "", BRANDING_RULE, SINGLE_CREATIVE_RULE].filter((line, index) => line !== "" || index === 1).join("\n");
+  return [user, "", productLine, input.hasReference ? FIDELITY_INSTRUCTION : "", input.hasInspiration ? INSPIRATION_RULE : "", input.noLogo ? NO_LOGO_INSTRUCTION : BRANDING_RULE, SINGLE_CREATIVE_RULE].filter((line, index) => line !== "" || index === 1).join("\n");
 }

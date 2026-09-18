@@ -21,6 +21,7 @@ import { avoidList, CreativeReferenceSlot, patchPlan, PlanCards, ReferenceModeCo
 import { useProductContext } from "@/components/studio/product-context";
 import { ProductPicker } from "@/components/studio/product-picker";
 import { TemplatePicker, templatePrompt } from "@/components/studio/template-picker";
+import type { PromptTemplate, PromptTemplateInput } from "@/lib/studio/template-types";
 import { CompetitorResearchPanel } from "@/components/studio/competitor-research";
 import type { CompetitorAnalysis, CompetitorInspiration, CompetitorResearch } from "@/lib/brandsearch/types";
 import { BatchPreview, launchFromPrompts, launchedState, type Draft } from "@/components/studio/batch-preview";
@@ -148,6 +149,34 @@ export function StaticStudio() {
   const [promptMode, setPromptMode] = useState<PromptMode>("auto");
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [templateSeed, setTemplateSeed] = useState(() => Date.now() % 100000);
+  /* Les templates de prompt, lus depuis leur store ; null tant qu'ils n'ont pas répondu. */
+  const [templates, setTemplates] = useState<PromptTemplate[] | null>(null);
+  const selectedTemplate = useMemo(() => templates?.find((template) => template.id === templateId) ?? null, [templates, templateId]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetch("/api/studio/templates", { cache: "no-store" })
+        .then((res) => res.json() as Promise<{ templates?: PromptTemplate[]; error?: string }>)
+        .then((body) => {
+          if (!body.templates) throw new Error(body.error || "Templates illisibles");
+          setTemplates(body.templates);
+        })
+        .catch((error) => {
+          setTemplates([]);
+          toast.error(error instanceof Error ? error.message : "Templates illisibles");
+        });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+  /* Volets : chaque étape se plie, son résumé reste sur la ligne de titre. */
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const isOpen = (id: string) => !folded.has(id);
+  const toggleFold = (id: string) =>
+    setFolded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const [plan, setPlan] = useState<PlanResult | null>(null);
   const [planSelected, setPlanSelected] = useState<Set<number>>(() => new Set());
   const [planning, setPlanning] = useState(false);
@@ -476,11 +505,47 @@ export function StaticStudio() {
   }
 
   /** Template : le format choisi, écrit pour le produit du catalogue ; « Nouvelle variation » change la graine. */
-  function applyTemplate(id: string, seed = templateSeed) {
-    if (!activeProduct) return toast.error("Choisis d'abord un produit");
+  function applyTemplate(id: string, seed = templateSeed, known?: PromptTemplate) {
+    const template = known ?? templates?.find((entry) => entry.id === id);
+    if (!template) return;
     setTemplateId(id);
-    setGenPaste(templatePrompt(activeProduct, id, seed));
+    if (!activeProduct) return toast.error("Choisis d'abord un produit");
+    setGenPaste(templatePrompt(activeProduct, template, seed));
     setCount(1);
+  }
+
+  async function templatesPost(body: Record<string, unknown>) {
+    const res = await fetch("/api/studio/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = (await res.json()) as { template?: PromptTemplate; error?: string };
+    if (!res.ok) throw new Error(data.error || "Opération impossible");
+    return data.template ?? null;
+  }
+
+  /** Un template créé devient le template choisi ; un template modifié réécrit le prompt s'il était choisi. */
+  async function createTemplate(input: PromptTemplateInput) {
+    const created = await templatesPost({ action: "create", ...input });
+    if (!created) return;
+    setTemplates((current) => [created, ...(current ?? [])]);
+    applyTemplate(created.id, templateSeed, created);
+    toast.success("Template créé");
+  }
+
+  async function updateTemplate(id: string, input: PromptTemplateInput) {
+    const updated = await templatesPost({ action: "update", id, ...input });
+    if (!updated) return;
+    setTemplates((current) => (current ?? []).map((template) => (template.id === id ? updated : template)));
+    if (templateId === id) applyTemplate(id, templateSeed, updated);
+    toast.success("Template enregistré");
+  }
+
+  async function deleteTemplate(id: string) {
+    await templatesPost({ action: "delete", id });
+    setTemplates((current) => (current ?? []).filter((template) => template.id !== id));
+    if (templateId === id) {
+      setTemplateId(null);
+      setGenPaste("");
+    }
+    toast.success("Template supprimé");
   }
 
   function newVariation() {
@@ -503,7 +568,9 @@ export function StaticStudio() {
     const list = base.length === 1 ? Array.from({ length: Math.max(1, count) }, () => base[0]) : base;
     // Avec un produit : ses faits et, si sa photo part, la consigne de fidélité — comme pour les créas planifiées.
     const facts = ctx.facts;
-    const finals = facts ? list.map((prompt) => composeWorkspacePrompt({ userPrompt: prompt, product: facts, hasReference: productRefActive, hasInspiration: Boolean(inspirationImage) || Boolean(competitorInspiration) })) : list;
+    // Un template « sans logo » remplace la règle de branding par l'interdiction du logo, photo produit comprise.
+    const noLogo = promptMode === "template" && Boolean(selectedTemplate?.noLogo);
+    const finals = facts ? list.map((prompt) => composeWorkspacePrompt({ userPrompt: prompt, product: facts, hasReference: productRefActive, hasInspiration: Boolean(inspirationImage) || Boolean(competitorInspiration), noLogo })) : list;
 
     // `busy` ne couvre que la création des tâches, pas leur exécution : dès que
     // Kie a rendu les taskId, la main est libre pour lancer un autre lot.
@@ -542,7 +609,7 @@ export function StaticStudio() {
         ...(family.kind === "video" ? { duration } : {}),
       });
       const savedRefs = body.referenceUrls?.length ? body.referenceUrls : referenceUrls;
-      const brief = promptMode === "template" && templateId ? `Template · ${CREATIVE_TYPES.find((type) => type.id === templateId)?.name ?? templateId}${activeProduct ? ` · ${activeProduct.name}` : ""}` : activeProduct ? activeProduct.name : "";
+      const jobBrief = promptMode === "template" && selectedTemplate ? `Template · ${selectedTemplate.name}${activeProduct ? ` · ${activeProduct.name}` : ""}` : activeProduct ? activeProduct.name : "";
       const createdAt = new Date().toISOString();
 
       // Les nouveaux passent devant, les lots précédents restent à l'écran.
@@ -556,7 +623,7 @@ export function StaticStudio() {
             urls: [],
             status: "run" as const,
             saved: false,
-            brief,
+            brief: jobBrief,
             ratio,
             resolution,
             referenceUrls: savedRefs,
@@ -750,7 +817,7 @@ export function StaticStudio() {
       {/* ---------------------------------------------- 1. PRODUIT */}
       <section className={panel} data-step="product">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <StepTitle n={1} title="Produit" optional />
+          <StepTitle n={1} title="Produit" optional open={isOpen("product")} onToggle={() => toggleFold("product")} summary={activeProduct ? `${activeProduct.name}${primary ? " · ✓ photo" : " · sans photo"}` : "aucun produit"} />
           <div className="flex items-center gap-2 text-[11px]">
             {activeProduct ? (
               <>
@@ -767,6 +834,7 @@ export function StaticStudio() {
             </Link>
           </div>
         </div>
+        {isOpen("product") ? (<>
         {activeProduct ? (
           <div className={cn("flex flex-wrap items-center gap-4 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60", pickerOpen && "mb-3")} data-product-summary>
             <div className="flex min-w-0 items-center gap-3">
@@ -809,12 +877,13 @@ export function StaticStudio() {
             }}
           />
         ) : null}
+        </>) : null}
       </section>
 
       {/* ---------------------------------------------- 2. IMAGE PROMPT */}
       <section className={panel} data-step="prompt">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <StepTitle n={2} title="Image prompt" />
+          <StepTitle n={2} title="Image prompt" open={isOpen("prompt")} onToggle={() => toggleFold("prompt")} summary={promptMode === "template" ? `template${selectedTemplate ? ` · ${selectedTemplate.name}` : ""}` : promptMode === "auto" ? `auto-brief${brief.trim() ? ` · ${brief.trim().slice(0, 50)}` : ""}` : `prompt exact${genPaste.trim() ? ` · ${genPaste.trim().slice(0, 50)}` : ""}`} />
           <div className="flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800" role="group" aria-label="Mode du prompt">
             {(
               [
@@ -842,10 +911,11 @@ export function StaticStudio() {
           </div>
         </div>
 
+        {isOpen("prompt") ? (<>
         {promptMode === "template" ? (
           <div className="mb-3">
             {!activeProduct ? <p className="mb-2 text-[11.5px] text-amber-700 dark:text-amber-300">Choisis un produit : le template s&apos;écrit avec son nom, son prix et ses points clés.</p> : <p className="mb-2 text-[11.5px] text-slate-500">Un format de créa adapté au produit, sans IA : le prompt s&apos;écrit en dessous, modifiable avant de générer.</p>}
-            <TemplatePicker value={templateId} onChange={(id) => applyTemplate(id)} disabled={!activeProduct} />
+            <TemplatePicker templates={templates} value={templateId} onChange={(id) => applyTemplate(id)} onCreate={createTemplate} onUpdate={updateTemplate} onDelete={deleteTemplate} disabled={!activeProduct} />
           </div>
         ) : null}
 
@@ -860,14 +930,105 @@ export function StaticStudio() {
           </div>
         ) : null}
 
-        {promptMode === "template" && templateId ? (
+        {promptMode === "template" && selectedTemplate ? (
           <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-            <span>Prompt du template <span className="font-semibold text-slate-700 dark:text-slate-200">{CREATIVE_TYPES.find((type) => type.id === templateId)?.name}</span>, modifiable.</span>
+            <span>Prompt du template <span className="font-semibold text-slate-700 dark:text-slate-200">{selectedTemplate.name}</span>{selectedTemplate.noLogo ? " · sans logo" : ""}, modifiable.</span>
             <button type="button" onClick={newVariation} className="inline-flex items-center gap-1 font-medium text-emerald-600 hover:underline" data-template-variation>
               <RefreshCw className="h-3 w-3" /> Nouvelle variation
             </button>
           </div>
         ) : null}
+        {/* Les images de référence : au-dessus du prompt, toujours visibles ; elles partent au modèle avec chaque image. */}
+        <div className="mb-2">
+        <div
+          data-refs-zone
+          className={cn(
+            "flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl p-1 transition-colors",
+            fileOver && "bg-emerald-50 ring-2 ring-dashed ring-emerald-400 dark:bg-emerald-950/30"
+          )}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) {
+              e.preventDefault();
+              setFileOver(true);
+            }
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false);
+          }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            setFileOver(false);
+            const files = [...e.dataTransfer.files].filter((file) => file.type.startsWith("image/"));
+            if (files.length) void addRefs(files);
+          }}
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title={activeProduct ? "Images envoyées au modèle en plus de la photo du produit. Clic : agrandir. Glisser : changer l'ordre." : "Photos de ton produit / sujet : Hermes les regarde pour planifier (3 max) et elles partent au modèle image avec chaque prompt. Clic : agrandir. Glisser : changer l'ordre."}>
+            Images de référence{refs.length ? ` ${refs.length}/8` : ""}
+          </span>
+          {refs.map((ref, index) => (
+            <div
+              key={ref.id}
+              draggable
+              data-ref-index={index}
+              onDragStart={(e) => {
+                setDragIndex(index);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", String(index));
+              }}
+              onDragEnd={() => setDragIndex(null)}
+              onDragOver={(e) => {
+                if (dragIndex !== null) e.preventDefault();
+              }}
+              onDrop={(e) => {
+                if (dragIndex === null) return;
+                e.preventDefault();
+                e.stopPropagation();
+                moveRef(dragIndex, index);
+                setDragIndex(null);
+              }}
+              className={cn(
+                "group/ref relative h-11 w-11 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 active:cursor-grabbing",
+                ref.url ? "ring-emerald-500/40" : "ring-slate-900/10",
+                dragIndex === index && "opacity-40"
+              )}
+              title={`${index + 1} · ${ref.name} — clic : agrandir, glisser : réordonner`}
+            >
+              <button type="button" onClick={() => setRefZoom(ref)} className="h-full w-full" aria-label={`Agrandir la référence ${index + 1}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={ref.preview} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />
+              </button>
+              <span className="pointer-events-none absolute bottom-0 left-0 rounded-tr bg-black/60 px-1 text-[9px] font-semibold leading-3 text-white">{index + 1}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRefs((list) => list.filter((item) => item.id !== ref.id));
+                }}
+                className="absolute right-0 top-0 rounded bg-black/60 p-0.5 text-white"
+                aria-label={`Retirer la référence ${index + 1}`}
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          ))}
+          {refs.length < 8 ? (
+            <label title="Ajouter une image de référence (ou dépose des fichiers sur la rangée)" className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-dashed ring-slate-300 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600">
+              <ImagePlus className="h-4 w-4" />
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files?.length) void addRefs(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          ) : null}
+        </div>
+        </div>
         <textarea
           value={promptMode === "auto" ? brief : genPaste}
           onChange={(e) => {
@@ -988,96 +1149,8 @@ export function StaticStudio() {
               ) : null}
 
               {inspirationTab === "image" ? (
-                <div className="space-y-2">
+                <div>
                   <CreativeReferenceSlot value={inspiration} onChange={setInspiration} hint={activeProduct ? "Pub concurrente ou créa de style : le batch en garde l'angle, la structure et le style ; ton produit, sa photo et ses faits restent les tiens." : "Pub concurrente ou créa de style : le batch en garde la structure et le style. Ce n'est pas ton produit : sa photo va dans « Images de référence » juste en dessous."} />
-                  <div
-                    data-refs-zone
-                    className={cn(
-                      "flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl p-1 transition-colors",
-                      fileOver && "bg-emerald-50 ring-2 ring-dashed ring-emerald-400 dark:bg-emerald-950/30"
-                    )}
-                    onDragOver={(e) => {
-                      if (e.dataTransfer.types.includes("Files")) {
-                        e.preventDefault();
-                        setFileOver(true);
-                      }
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false);
-                    }}
-                    onDrop={(e) => {
-                      if (!e.dataTransfer.types.includes("Files")) return;
-                      e.preventDefault();
-                      setFileOver(false);
-                      const files = [...e.dataTransfer.files].filter((file) => file.type.startsWith("image/"));
-                      if (files.length) void addRefs(files);
-                    }}
-                  >
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400" title={activeProduct ? "Images envoyées au modèle en plus de la photo du produit. Clic : agrandir. Glisser : changer l'ordre." : "Photos de ton produit / sujet : Hermes les regarde pour planifier (3 max) et elles partent au modèle image avec chaque prompt. Clic : agrandir. Glisser : changer l'ordre."}>
-                      Images de référence{refs.length ? ` ${refs.length}/8` : ""}
-                    </span>
-                    {refs.map((ref, index) => (
-                      <div
-                        key={ref.id}
-                        draggable
-                        data-ref-index={index}
-                        onDragStart={(e) => {
-                          setDragIndex(index);
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("text/plain", String(index));
-                        }}
-                        onDragEnd={() => setDragIndex(null)}
-                        onDragOver={(e) => {
-                          if (dragIndex !== null) e.preventDefault();
-                        }}
-                        onDrop={(e) => {
-                          if (dragIndex === null) return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          moveRef(dragIndex, index);
-                          setDragIndex(null);
-                        }}
-                        className={cn(
-                          "group/ref relative h-11 w-11 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 active:cursor-grabbing",
-                          ref.url ? "ring-emerald-500/40" : "ring-slate-900/10",
-                          dragIndex === index && "opacity-40"
-                        )}
-                        title={`${index + 1} · ${ref.name} — clic : agrandir, glisser : réordonner`}
-                      >
-                        <button type="button" onClick={() => setRefZoom(ref)} className="h-full w-full" aria-label={`Agrandir la référence ${index + 1}`}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={ref.preview} alt="" className="pointer-events-none h-full w-full object-cover" draggable={false} />
-                        </button>
-                        <span className="pointer-events-none absolute bottom-0 left-0 rounded-tr bg-black/60 px-1 text-[9px] font-semibold leading-3 text-white">{index + 1}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRefs((list) => list.filter((item) => item.id !== ref.id));
-                          }}
-                          className="absolute right-0 top-0 rounded bg-black/60 p-0.5 text-white"
-                          aria-label={`Retirer la référence ${index + 1}`}
-                        >
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      </div>
-                    ))}
-                    {refs.length < 8 ? (
-                      <label title="Ajouter une image de référence (ou dépose des fichiers sur la rangée)" className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-dashed ring-slate-300 hover:text-slate-600 dark:bg-slate-800 dark:ring-slate-600">
-                        <ImagePlus className="h-4 w-4" />
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files?.length) void addRefs(e.target.files);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
-                    ) : null}
-                  </div>
                 </div>
               ) : (
                 <CompetitorResearchPanel
@@ -1223,15 +1296,17 @@ export function StaticStudio() {
               : `${genCount === 1 ? `1 prompt × Batch ×${count} → ${Math.max(1, count)} image${count > 1 ? "s" : ""}` : `${genCount} prompts (séparés par ---) → ${genCount} images, une par prompt`}.${activeProduct ? (productRefActive ? " La photo du produit part avec chaque image (image-to-image)." : primary ? " Photo produit non envoyée : texte seul, le produit reste le contexte." : " Sans photo de référence, le modèle inventera l'apparence du produit.") : ""}`}
         </p>
         {promptMode === "auto" && visionWarning ? <div className="mt-2"><VisionWarning message={visionWarning} busy={planning} onContinue={() => void planFromBrief(true)} onDismiss={() => setVisionWarning(null)} /></div> : null}
+        </>) : null}
       </section>
 
       {/* ---------------------------------------------- 3. CRÉAS PLANIFIÉES */}
       {promptMode === "auto" && plan ? (
         <section className={panel} data-step="planned">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <StepTitle n={3} title="Créas planifiées" />
+            <StepTitle n={3} title="Créas planifiées" open={isOpen("planned")} onToggle={() => toggleFold("planned")} summary={`${plan.creatives.length} créas · ${planSelected.size} cochées`} />
             <span className="text-[10.5px] text-slate-400">{planSelected.size}/{plan.creatives.length} cochées</span>
           </div>
+          {isOpen("planned") ? (<>
           <PlanCards
             plan={plan}
             withProduct={Boolean(activeProduct)}
@@ -1246,6 +1321,7 @@ export function StaticStudio() {
             onToggleReference={(index, value) => setPlan((current) => (current ? patchPlan(current, index, { useProductReference: value }) : current))}
           />
           {!activeProduct ? <p className="mt-1 px-1 text-[11px] text-slate-400">Sans produit, les prompts choisis reviennent dans l&apos;image prompt (mode exact) et partent avec « Générer ».</p> : null}
+          </>) : null}
         </section>
       ) : null}
 
@@ -1668,14 +1744,22 @@ function fileToDataUrl(file: File) {
   });
 }
 
-/** Le numéro et le nom d'une étape : la page se lit de haut en bas. */
-function StepTitle({ n, title, optional = false }: { n: number; title: string; optional?: boolean }) {
-  return (
-    <div className="flex items-center gap-2" data-step-title={n}>
+/** Le numéro et le nom d'une étape : la page se lit de haut en bas. Avec `onToggle`, le titre plie l'étape et garde son résumé. */
+function StepTitle({ n, title, optional = false, open, onToggle, summary }: { n: number; title: string; optional?: boolean; open?: boolean; onToggle?: () => void; summary?: string | null }) {
+  const body = (
+    <>
       <span className="grid h-5 w-5 place-items-center rounded-full bg-slate-900 text-[10.5px] font-bold text-white dark:bg-white dark:text-slate-900">{n}</span>
       <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">{title}</span>
       {optional ? <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">optionnel</span> : null}
-    </div>
+      {onToggle ? <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", open ? "" : "-rotate-90")} /> : null}
+      {onToggle && !open && summary ? <span className="truncate text-[11px] font-normal normal-case tracking-normal text-slate-500">· {summary}</span> : null}
+    </>
+  );
+  if (!onToggle) return <div className="flex items-center gap-2" data-step-title={n}>{body}</div>;
+  return (
+    <button type="button" onClick={onToggle} className="flex min-w-0 items-center gap-2 text-left" data-step-title={n} data-step-open={open ? "true" : "false"} aria-expanded={open}>
+      {body}
+    </button>
   );
 }
 
