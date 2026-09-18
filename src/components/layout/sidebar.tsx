@@ -20,6 +20,7 @@ import {
   Mail,
   Megaphone,
   Network,
+  Package,
   PanelLeftClose,
   ReceiptText,
   Settings,
@@ -61,6 +62,7 @@ export const SECTIONS: NavSection[] = [
     label: "Création",
     items: [
       { href: "/studio", label: "Creatives", icon: Sparkles },
+      { href: "/products", label: "Produits", icon: Package },
       { href: "/studio/library", label: "Toutes les créas", icon: FolderOpen },
       { href: "/ugc", label: "UGC Creative", icon: Video },
       { href: "/library", label: "Bibliothèque styles", icon: Library },

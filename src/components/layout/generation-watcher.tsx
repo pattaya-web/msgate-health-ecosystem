@@ -141,7 +141,7 @@ export function GenerationWatcher() {
   if (!total) return null;
   return (
     <Link
-      href={engineRunning ? "/studio/product" : "/studio/static"}
+      href="/studio/static"
       className="fixed bottom-6 left-4 z-30 inline-flex items-center gap-1.5 rounded-full bg-slate-950/85 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md hover:bg-slate-900 lg:left-[248px]"
       title="Les générations continuent pendant que tu navigues"
       data-generation-watcher={total}

@@ -159,12 +159,66 @@ export async function analyzeAndSaveProduct(url: string, store?: string) {
   return { product: context, fallbackReason: result.fallbackReason };
 }
 
-export async function updateProduct(id: string, patch: { store?: string; name?: string; addAngle?: { name: string; why?: string; hooks?: string[] }; removeAngleId?: string }) {
+/** La fiche saisie à la main : ce que la page « Produits » édite. */
+export type ProductSheetPatch = {
+  description?: string;
+  price?: string;
+  comparePrice?: string;
+  currency?: string;
+  keyPoints?: string[];
+  /** Photos du produit, dans l'ordre ; la référence principale doit en faire partie (sinon elle est retirée). */
+  imageUrls?: string[];
+};
+
+const cleanList = (list: string[] | undefined, max: number, length: number) => (list ?? []).map((entry) => String(entry).trim().slice(0, length)).filter(Boolean).slice(0, max);
+const cleanUrls = (list: string[] | undefined) => [...new Set(cleanList(list, MAX_REFS, 2000).filter((url) => /^https:\/\//i.test(url)))];
+
+function applySheet(product: ProductContext, patch: ProductSheetPatch) {
+  if (patch.description !== undefined) product.description = patch.description.trim().slice(0, 2000);
+  if (patch.price !== undefined) product.price = patch.price.trim().slice(0, 40);
+  if (patch.comparePrice !== undefined) product.comparePrice = patch.comparePrice.trim().slice(0, 40);
+  if (patch.currency !== undefined) product.currency = patch.currency.trim().slice(0, 8);
+  if (patch.keyPoints !== undefined) product.keyPoints = cleanList(patch.keyPoints, 12, 200);
+  if (patch.imageUrls !== undefined) {
+    product.imageUrls = cleanUrls(patch.imageUrls);
+    // Une référence retirée des photos n'est plus une référence.
+    product.references = (product.references ?? []).filter((reference) => product.imageUrls.includes(reference.url));
+  }
+}
+
+/** Un produit saisi à la main, sans page à lire : nom obligatoire, le reste vient de la fiche. */
+export async function createProduct(input: { name: string; store?: string; url?: string } & ProductSheetPatch) {
+  const name = input.name.trim().slice(0, 120);
+  if (!name) throw new Error("Le nom du produit est obligatoire");
+  const url = input.url?.trim() ?? "";
+  if (url && !/^https?:\/\//i.test(url)) throw new Error("Le lien produit doit commencer par http(s)://");
+  const now = new Date().toISOString();
+  const product: ProductContext = {
+    id: uid("prod"),
+    store: (input.store?.trim() || (url ? new URL(url).hostname.replace(/^www\./, "") : "Catalogue")).slice(0, 80),
+    name,
+    url,
+    imageUrls: [],
+    analysis: null,
+    suggestedAngles: [],
+    customAngles: [],
+    engine: "fallback",
+    createdAt: now,
+    updatedAt: now,
+  };
+  applySheet(product, input);
+  const items = await listProducts();
+  await saveProducts([product, ...items]);
+  return product;
+}
+
+export async function updateProduct(id: string, patch: { store?: string; name?: string; addAngle?: { name: string; why?: string; hooks?: string[] }; removeAngleId?: string } & ProductSheetPatch) {
   const items = await listProducts();
   const product = items.find((item) => item.id === id);
   if (!product) throw new Error("Produit introuvable");
   if (patch.store?.trim()) product.store = patch.store.trim().slice(0, 80);
   if (patch.name?.trim()) product.name = patch.name.trim().slice(0, 120);
+  applySheet(product, patch);
   if (patch.addAngle?.name?.trim()) {
     product.customAngles.push({
       id: uid("angle"),

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Eraser, Image as ImageIcon, Mic, Package, Video } from "lucide-react";
+import { Clapperboard, Eraser, Image as ImageIcon, Mic, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils";
  * les liens « Détails du lot », en attendant d'en faire une matrice de tests.
  */
 const TABS = [
-  { href: "/studio/product", label: "Produit", icon: Package },
   { href: "/studio/static", label: "Static", icon: ImageIcon },
   { href: "/studio/ai-video", label: "Vidéo IA", icon: Clapperboard },
   { href: "/studio/basic", label: "Voix Off ElevenLabs", icon: Mic },

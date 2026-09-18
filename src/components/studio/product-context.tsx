@@ -5,7 +5,7 @@ import { Check, ChevronDown, ExternalLink, Link2, Loader2, Package, RefreshCw, S
 import { toast } from "sonner";
 import { engineGet, enginePost, panel } from "@/components/mass-test/engine-client";
 import type { ProductImageCandidate } from "@/lib/creative-engine/product-images";
-import { primaryReference, type ProductContext, type TestBatch } from "@/lib/creative-engine/types";
+import { primaryReference, productKeyPoints, productPriceLabel, type ProductContext, type TestBatch } from "@/lib/creative-engine/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -150,7 +150,22 @@ export function useProductContext(options: { onSwitch?: () => void; onPrimarySet
   }
 
   /** Les faits produit passés au prompt final. */
-  const facts = useMemo(() => (active ? { name: active.name, store: active.store, category: active.analysis?.category, productType: active.analysis?.productType, features: active.analysis?.features } : null), [active]);
+  const facts = useMemo(
+    () =>
+      active
+        ? {
+            name: active.name,
+            store: active.store,
+            category: active.analysis?.category,
+            productType: active.analysis?.productType,
+            // Les points clés saisis valent les « features » de l'analyse quand la page n'a pas été lue.
+            features: active.analysis?.features?.length ? active.analysis.features : productKeyPoints(active),
+            description: active.description,
+            price: productPriceLabel(active),
+          }
+        : null,
+    [active]
+  );
 
   return { products, batches, activeId, active, primary, facts, url, setUrl, loadingProduct, images, imagesError, showJunk, setShowJunk, settingRef, reload, loadImages, selectProduct, loadProduct, setPrimary };
 }

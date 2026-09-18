@@ -1,3 +1,4 @@
+import { isProxiedAsset } from "@/lib/studio/asset-hosts";
 import type { Ratio } from "@/lib/studio/ratios";
 
 export type StudioTask = {
@@ -165,6 +166,11 @@ export function assetProxy(url: string) {
   // Un fichier déjà servi par l'app (bibliothèque) n'a pas besoin du proxy.
   if (url.startsWith("/")) return url;
   return `/api/studio/asset?url=${encodeURIComponent(url)}`;
+}
+
+/** L'adresse à mettre dans un <img> : le proxy pour les CDN qu'il relaie (rendus, envois Kie), l'URL telle quelle pour une photo de boutique. */
+export function imageSrc(url: string) {
+  return isProxiedAsset(url) ? assetProxy(url) : url;
 }
 
 export function libraryFileUrl(id: string, file: string) {

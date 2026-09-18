@@ -95,12 +95,33 @@ export function primaryReference(product: Pick<ProductContext, "references">): P
   return product.references?.find((reference) => reference.type === "primary") ?? null;
 }
 
+/** Le prix affiché d'un produit : la fiche saisie d'abord, sinon l'analyse de la page. */
+export function productPriceLabel(product: Pick<ProductContext, "price" | "currency" | "analysis">): string {
+  const price = product.price?.trim() || product.analysis?.price?.trim() || "";
+  if (!price) return "";
+  const currency = product.currency?.trim();
+  return currency && !/[€$£]|eur|usd|gbp/i.test(price) ? `${price} ${currency}` : price;
+}
+
+/** Les points clés d'un produit : ceux saisis, sinon les bénéfices de l'analyse. */
+export function productKeyPoints(product: Pick<ProductContext, "keyPoints" | "analysis">): string[] {
+  const typed = (product.keyPoints ?? []).map((point) => point.trim()).filter(Boolean);
+  return typed.length ? typed : (product.analysis?.benefits ?? []).filter(Boolean);
+}
+
 export type ProductContext = {
   id: string;
   store: string;
   name: string;
+  /** Page produit lue ; vide pour un produit saisi à la main dans le catalogue. */
   url: string;
   imageUrls: string[];
+  /** Fiche saisie par l'opérateur (page « Produits ») ; absente sur les produits seulement analysés. */
+  description?: string;
+  price?: string;
+  comparePrice?: string;
+  currency?: string;
+  keyPoints?: string[];
   analysis: ProductAnalysis | null;
   suggestedAngles: Angle[];
   customAngles: Angle[];

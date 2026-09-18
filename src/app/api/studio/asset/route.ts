@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
+import { isProxiedAsset } from "@/lib/studio/asset-hosts";
 
 export const dynamic = "force-dynamic";
 
-const OK = /(aiquickdraw|kie\.ai|redpandaai\.co|amazonaws\.com|cloudfront\.net|aliyuncs\.com|googleapis\.com)/i;
-
 export async function GET(request: Request) {
   const url = new URL(request.url).searchParams.get("url")?.trim();
-  if (!url || !/^https:\/\//i.test(url) || !OK.test(url)) {
+  if (!url || !isProxiedAsset(url)) {
     return NextResponse.json({ error: "URL refusée" }, { status: 400 });
   }
   const res = await fetch(url, { cache: "no-store" });

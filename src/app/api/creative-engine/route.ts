@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { Ratio } from "@/lib/studio/ratios";
 import {
   analyzeAndSaveProduct,
+  createProduct,
   createTestBatch,
   deleteBatch,
   deleteProduct,
@@ -18,6 +19,7 @@ import {
   setProductReference,
   clearProductReference,
   type GenerateSpec,
+  type ProductSheetPatch,
 } from "@/lib/creative-engine/store";
 import { extractProductImages } from "@/lib/creative-engine/product-images";
 import { planWorkspaceBatch, VisionUnavailableError } from "@/lib/creative-engine/workspace-writer";
@@ -69,6 +71,7 @@ export async function GET(request: Request) {
 type Body = {
   action?:
     | "analyze"
+    | "product-create"
     | "product-update"
     | "product-delete"
     | "plan"
@@ -106,6 +109,13 @@ type Body = {
   store?: string;
   productId?: string;
   name?: string;
+  /** Fiche saisie (page « Produits ») : product-create et product-update. */
+  description?: string;
+  price?: string;
+  comparePrice?: string;
+  currency?: string;
+  keyPoints?: string[];
+  imageUrls?: string[];
   addAngle?: { name: string; why?: string; hooks?: string[] };
   removeAngleId?: string;
   angleIds?: string[];
@@ -128,6 +138,18 @@ type Body = {
   folder?: string;
   itemIds?: string[];
 };
+
+/** Les champs de la fiche présents dans la requête, et seulement eux : un champ absent n'est pas effacé. */
+function sheetFrom(body: Body): ProductSheetPatch {
+  const sheet: ProductSheetPatch = {};
+  if (typeof body.description === "string") sheet.description = body.description;
+  if (typeof body.price === "string") sheet.price = body.price;
+  if (typeof body.comparePrice === "string") sheet.comparePrice = body.comparePrice;
+  if (typeof body.currency === "string") sheet.currency = body.currency;
+  if (Array.isArray(body.keyPoints)) sheet.keyPoints = body.keyPoints.filter((entry): entry is string => typeof entry === "string");
+  if (Array.isArray(body.imageUrls)) sheet.imageUrls = body.imageUrls.filter((entry): entry is string => typeof entry === "string");
+  return sheet;
+}
 
 function specFrom(body: Body): GenerateSpec {
   if (!body.productId) throw new Error("Produit manquant");
@@ -161,14 +183,21 @@ export async function POST(request: Request) {
       case "analyze":
         if (!body.url) return NextResponse.json({ error: "URL manquante" }, { status: 400 });
         return NextResponse.json(await analyzeAndSaveProduct(body.url, body.store));
+      case "product-create":
+        if (!body.name?.trim()) return NextResponse.json({ error: "Nom du produit manquant" }, { status: 400 });
+        return NextResponse.json({ product: await createProduct({ name: body.name, store: body.store, url: body.url, ...sheetFrom(body) }) });
       case "product-update":
         if (!body.productId) return NextResponse.json({ error: "Produit manquant" }, { status: 400 });
-        return NextResponse.json({ product: await updateProduct(body.productId, { store: body.store, name: body.name, addAngle: body.addAngle, removeAngleId: body.removeAngleId }) });
+        return NextResponse.json({ product: await updateProduct(body.productId, { store: body.store, name: body.name, addAngle: body.addAngle, removeAngleId: body.removeAngleId, ...sheetFrom(body) }) });
       case "product-images": {
         const products = await listProducts();
         const product = body.productId ? products.find((item) => item.id === body.productId) : null;
-        const url = product?.url ?? body.url;
-        if (!url) return NextResponse.json({ error: "Produit ou URL manquant" }, { status: 400 });
+        const url = product?.url || body.url;
+        // Un produit saisi à la main n'a pas de page : ses photos sont celles de sa fiche.
+        if (!url) {
+          if (!product) return NextResponse.json({ error: "Produit ou URL manquant" }, { status: 400 });
+          return NextResponse.json({ images: product.imageUrls.map((imageUrl) => ({ url: imageUrl, width: null, height: null, alt: "", source: "html", stored: true, junk: false, reason: null })) });
+        }
         return NextResponse.json({ images: await extractProductImages(url, product?.imageUrls ?? []) });
       }
       case "workspace-plan": {

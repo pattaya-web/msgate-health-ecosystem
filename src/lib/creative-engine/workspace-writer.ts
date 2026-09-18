@@ -16,7 +16,7 @@ import { guessProductReference, MAX_PLANNED_CREATIVES, parseLenientJson, PlanVal
  */
 
 /** Ce qu'on sait du produit : une fiche du moteur (avec analyse), une fiche lue en prompt libre, ou rien. */
-export type PlanProduct = Pick<ProductContext, "name"> & Partial<Pick<ProductContext, "id" | "store" | "url" | "analysis">> & { price?: string };
+export type PlanProduct = Pick<ProductContext, "name"> & Partial<Pick<ProductContext, "id" | "store" | "url" | "analysis" | "description" | "comparePrice" | "currency" | "keyPoints">> & { price?: string };
 
 export type PlanInput = {
   brief: string;
@@ -145,7 +145,10 @@ const SYSTEM =
 export function planPrompt(input: PlanInput): string {
   const a = input.product?.analysis;
   const facts = input.product ? [
-    `PRODUCT: ${input.product.name}${input.product.store ? ` by ${input.product.store}` : ""}${input.product.id ? ` (CRM id ${input.product.id})` : ""}${input.product.url ? ` — ${input.product.url}` : ""}${input.product.price ? ` — price ${input.product.price}` : ""}`,
+    `PRODUCT: ${input.product.name}${input.product.store ? ` by ${input.product.store}` : ""}${input.product.id ? ` (CRM id ${input.product.id})` : ""}${input.product.url ? ` — ${input.product.url}` : ""}${input.product.price ? ` — price ${input.product.price}${input.product.currency && !/[€$£]/.test(input.product.price) ? ` ${input.product.currency}` : ""}${input.product.comparePrice ? ` (compare at ${input.product.comparePrice})` : ""}` : ""}`,
+    // La fiche saisie dans le catalogue : elle vaut analyse quand la page n'a pas été lue.
+    input.product.description ? `- description: ${input.product.description.replace(/\s+/g, " ").slice(0, 600)}` : "",
+    input.product.keyPoints?.length ? `- key points: ${input.product.keyPoints.slice(0, 8).join(" | ")}` : "",
     a?.productType || a?.category ? `- type: ${[a?.productType, a?.category ? `(${a.category})` : ""].filter(Boolean).join(" ")}` : "",
     a?.targetCustomer ? `- target customer: ${a.targetCustomer}` : "",
     a?.mainProblem ? `- main problem: ${a.mainProblem}` : "",

@@ -14,6 +14,9 @@ export type WorkspaceProductFacts = {
   category?: string;
   productType?: string;
   features?: string[];
+  /** Fiche saisie dans le catalogue : une phrase de description et le prix, quand il n'y a pas d'analyse de page. */
+  description?: string;
+  price?: string;
 };
 
 export const FIDELITY_INSTRUCTION =
@@ -32,7 +35,9 @@ export function composeWorkspacePrompt(input: { userPrompt: string; product: Wor
   const { product } = input;
   const descriptor = [product.productType, product.category ? `(${product.category})` : ""].filter(Boolean).join(" ");
   const facts = (product.features ?? []).filter(Boolean).slice(0, 2).join("; ");
-  const productLine = `PRODUCT: ${product.name}${product.store ? ` by ${product.store}` : ""}${descriptor ? ` — ${descriptor}` : ""}.${facts ? ` ${facts}.` : ""}`;
+  // Sans analyse de page, la description saisie (coupée court) dit ce qu'est le produit.
+  const summary = !descriptor && product.description ? product.description.trim().replace(/\s+/g, " ").slice(0, 200) : "";
+  const productLine = `PRODUCT: ${product.name}${product.store ? ` by ${product.store}` : ""}${descriptor ? ` — ${descriptor}` : ""}${summary ? ` — ${summary}` : ""}${product.price ? ` — price ${product.price}` : ""}.${facts ? ` ${facts}.` : ""}`;
   // Une créa = une image : la règle du moteur ferme la porte aux collages, quel que soit le brief.
   return [user, "", productLine, input.hasReference ? FIDELITY_INSTRUCTION : "", input.hasInspiration ? INSPIRATION_RULE : "", BRANDING_RULE, SINGLE_CREATIVE_RULE].filter((line, index) => line !== "" || index === 1).join("\n");
 }
