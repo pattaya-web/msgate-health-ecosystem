@@ -1,3 +1,5 @@
+import { askHermesText, askHermesVision, hermesAnalysisAvailable, hermesCannotSee } from "@/lib/creative-engine/hermes-analysis";
+
 const KIE = "https://api.kie.ai/api/v1";
 
 function key() {
@@ -378,7 +380,110 @@ export async function kieClaude(userText: string, maxTokens = 4000, images: stri
     lastMessage = body.error?.message || `Anthropic ${res.status}`;
   }
 
-  throw new Error(`Aucun modèle Claude disponible chez Kie — ${lastMessage}`);
+  /*
+   * Deuxième repli : l'instance Hermes de l'utilisateur, quand elle est
+   * configurée (HERMES_API_URL / HERMES_API_SERVER_KEY). Mesuré le 23 sept.
+   * 2026 : la passerelle Claude de Kie rendait 500 ou 530 sur tous ses
+   * modèles pendant que Hermes répondait en six secondes. Hermes ne lit une
+   * image que par URL https, jamais en data URL : on l'héberge d'abord chez
+   * Kie, dont le dépôt de fichiers marche pendant que ses modèles tombent.
+   */
+  if (hermesAnalysisAvailable()) {
+    try {
+      const hosted = await Promise.all(
+        images.filter(Boolean).map((raw, index) => {
+          if (/^https?:\/\//i.test(raw)) return raw;
+          const data = toRawBase64(raw);
+          return uploadBase64(`data:${sniffImageType(data)};base64,${data}`, `claude-repli-${Date.now().toString(36)}-${index}.png`);
+        }),
+      );
+      const text = (hosted.length ? await askHermesVision(userText, FALLBACK_SYSTEM, hosted) : await askHermesText(userText, FALLBACK_SYSTEM)).trim();
+      if (hosted.length && hermesCannotSee(text)) {
+        lastMessage = "Hermes n'a pas vu l'image";
+      } else if (text) {
+        return text;
+      }
+    } catch (error) {
+      lastMessage = error instanceof Error ? error.message : "Hermes injoignable";
+    }
+  }
+
+  /*
+   * Troisième repli : les modèles GPT de Kie par sa passerelle Responses
+   * (/openai/v1/responses), même clé, texte seul — une image, en data URL
+   * comme par URL hébergée, rend 500. Mesuré le 23 sept. 2026 : gpt-5.5 rend
+   * 4 000 jetons en 50 s, mais la passerelle coupe à 125 s (524) une réponse
+   * non streamée et refuse le streaming par intermittence. On sonde donc
+   * chaque modèle avant la vraie requête et on borne l'attente sous ce
+   * plafond. Le raisonnement compte dans max_output_tokens : on laisse de la
+   * marge, sinon la réponse revient vide avec le statut « incomplete ».
+   */
+  if (!images.length && Date.now() - started < GPT_DEADLINE_MS) {
+    for (const model of GPT_MODELS) {
+      if (Date.now() - started > GPT_DEADLINE_MS) break;
+      const probe = await kieGptResponses(model, "OK", 64, 10_000);
+      if (!probe.ok) {
+        lastMessage = `${model} indisponible chez Kie`;
+        continue;
+      }
+      const result = await kieGptResponses(model, userText, maxTokens + 2_000, GPT_ATTEMPT_TIMEOUT_MS);
+      if (result.ok && result.text) return result.text;
+      lastMessage = result.message || `${model} n'a rien renvoyé`;
+    }
+  }
+
+  throw new Error(`Aucun modèle disponible (Claude chez Kie, Hermes, GPT chez Kie) — ${lastMessage}`);
+}
+
+/** Consigne commune aux replis : ils reçoivent la demande brute prévue pour Claude. */
+const FALLBACK_SYSTEM =
+  "You are the writing engine of the MSGate CRM, standing in for Claude. Everything you need is in the message. Answer exactly in the format the message asks for: when it asks for JSON, return the JSON object only, with no prose before or after and no markdown fences. Write in the language the message asks for. This is a read-only task: do not browse, do not call tools that write or generate anything.";
+
+const GPT_MODELS = ["gpt-5.5", "gpt-5.6-luna"];
+/** Sous le plafond de 125 s mesuré sur la passerelle, sonde comprise. */
+const GPT_ATTEMPT_TIMEOUT_MS = 110_000;
+/** Passé ce délai depuis le début de `kieClaude`, on n'entame plus un modèle GPT : le repli entier dépasserait le budget des routes (300 s). */
+const GPT_DEADLINE_MS = 150_000;
+
+async function kieGptResponses(model: string, text: string, maxOutputTokens: number, timeoutMs: number): Promise<{ ok: boolean; text: string; message?: string }> {
+  let res: Response;
+  try {
+    res = await fetch("https://api.kie.ai/openai/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key()}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        max_output_tokens: maxOutputTokens,
+        input: [
+          { role: "developer", content: [{ type: "input_text", text: FALLBACK_SYSTEM }] },
+          { role: "user", content: [{ type: "input_text", text }] },
+        ],
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch {
+    return { ok: false, text: "", message: `${model} n'a pas répondu` };
+  }
+  const body = (await res.json().catch(() => ({}))) as {
+    code?: number;
+    msg?: string;
+    status?: string;
+    error?: { message?: string } | null;
+    output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
+  };
+  const output = (body.output || [])
+    .filter((item) => item.type === "message")
+    .flatMap((item) => item.content || [])
+    .filter((part) => part.type === "output_text")
+    .map((part) => part.text || "")
+    .join("\n")
+    .trim();
+  if (!res.ok || body.error || (typeof body.code === "number" && body.code !== 200)) {
+    return { ok: false, text: "", message: body.error?.message || body.msg || `${model} ${res.status}` };
+  }
+  return { ok: true, text: output, message: output ? undefined : `${model} : réponse ${body.status || "vide"}` };
 }
 
 export async function pollKieTask(taskId: string, tries = 40) {
