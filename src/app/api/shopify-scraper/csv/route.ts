@@ -22,11 +22,14 @@ export async function GET(request: Request) {
 
   try {
     const { products } = await fetchProducts(shop, collection ?? undefined);
-    const filtered = filterByPrice(
+    let filtered = filterByPrice(
       products,
       num(url.searchParams.get("min")),
       num(url.searchParams.get("max"))
     );
+    // `handles=a,b,c` : seuls les produits cochés dans la page partent dans le fichier.
+    const handles = new Set((url.searchParams.get("handles") || "").split(",").map((entry) => entry.trim()).filter(Boolean));
+    if (handles.size) filtered = filtered.filter((product) => handles.has(product.handle));
 
     // Même ordre qu'à l'écran : un CSV rangé autrement que l'aperçu qu'on vient
     // de valider donne l'impression de ne pas avoir exporté la même chose.

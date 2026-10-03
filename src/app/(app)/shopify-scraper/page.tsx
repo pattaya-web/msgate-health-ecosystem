@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Loader2, Palette, RefreshCw, Search, Store } from "lucide-react";
+import { Download, Loader2, Palette, RefreshCw, Search, Store, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader } from "@/components/shared/page-states";
@@ -103,6 +103,19 @@ export default function ShopifyScraperPage() {
   const [model, setModel] = useState<"nano-banana-pro" | "gpt-image-2">("nano-banana-pro");
   const [starting, setStarting] = useState(false);
   const polling = useRef(false);
+  /* Produits cochés : l'export et le rebranding ne portent que sur eux (aucune coche = tous). */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /* Aperçu plein écran d'une image : la photo d'origine, et le rendu en face quand il existe. */
+  const [preview, setPreview] = useState<{ title: string; original: string | null; rebranded: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreview(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview]);
 
   /**
    * Le champ accepte un titre (« Nouveautés été »), un handle, ou un nom qui
@@ -178,6 +191,7 @@ export default function ShopifyScraperPage() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error);
       setResult(body as ScrapeResult);
+      setSelected(new Set());
       if (!body.products.length) toast.error("Aucun produit sur ces critères");
       // Les rendus déjà faits pour cette boutique reviennent avec elle.
       void loadRebrand(shop);
@@ -236,6 +250,13 @@ export default function ShopifyScraperPage() {
     }
   }, []);
 
+  const selectedHandles = useMemo(() => [...selected].filter((handle) => result?.products.some((product) => product.handle === handle)), [selected, result]);
+  const exportParams = useMemo(() => {
+    const search = new URLSearchParams(params);
+    if (selectedHandles.length) search.set("handles", selectedHandles.join(","));
+    return search;
+  }, [params, selectedHandles]);
+
   const rebrandBody = useCallback(
     (extra: Record<string, unknown>) => ({
       shop,
@@ -263,7 +284,7 @@ export default function ShopifyScraperPage() {
       const res = await fetch("/api/shopify-scraper/rebrand", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rebrandBody({ action: "start", scope })),
+        body: JSON.stringify(rebrandBody({ action: "start", scope, handles: selectedHandles.length ? selectedHandles : undefined })),
       });
       const body = (await res.json()) as RebrandState & { error?: string };
       if (!res.ok) throw new Error(body.error);
@@ -274,7 +295,7 @@ export default function ShopifyScraperPage() {
     } finally {
       setStarting(false);
     }
-  }, [logoUrl, rebrand, rebrandBody, scope]);
+  }, [logoUrl, rebrand, rebrandBody, scope, selectedHandles]);
 
   const retryImage = useCallback(
     async (src: string) => {
@@ -294,7 +315,17 @@ export default function ShopifyScraperPage() {
     [rebrandBody]
   );
 
-  const imageCount = result ? result.products.reduce((sum, product) => sum + (scope === "all" ? product.images : Math.min(1, product.images)), 0) : 0;
+  const targetProducts = result ? (selectedHandles.length ? result.products.filter((product) => selected.has(product.handle)) : result.products) : [];
+  const imageCount = targetProducts.reduce((sum, product) => sum + (scope === "all" ? product.images : Math.min(1, product.images)), 0);
+  const allSelected = Boolean(result?.products.length) && selectedHandles.length === result?.products.length;
+  const toggleAll = () => setSelected(allSelected || !result ? new Set() : new Set(result.products.map((product) => product.handle)));
+  const toggleOne = (handle: string) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(handle)) next.delete(handle);
+      else next.add(handle);
+      return next;
+    });
   const estimatedCredits = imageCount * CREDITS_PER_IMAGE[model][resolution];
   const itemsByHandle = useMemo(() => {
     const map = new Map<string, RebrandItem[]>();
@@ -311,14 +342,14 @@ export default function ShopifyScraperPage() {
           result?.products.length ? (
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant={doneCount ? "outline" : "default"} asChild>
-                <a href={`/api/shopify-scraper/csv?${params}`}>
+                <a href={`/api/shopify-scraper/csv?${exportParams}`}>
                   <Download className="h-3.5 w-3.5" />
-                  CSV ({result.totals.variants} variantes)
+                  {selectedHandles.length ? `CSV (${selectedHandles.length} produit${selectedHandles.length > 1 ? "s" : ""} cochés)` : `CSV (${result.totals.variants} variantes)`}
                 </a>
               </Button>
               {doneCount ? (
                 <Button size="sm" asChild>
-                  <a href={`/api/shopify-scraper/csv?${params}&rebrand=1`}>
+                  <a href={`/api/shopify-scraper/csv?${exportParams}&rebrand=1`}>
                     <Palette className="h-3.5 w-3.5" />
                     CSV rebrandé ({doneCount} image{doneCount > 1 ? "s" : ""})
                   </a>
@@ -506,10 +537,12 @@ export default function ShopifyScraperPage() {
 
                 <Button size="sm" onClick={startRebrand} disabled={starting || uploadingLogo || (!logoUrl && !rebrand?.brand)} data-rebrand-start>
                   {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Palette className="h-3.5 w-3.5" />}
-                  Rebrander {imageCount} image{imageCount > 1 ? "s" : ""}
+                  {starting ? "Lancement…" : `Rebrander ${imageCount} image${imageCount > 1 ? "s" : ""}${selectedHandles.length ? " cochée" + (imageCount > 1 ? "s" : "") : ""}`}
                 </Button>
                 <span className="text-[11px] text-slate-500">
-                  ≈ {estimatedCredits} crédits · {money(estimatedCredits * 0.005)}. Les images déjà prêtes ne sont pas refaites.
+                  {starting
+                    ? `Création des rendus chez Kie, environ ${Math.max(5, Math.round(imageCount * 1.2))} s…`
+                    : `≈ ${estimatedCredits} crédits · ${money(estimatedCredits * 0.005)}. Les images déjà prêtes ne sont pas refaites.`}
                 </span>
               </div>
 
@@ -535,6 +568,9 @@ export default function ShopifyScraperPage() {
               <table className="w-full min-w-[820px] text-[12px]">
                 <thead className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wider text-slate-500 dark:border-slate-800">
                   <tr>
+                    <th className="w-8 px-3 py-2">
+                      <input type="checkbox" checked={allSelected} onChange={toggleAll} title="Tout cocher / décocher" className="h-3.5 w-3.5 cursor-pointer accent-emerald-600" data-select-all />
+                    </th>
                     <th className="px-3 py-2 font-semibold">Produit</th>
                     <th className="px-3 py-2 font-semibold">Packaging rebrandé</th>
                     <th className="px-3 py-2 font-semibold">Type</th>
@@ -546,20 +582,27 @@ export default function ShopifyScraperPage() {
                 <tbody>
                   {result.products.map((product) => {
                     const items = itemsByHandle.get(product.handle) ?? [];
+                    const firstDone = items.find((item) => item.state === "done" && item.url) ?? null;
+                    const checked = selected.has(product.handle);
                     return (
                       <tr
                         key={product.handle}
-                        className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
+                        className={cn("border-b border-slate-50 last:border-0 dark:border-slate-800/60", checked && "bg-emerald-50/60 dark:bg-emerald-950/20")}
                       >
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={checked} onChange={() => toggleOne(product.handle)} className="h-3.5 w-3.5 cursor-pointer accent-emerald-600" data-select-product={product.handle} />
+                        </td>
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
                             {product.image ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={product.image}
-                                alt=""
-                                className="h-8 w-8 shrink-0 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700"
-                              />
+                              <button type="button" onClick={() => setPreview({ title: product.title, original: product.image, rebranded: firstDone?.url ?? null })} title="Aperçu" className="shrink-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={product.image}
+                                  alt=""
+                                  className="h-8 w-8 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+                                />
+                              </button>
                             ) : (
                               <div className="h-8 w-8 shrink-0 rounded-md bg-slate-100 dark:bg-slate-800" />
                             )}
@@ -576,10 +619,10 @@ export default function ShopifyScraperPage() {
                             <div className="flex flex-wrap items-center gap-1.5">
                               {items.map((item) =>
                                 item.state === "done" && item.url ? (
-                                  <a key={item.src} href={item.url} target="_blank" rel="noreferrer" title="Voir le rendu">
+                                  <button key={item.src} type="button" onClick={() => setPreview({ title: product.title, original: item.src, rebranded: item.url })} title="Aperçu avant / après">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={item.url} alt="" className="h-8 w-8 rounded-md object-cover ring-1 ring-emerald-300 dark:ring-emerald-700" />
-                                  </a>
+                                  </button>
                                 ) : item.state === "pending" ? (
                                   <span key={item.src} className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
                                     <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
@@ -629,6 +672,46 @@ export default function ShopifyScraperPage() {
           description="Colle l'URL d'une boutique Shopify puis lance la récupération."
         />
       )}
+
+      {preview ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPreview(null);
+          }}
+          data-preview
+        >
+          <div className="w-full max-w-5xl rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100">{preview.title}</div>
+              <button type="button" onClick={() => setPreview(null)} className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100" aria-label="Fermer">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className={cn("grid gap-3", preview.rebranded ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1")}>
+              {preview.original ? (
+                <figure className="min-w-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={preview.original} alt="" className="max-h-[70vh] w-full rounded-xl object-contain bg-slate-50 dark:bg-slate-950" />
+                  <figcaption className="mt-1 text-center text-[11px] text-slate-500">Original</figcaption>
+                </figure>
+              ) : null}
+              {preview.rebranded ? (
+                <figure className="min-w-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={preview.rebranded} alt="" className="max-h-[70vh] w-full rounded-xl object-contain bg-slate-50 dark:bg-slate-950" />
+                  <figcaption className="mt-1 text-center text-[11px] text-emerald-700 dark:text-emerald-300">
+                    Rebrandé ·{" "}
+                    <a href={preview.rebranded} target="_blank" rel="noreferrer" className="underline">
+                      ouvrir en grand
+                    </a>
+                  </figcaption>
+                </figure>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
