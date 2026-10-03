@@ -44,8 +44,10 @@ type RebrandState = {
   host: string;
   brand: { logoUrl: string; accent: string; background: string; brandName: string; resolution: "1K" | "2K"; model?: "nano-banana-pro" | "gpt-image-2" } | null;
   items: RebrandItem[];
-  /** Faux sans Supabase : les rendus ne sont servis que par cette machine, le CSV ne sera pas importable ailleurs. */
+  /** Faux quand un rendu n'est servi que par cette machine : le CSV ne sera pas importable ailleurs. */
   publicUrls: boolean;
+  /** Vrai quand des rendus sont hébergés chez Kie faute de Supabase : URL publiques mais valables quelques jours. */
+  temporaryUrls?: boolean;
 };
 
 const inputClass =
@@ -511,9 +513,13 @@ export default function ShopifyScraperPage() {
                 </span>
               </div>
 
-              {rebrand && !rebrand.publicUrls && doneCount ? (
+              {rebrand && doneCount && !rebrand.publicUrls ? (
                 <p className="mt-2 text-[11px] text-amber-600">
-                  Supabase n&apos;est pas configuré sur ce serveur : les rendus ne sont servis que depuis cette machine, le CSV rebrandé ne sera pas importable ailleurs.
+                  Certains rendus ne sont servis que depuis cette machine (Supabase injoignable et hébergement Kie refusé) : le CSV rebrandé ne sera pas importable ailleurs.
+                </p>
+              ) : rebrand && doneCount && rebrand.temporaryUrls ? (
+                <p className="mt-2 text-[11px] text-amber-600">
+                  Supabase est injoignable : les rendus sont hébergés chez Kie, avec des URL valables quelques jours. Importe le CSV rebrandé sans attendre.
                 </p>
               ) : null}
             </div>

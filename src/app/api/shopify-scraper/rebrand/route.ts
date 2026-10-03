@@ -32,10 +32,21 @@ function num(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** L'état d'une boutique, avec le mode d'hébergement des rendus : sans Supabase, les URL ne sont valables que sur cette machine. */
+/**
+ * L'état d'une boutique, avec le mode d'hébergement des rendus : `publicUrls`
+ * dit si tous les rendus prêts ont une adresse joignable depuis Internet,
+ * `temporaryUrls` si certains ne tiennent que quelques jours (hébergement Kie,
+ * faute de Supabase).
+ */
 async function stateOf(host: string, refresh: boolean) {
   const state = refresh ? await refreshRebrand(host) : await getRebrand(host);
-  return { ...state, publicUrls: isStorageReady() };
+  const done = state.items.filter((item) => item.state === "done");
+  return {
+    ...state,
+    storageConfigured: isStorageReady(),
+    publicUrls: done.every((item) => /^https?:\/\//i.test(item.url ?? "")),
+    temporaryUrls: done.some((item) => item.temporary),
+  };
 }
 
 export async function GET(request: Request) {
