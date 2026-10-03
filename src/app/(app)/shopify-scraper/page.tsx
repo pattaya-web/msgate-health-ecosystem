@@ -26,6 +26,9 @@ type ScrapeResult = {
   products: ProductSummary[];
   totals: { products: number; variants: number; scanned: number };
   truncated: boolean;
+  /** « json » : /products.json ; « sitemap » : vitrine headless, lue page par page. */
+  source?: "json" | "sitemap";
+  note?: string | null;
 };
 
 const inputClass =
@@ -232,8 +235,9 @@ export default function ShopifyScraperPage() {
               </span>
             ) : null}
             {result.truncated ? (
-              <span className="text-amber-600">catalogue plafonné à 5 000 produits</span>
+              <span className="text-amber-600">{result.source === "sitemap" ? "catalogue plafonné à 300 produits (lecture page par page)" : "catalogue plafonné à 5 000 produits"}</span>
             ) : null}
+            {result.note ? <span className="text-amber-600">{result.note}</span> : null}
           </div>
 
           {result.products.length === 0 ? (

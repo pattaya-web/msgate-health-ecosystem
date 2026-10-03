@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     }
 
     const collection = url.searchParams.get("collection") || undefined;
-    const { products, truncated } = await fetchProducts(shop, collection);
+    const { products, truncated, source } = await fetchProducts(shop, collection);
     const filtered = filterByPrice(products, num(url.searchParams.get("min")), num(url.searchParams.get("max")));
 
     // L'aperçu ne renvoie pas le body_html : inutile à l'écran et très lourd.
@@ -63,6 +63,9 @@ export async function GET(request: Request) {
         scanned: products.length,
       },
       truncated,
+      source,
+      // Vitrine headless : le catalogue vient du sitemap, une collection demandée n'a pas pu être appliquée.
+      note: source === "sitemap" ? `Catalogue lu depuis le sitemap et les pages produit (vitrine headless, pas de /products.json)${collection ? " — la collection n'a pas pu être filtrée" : ""}.` : null,
     });
   } catch (error) {
     return NextResponse.json(
