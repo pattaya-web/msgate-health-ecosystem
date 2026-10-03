@@ -1,3 +1,4 @@
+import { lookup } from "dns/promises";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from "@/lib/studio/kie";
@@ -222,8 +223,34 @@ function storageUsable() {
   return isStorageReady() && Date.now() >= storageBackoff.until;
 }
 
+/**
+ * Le domaine Supabase se résout-il ? Mesuré : un `putFile` vers un projet
+ * disparu met jusqu'à deux minutes à échouer, le temps que le client épuise ses
+ * essais. Une résolution DNS bornée à trois secondes répond à la même question.
+ */
+async function storageReachable() {
+  const host = (() => {
+    try {
+      return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname;
+    } catch {
+      return "";
+    }
+  })();
+  if (!host) return false;
+  try {
+    await Promise.race([lookup(host), new Promise((_, reject) => setTimeout(() => reject(new Error("DNS timeout")), 3_000))]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function tryPutFile(remote: string, data: Buffer): Promise<string | null> {
   if (!storageUsable()) return null;
+  if (!(await storageReachable())) {
+    storageBackoff.until = Date.now() + STORAGE_BACKOFF_MS;
+    return null;
+  }
   try {
     const url = await putFile(remote, data);
     storageBackoff.until = 0;

@@ -348,6 +348,14 @@ export default function ShopifyScraperPage() {
                 </a>
               </Button>
               {doneCount ? (
+                <Button size="sm" variant="outline" asChild>
+                  <a href={`/api/shopify-scraper/rebrand/zip?${exportParams}`} title="Toutes les images rebrandées, nommées par produit">
+                    <Download className="h-3.5 w-3.5" />
+                    Images (zip)
+                  </a>
+                </Button>
+              ) : null}
+              {doneCount ? (
                 <Button size="sm" asChild>
                   <a href={`/api/shopify-scraper/csv?${exportParams}&rebrand=1`}>
                     <Palette className="h-3.5 w-3.5" />
