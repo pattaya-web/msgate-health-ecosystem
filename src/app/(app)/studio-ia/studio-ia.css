@@ -1,0 +1,725 @@
+/*
+ * Studio IA — styles repris de princexd (src/app/globals.css), limités au
+ * conteneur `.studio-ia` : la page du Studio et ses modales (portail) les
+ * portent, le reste de l'application garde sa charte. Les jetons (--surface,
+ * --accent, --radius…) sont ceux du Studio source ; les polices sont celles
+ * de ce projet. Le mode sombre suit la classe `.dark` de next-themes.
+ */
+
+.studio-ia {
+  color: var(--text);
+  font-family: var(--font-sans);
+
+  color-scheme: light;
+
+  --font-sans: var(--font-app-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-app-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Palette SaaS : fond bleuté très pâle, cartes blanches, accent indigo. */
+  --bg: #f5f6fb;
+  --surface: #ffffff;
+  --surface-2: #f8f9fd;
+  --surface-3: #eff1f8;
+  --border: #e4e7f0;
+  --border-strong: #c9cee3;
+
+  --text: #171a2b;
+  --text-2: #5c6280;
+  --text-3: #9297b3;
+
+  --accent: #5b5ce6;
+  --accent-hover: #4a4bd6;
+  --accent-soft: #eceeff;
+  --accent-ring: #c3c5ff;
+  --accent-on: #ffffff;
+  --grad-accent: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --grad-ig: linear-gradient(135deg, #f58529 0%, #dd2a7b 50%, #8134af 100%);
+
+  --gold: #b7791f;
+  --gold-soft: #fff6e0;
+
+  --good: #16a34a;
+  --emerald: #16a34a;
+  --warning: #f59e0b;
+  --serious: #f97316;
+  --critical: #ef4444;
+
+  --chart-surface: #ffffff;
+  --grid: #eceef6;
+
+  --s1: #6366f1;
+  --s2: #22c55e;
+  --s3: #f59e0b;
+  --s4: #ec4899;
+  --s5: #06b6d4;
+  --s6: #8b5cf6;
+  --s7: #64748b;
+  --s8: #ef4444;
+
+  --shadow: 0 1px 2px rgb(23 26 43 / 0.04), 0 4px 16px -8px rgb(23 26 43 / 0.08);
+  --shadow-lg: 0 16px 40px -12px rgb(91 92 230 / 0.22), 0 2px 8px -2px rgb(23 26 43 / 0.08);
+  --radius: 14px;
+  --radius-lg: 18px;
+  --pill: 99px;
+}
+
+.dark .studio-ia {
+
+  color-scheme: dark;
+
+  --bg: #0f1416;
+  --surface: #151b1e;
+  --surface-2: #1a2124;
+  --surface-3: #212a2e;
+  --border: #263237;
+  --border-strong: #3a4a50;
+
+  --text: #f2f5f5;
+  --text-2: #9aaeb5;
+  --text-3: #6f8288;
+
+  --accent: #f2f5f5;
+  --accent-hover: #ffffff;
+  --accent-soft: #212a2e;
+  --accent-ring: #3a4a50;
+  --accent-on: #233137;
+  --grad-accent: linear-gradient(135deg, #ffffff 0%, #e8eded 100%);
+  --grad-ig: linear-gradient(135deg, #ffffff 0%, #e8eded 100%);
+
+  --gold: #d2bd6c;
+  --gold-soft: #2a2718;
+
+  --good: #5fb58f;
+  --emerald: #5fb58f;
+  --warning: #d9b04a;
+  --critical: #e06a5a;
+
+  --chart-surface: #151b1e;
+  --grid: #232d31;
+
+  --s1: #f2f5f5;
+  --s2: #9aaeb5;
+  --s3: #5d767e;
+  --s4: #3a4a50;
+  --s5: #5fb58f;
+  --s6: #d9b04a;
+  --s7: #7c888d;
+  --s8: #e06a5a;
+
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 12px 36px -12px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+}
+
+/* ---------------------------- Primitives --------------------------- */
+
+/* Cartes : blanc, liseré fin, ombre légère qui les décolle du fond. */
+.studio-ia .card,
+.studio-ia .card-flat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.studio-ia .card {
+  box-shadow: var(--shadow);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.studio-ia .card-hover:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.studio-ia .muted {
+  color: var(--text-2);
+}
+.studio-ia .dim {
+  color: var(--text-3);
+}
+
+/* Étiquette mono en majuscules : la signature typographique du site. */
+.studio-ia .label-xs {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  line-height: 1.3;
+}
+
+/* Boutons : pilules. Le principal est un aplat ardoise. */
+.studio-ia .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 15px;
+  border-radius: var(--pill);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.006em;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease,
+    transform 0.12s ease, box-shadow 0.14s ease, opacity 0.14s ease;
+}
+.studio-ia .btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.studio-ia .btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.studio-ia .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.studio-ia .btn-primary {
+  background: var(--grad-accent);
+  border-color: transparent;
+  color: var(--accent-on);
+  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.studio-ia .btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  border-color: transparent;
+  box-shadow: 0 8px 20px -6px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.studio-ia .btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+.studio-ia .btn-ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--surface-3);
+  color: var(--text);
+}
+.studio-ia .btn-danger {
+  border-color: transparent;
+  background: transparent;
+  color: var(--critical);
+}
+.studio-ia .btn-danger:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--critical) 10%, transparent);
+}
+.studio-ia .btn-sm {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.studio-ia .btn:focus-visible,
+.studio-ia .input:focus-visible,
+.studio-ia .select:focus-visible,
+.studio-ia .textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 2px;
+}
+
+/* Champs : fond blanc, coin doux, anneau discret au focus. */
+.studio-ia .input,
+.studio-ia .select,
+.studio-ia .textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.studio-ia .input:hover,
+.studio-ia .select:hover,
+.studio-ia .textarea:hover {
+  border-color: var(--border-strong);
+}
+.studio-ia .input:focus,
+.studio-ia .select:focus,
+.studio-ia .textarea:focus {
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-ring) 55%, transparent);
+}
+.studio-ia .input::placeholder,
+.studio-ia .textarea::placeholder {
+  color: var(--text-3);
+}
+.studio-ia .textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.55;
+}
+.studio-ia .select {
+  cursor: pointer;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-2) 50%),
+    linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 16px, calc(100% - 12px) 16px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+/*
+ * Variantes compactes, pour les menus posés dans une ligne de tableau.
+ * Forcer la hauteur avec une classe utilitaire coupait le texte en deux :
+ * le rembourrage et l'interligne du .select de base restaient ceux d'un
+ * champ de formulaire. Ici tout est recalculé ensemble.
+ */
+.studio-ia .select-sm {
+  height: 30px;
+  padding: 0 26px 0 10px;
+  font-size: 12.5px;
+  line-height: 28px;
+  border-radius: 8px;
+  background-position: calc(100% - 15px) 12px, calc(100% - 10px) 12px;
+}
+.studio-ia .select-xs {
+  height: 26px;
+  padding: 0 24px 0 9px;
+  font-size: 11.5px;
+  line-height: 24px;
+  border-radius: 7px;
+  background-position: calc(100% - 14px) 10px, calc(100% - 9px) 10px;
+}
+
+/* Badges : pilules mono, blanc à liseré. */
+.studio-ia .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--pill);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 55%, transparent);
+  background: var(--surface);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.studio-ia .badge-accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-on);
+}
+.studio-ia .badge-good {
+  background: color-mix(in srgb, var(--good) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--good) 30%, transparent);
+  color: var(--good);
+}
+.studio-ia .badge-warn {
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  color: color-mix(in srgb, var(--warning) 70%, var(--text));
+}
+.studio-ia .badge-danger {
+  background: color-mix(in srgb, var(--critical) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--critical) 30%, transparent);
+  color: var(--critical);
+}
+
+/* Tableaux : en-têtes mono, lignes aérées. */
+.studio-ia .table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.studio-ia .table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.studio-ia .table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.studio-ia .table tbody tr {
+  transition: background 0.12s ease;
+}
+.studio-ia .table tbody tr:hover td {
+  background: var(--surface-2);
+}
+.studio-ia .table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.studio-ia .link {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.14s;
+}
+.studio-ia .link:hover {
+  text-decoration-color: var(--text);
+}
+
+.studio-ia .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.studio-ia .num {
+  font-variant-numeric: tabular-nums;
+}
+
+.studio-ia .scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.studio-ia .prose-sm {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+/* -------------------------- Mouvement ------------------------------ */
+
+@keyframes sia-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.studio-ia .spinner {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 99px;
+  animation: sia-spin 0.7s linear infinite;
+}
+
+@keyframes sia-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.studio-ia .fade-in {
+  animation: sia-fade-in 0.18s ease-out;
+}
+
+@keyframes sia-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.studio-ia .rise {
+  animation: sia-rise 0.24s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* Barre indéterminée : une tâche en file d'attente doit prouver qu'elle vit. */
+@keyframes sia-sliding {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+.studio-ia .sliding {
+  animation: sia-sliding 1.4s ease-in-out infinite;
+}
+
+/* Étincelle en bout de barre : respire sans clignoter. */
+.studio-ia .ig-spark {
+  animation: sia-ig-spark 2.2s ease-in-out infinite;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--emerald) 60%, transparent));
+}
+@keyframes sia-ig-spark {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.22);
+  }
+}
+
+/* Surface d'emphase : remplissage des barres de progression. */
+.studio-ia .ig-grad {
+  background: var(--grad-accent);
+}
+
+/* Vignettes : l'image respire au survol, sans bouger la mise en page. */
+.studio-ia .tile img {
+  transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.3, 1), filter 0.2s ease;
+}
+.studio-ia .tile:hover img {
+  transform: scale(1.04);
+}
+.studio-ia .tile:hover .tile-actions {
+  opacity: 1;
+}
+.studio-ia .tile-actions {
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+@media (hover: none) {
+  .studio-ia .tile-actions {
+    opacity: 1;
+  }
+}
+
+.studio-ia .row-hover {
+  transition: background 0.14s ease;
+}
+.studio-ia .row-hover:hover {
+  background: var(--surface-2);
+}
+
+.studio-ia .tab-btn {
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+/* Barre latérale : le lien actif devient une pilule blanche à liseré. */
+.studio-ia .nav-link {
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  border: 1px solid transparent;
+}
+.studio-ia .nav-link[data-active="true"] {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+.studio-ia .nav-link:not([data-active="true"]):hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* --------------------------- Squelettes ---------------------------- */
+
+@keyframes sia-shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+.studio-ia .skeleton {
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 25%,
+    color-mix(in srgb, var(--surface-3) 50%, var(--surface)) 37%,
+    var(--surface-3) 63%
+  );
+  background-size: 200% 100%;
+  animation: sia-shimmer 1.3s linear infinite;
+}
+.studio-ia .sk-line {
+  height: 11px;
+  border-radius: 6px;
+}
+.studio-ia .sk-tile {
+  aspect-ratio: 4 / 5;
+  border-radius: 10px;
+}
+
+/* =====================================================================
+   Espace membre — accueil setter / closer (classes `mh-`).
+   ===================================================================== */
+
+/* Bandeau d'accueil : blanc, liseré, halo gris-bleuté très doux. */
+.studio-ia .mh-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--border-strong) 35%, transparent) 0%, transparent 55%),
+    radial-gradient(100% 120% at 100% 0%, color-mix(in srgb, var(--surface-3) 80%, transparent) 0%, transparent 50%),
+    var(--surface);
+}
+.studio-ia .mh-hero::after {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--border-strong) 25%, transparent), transparent);
+  animation: sia-mh-drift 18s ease-in-out infinite;
+  pointer-events: none;
+  /* Couche composee a part : le halo ne force plus le repaint du bandeau. */
+  will-change: transform;
+}
+@keyframes sia-mh-drift {
+  0%,
+  100% {
+    transform: translate(-12%, -6%) scale(1);
+  }
+  50% {
+    transform: translate(12%, 8%) scale(1.15);
+  }
+}
+
+.studio-ia .mh-card {
+  position: relative;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.18s, border-color 0.18s;
+}
+.studio-ia .mh-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border-strong);
+}
+.studio-ia .mh-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.studio-ia .mh-card:hover::before {
+  opacity: 1;
+}
+
+.studio-ia .mh-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.studio-ia .mh-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width 0.5s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.studio-ia .mh-stagger > * {
+  animation: sia-rise 0.32s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.studio-ia .mh-stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.studio-ia .mh-stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.studio-ia .mh-stagger > *:nth-child(3) { animation-delay: 0.1s; }
+.studio-ia .mh-stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.studio-ia .mh-stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.studio-ia .mh-stagger > *:nth-child(6) { animation-delay: 0.22s; }
+
+.studio-ia .mh-shift {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: border-color 0.18s, background 0.18s;
+}
+.studio-ia .mh-shift:hover {
+  border-color: var(--border-strong);
+}
+.studio-ia .mh-shift[data-state="accepted"] {
+  border-color: color-mix(in srgb, var(--emerald) 45%, transparent);
+  background: color-mix(in srgb, var(--emerald) 6%, var(--surface));
+}
+.studio-ia .mh-shift[data-state="proposed"] {
+  border-color: var(--border-strong);
+}
+
+/* ---------------------- Mouvement réduit --------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+*::before,
+*::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .studio-ia .ig-spark,
+.studio-ia .mh-hero::after,
+.studio-ia .mh-stagger > * {
+    animation: none;
+  }
+}
+
+/* ------------------------------ File de rendus ------------------------------ */
+
+.studio-ia .jobs-dock {
+  right: 16px;
+  bottom: 16px;
+  width: 268px;
+  max-width: calc(100vw - 32px);
+}
+
+/* Téléphone : le panneau de swap occupe le bas, la file monte sous l'en-tête. */
+@media (max-width: 767px) {
+  .studio-ia .jobs-dock {
+    top: 68px;
+    bottom: auto;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+  }
+}
+
+/* ------------------------- Panneau de swap sur telephone ------------------------- */
+
+@media (max-width: 767px) {
+  /* Colle au bord bas, coins arrondis en haut seulement, moins haut pour laisser voir la galerie. */
+  .studio-ia .swap-dock {
+    bottom: 0 !important;
+    max-height: 72vh !important;
+    border-radius: 14px 14px 0 0 !important;
+    margin-left: -16px;
+    margin-right: -16px;
+  }
+  /* Replie : une seule ligne (estimation + Ouvrir + Transformer), les medias et la phrase sont caches. */
+  .studio-ia .swap-simple[data-collapsed="true"] .swap-attachments,
+.studio-ia .swap-simple[data-collapsed="true"] .swap-summary,
+.studio-ia .swap-simple[data-collapsed="true"] .swap-extras {
+    display: none;
+  }
+  .studio-ia .swap-simple[data-collapsed="true"] .swap-quote {
+    font-size: 11px;
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

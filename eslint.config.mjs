@@ -69,6 +69,27 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  /*
+   * Studio IA, repris tel quel de princexd (src/lib/studio-ia, /api/studio-ia,
+   * composants studio-ia, kie / upload / media / data). Ce code a été écrit
+   * avant les règles du React Compiler et les contourne sciemment (refs mises
+   * à jour pendant le rendu, lecture du localStorage dans un effet). On ne
+   * le réécrit pas à l'import : les trois règles passent en avertissement sur
+   * ces fichiers seulement, à corriger quand on y retouche.
+   */
+  {
+    files: [
+      "src/app/(app)/studio-ia/**/*.tsx",
+      "src/components/studio-ia/**/*.tsx",
+      "src/lib/client.ts",
+      "src/lib/upload-client.ts",
+    ],
+    rules: {
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/immutability": "warn",
+    },
+  },
 ]);
 
 export default eslintConfig;

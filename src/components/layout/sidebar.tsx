@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Calculator,
+  Clapperboard,
   ChevronDown,
   Download,
   Eye,
@@ -62,6 +63,7 @@ export const SECTIONS: NavSection[] = [
     label: "Création",
     items: [
       { href: "/studio", label: "Creatives", icon: Sparkles },
+      { href: "/studio-ia", label: "Studio IA", icon: Clapperboard },
       { href: "/products", label: "Produits", icon: Package },
       { href: "/studio/library", label: "Toutes les créas", icon: FolderOpen },
       { href: "/ugc", label: "UGC Creative", icon: Video },
