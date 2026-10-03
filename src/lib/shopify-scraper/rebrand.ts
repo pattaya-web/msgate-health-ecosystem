@@ -210,6 +210,30 @@ export async function startRebrand(host: string, brand: RebrandBrand, targets: T
   return state;
 }
 
+/*
+ * Supabase injoignable : chaque tentative coûte dix secondes de résolution DNS
+ * avant d'échouer. Après un échec, on n'essaie plus pendant dix minutes, sinon
+ * chaque sonde de la page attend ce délai pour rien.
+ */
+const storageBackoff = ((globalThis as typeof globalThis & { __msgateRebrandStorageBackoff?: { until: number } }).__msgateRebrandStorageBackoff ??= { until: 0 });
+const STORAGE_BACKOFF_MS = 10 * 60 * 1000;
+
+function storageUsable() {
+  return isStorageReady() && Date.now() >= storageBackoff.until;
+}
+
+async function tryPutFile(remote: string, data: Buffer): Promise<string | null> {
+  if (!storageUsable()) return null;
+  try {
+    const url = await putFile(remote, data);
+    storageBackoff.until = 0;
+    return url;
+  } catch {
+    storageBackoff.until = Date.now() + STORAGE_BACKOFF_MS;
+    return null;
+  }
+}
+
 function localUrl(host: string, file: string) {
   return `/api/shopify-scraper/rebrand/file?shop=${encodeURIComponent(host)}&name=${file}`;
 }
@@ -229,14 +253,9 @@ async function storeResult(host: string, src: string, resultUrl: string) {
   const dir = imageDir(host);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, file), data);
-  if (isStorageReady()) {
-    try {
-      // Attendu, pas lancé en arrière-plan : le CSV peut référencer l'URL tout de suite.
-      return { file, url: await putFile(`shopify-scraper/rebrand/${host}/${file}`, data), uploadPending: false, temporary: false };
-    } catch {
-      // Supabase injoignable (mesuré : le domaine du projet ne se résout plus) : on retentera.
-    }
-  }
+  // Attendu, pas lancé en arrière-plan : le CSV peut référencer l'URL tout de suite.
+  const remote = await tryPutFile(`shopify-scraper/rebrand/${host}/${file}`, data);
+  if (remote) return { file, url: remote, uploadPending: false, temporary: false };
   /*
    * Sans copie Supabase, une URL publique reste nécessaire : l'import Shopify
    * télécharge les images lui-même. L'hébergement d'envoi de Kie convient le
@@ -252,19 +271,22 @@ async function storeResult(host: string, src: string, resultUrl: string) {
 
 /** Retente l'envoi Supabase des rendus restés en local. */
 async function retryUploads(host: string, items: RebrandItem[]) {
-  if (!isStorageReady()) return false;
   let changed = false;
   for (const item of items.filter((entry) => entry.state === "done" && entry.uploadPending && entry.file).slice(0, 10)) {
+    if (!storageUsable()) break;
+    let data: Buffer;
     try {
-      const data = await readFile(path.join(imageDir(host), item.file as string));
-      item.url = await putFile(`shopify-scraper/rebrand/${host}/${item.file}`, data);
-      item.uploadPending = false;
-      item.temporary = false;
-      item.updatedAt = new Date().toISOString();
-      changed = true;
+      data = await readFile(path.join(imageDir(host), item.file as string));
     } catch {
-      // Supabase toujours injoignable : on garde l'URL locale, prochain passage.
+      continue;
     }
+    const remote = await tryPutFile(`shopify-scraper/rebrand/${host}/${item.file}`, data);
+    if (!remote) break;
+    item.url = remote;
+    item.uploadPending = false;
+    item.temporary = false;
+    item.updatedAt = new Date().toISOString();
+    changed = true;
   }
   return changed;
 }
