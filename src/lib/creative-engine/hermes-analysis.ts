@@ -37,6 +37,12 @@ export function askHermesVision(prompt: string, system: string, images: string[]
   return askHermes(prompt, system, images, timeoutMs);
 }
 
+/** Vrai quand Hermes rend l'avertissement de son fournisseur au lieu d'une réponse (session expirée, clé refusée). */
+export function hermesProviderFailure(text: string): boolean {
+  const head = text.trim().slice(0, 300);
+  return /provider authentication failed|no access token|re-authenticate|run `hermes model`/i.test(head) || /^(⚠️|⚠)\s*provider/i.test(head);
+}
+
 /** Vrai quand la réponse dit que le modèle ne voit pas l'image (Hermes sur un modèle texte seul). */
 export function hermesCannotSee(text: string): boolean {
   const sample = text.slice(0, 1200);
@@ -77,6 +83,18 @@ async function askHermes(prompt: string, system: string, images: string[], timeo
     const content = payload.choices?.[0]?.message?.content;
     const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part.text ?? "").join("") : "";
     if (!text.trim()) throw new Error("Hermes n'a rien renvoyé");
+    /*
+     * Hermes répond 200 même quand son propre fournisseur de modèle le
+     * refuse : le texte est alors un avertissement (« ⚠️ Provider
+     * authentication failed: No access token found for Nous Portal login.
+     * Run `hermes model` to re-authenticate. »), rendu en 0,1 s sans jeton
+     * consommé. Mesuré le 3 oct. 2026 : pris pour une réponse, il devenait
+     * « le planificateur n'a pas renvoyé de JSON » chez l'appelant. On le
+     * nomme pour ce qu'il est, et on dit quoi faire.
+     */
+    if (hermesProviderFailure(text)) {
+      throw new Error("Hermes ne peut plus joindre son modèle (connexion Nous Portal expirée) : lancer `hermes auth add nous` sur le PC où tourne Hermes pour se reconnecter");
+    }
     return text;
   } catch (error) {
     if (controller.signal.aborted) throw new Error(`Hermes n'a pas répondu dans les ${Math.round(timeoutMs / 60_000)} minutes`);
