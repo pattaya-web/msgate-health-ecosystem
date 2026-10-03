@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Search, Store } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Loader2, Palette, RefreshCw, Search, Store } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader } from "@/components/shared/page-states";
@@ -31,11 +31,43 @@ type ScrapeResult = {
   note?: string | null;
 };
 
+type RebrandItem = {
+  handle: string;
+  src: string;
+  taskId: string | null;
+  state: "pending" | "done" | "fail";
+  url: string | null;
+  error: string | null;
+};
+
+type RebrandState = {
+  host: string;
+  brand: { logoUrl: string; accent: string; background: string; brandName: string; resolution: "1K" | "2K"; model?: "nano-banana-pro" | "gpt-image-2" } | null;
+  items: RebrandItem[];
+  /** Faux sans Supabase : les rendus ne sont servis que par cette machine, le CSV ne sera pas importable ailleurs. */
+  publicUrls: boolean;
+};
+
 const inputClass =
   "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-900 outline-none focus:border-emerald-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100";
 
+/** Crédits Kie par image, relevés sur les rendus de test du 4 oct. 2026 (≈ 0,005 $ le crédit). */
+const CREDITS_PER_IMAGE: Record<"nano-banana-pro" | "gpt-image-2", Record<"1K" | "2K", number>> = {
+  "nano-banana-pro": { "1K": 18, "2K": 36 },
+  "gpt-image-2": { "1K": 6, "2K": 12 },
+};
+
 function money(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
+function readAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Fichier illisible"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ShopifyScraperPage() {
@@ -56,6 +88,20 @@ export default function ShopifyScraperPage() {
   const [loading, setLoading] = useState(false);
   const [loadingCollections, setLoadingCollections] = useState(false);
 
+  /* Rebranding du packaging : logo + couleurs, un rendu par image produit. */
+  const [rebrand, setRebrand] = useState<RebrandState | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [accent, setAccent] = useState("#1f2937");
+  const [background, setBackground] = useState("#f5f5f4");
+  const [brandName, setBrandName] = useState("");
+  const [scope, setScope] = useState<"first" | "all">("first");
+  const [resolution, setResolution] = useState<"1K" | "2K">("1K");
+  const [model, setModel] = useState<"nano-banana-pro" | "gpt-image-2">("nano-banana-pro");
+  const [starting, setStarting] = useState(false);
+  const polling = useRef(false);
+
   /**
    * Le champ accepte un titre (« Nouveautés été »), un handle, ou un nom qui
    * n'est pas encore dans la liste chargée. On résout d'abord contre les
@@ -70,7 +116,7 @@ export default function ShopifyScraperPage() {
       value
         .toLowerCase()
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
+        .replace(/[̀-ͯ]/g, "");
     const target = norm(typed);
 
     const hit =
@@ -108,6 +154,17 @@ export default function ShopifyScraperPage() {
     }
   }, [shop]);
 
+  const loadRebrand = useCallback(async (target: string) => {
+    try {
+      const res = await fetch(`/api/shopify-scraper/rebrand?shop=${encodeURIComponent(target)}`, { cache: "no-store" });
+      const body = (await res.json()) as RebrandState & { error?: string };
+      if (!res.ok) throw new Error(body.error);
+      setRebrand(body);
+    } catch {
+      setRebrand(null);
+    }
+  }, []);
+
   const scrape = useCallback(async () => {
     if (!shop.trim()) {
       toast.error("Renseigne l'URL de la boutique");
@@ -120,12 +177,128 @@ export default function ShopifyScraperPage() {
       if (!res.ok) throw new Error(body.error);
       setResult(body as ScrapeResult);
       if (!body.products.length) toast.error("Aucun produit sur ces critères");
+      // Les rendus déjà faits pour cette boutique reviennent avec elle.
+      void loadRebrand(shop);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Boutique injoignable");
     } finally {
       setLoading(false);
     }
-  }, [shop, params]);
+  }, [shop, params, loadRebrand]);
+
+  const pendingCount = rebrand?.items.filter((item) => item.state === "pending").length ?? 0;
+  const doneCount = rebrand?.items.filter((item) => item.state === "done").length ?? 0;
+
+  /* Tant que des rendus sont en cours, on sonde toutes les quatre secondes. */
+  useEffect(() => {
+    if (!pendingCount || !shop.trim()) return;
+    const timer = setInterval(async () => {
+      if (polling.current) return;
+      polling.current = true;
+      try {
+        const res = await fetch("/api/shopify-scraper/rebrand", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "refresh", shop }),
+        });
+        const body = (await res.json()) as RebrandState & { error?: string };
+        if (res.ok) setRebrand(body);
+      } catch {
+        // réseau : le prochain tour réessaiera
+      } finally {
+        polling.current = false;
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [pendingCount, shop]);
+
+  const pickLogo = useCallback(async (file: File | null) => {
+    if (!file) return;
+    setUploadingLogo(true);
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      setLogoPreview(dataUrl);
+      const res = await fetch("/api/shopify-scraper/rebrand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "logo", logoDataUrl: dataUrl }),
+      });
+      const body = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !body.url) throw new Error(body.error || "Envoi du logo impossible");
+      setLogoUrl(body.url);
+    } catch (error) {
+      setLogoPreview(null);
+      toast.error(error instanceof Error ? error.message : "Logo illisible");
+    } finally {
+      setUploadingLogo(false);
+    }
+  }, []);
+
+  const rebrandBody = useCallback(
+    (extra: Record<string, unknown>) => ({
+      shop,
+      collection: resolvedCollection || undefined,
+      min: min.trim() ? Number(min) : null,
+      max: max.trim() ? Number(max) : null,
+      logoUrl: logoUrl ?? undefined,
+      accent,
+      background,
+      brandName,
+      resolution,
+      model,
+      ...extra,
+    }),
+    [shop, resolvedCollection, min, max, logoUrl, accent, background, brandName, resolution, model]
+  );
+
+  const startRebrand = useCallback(async () => {
+    if (!logoUrl && !rebrand?.brand) {
+      toast.error("Charge ton logo d'abord");
+      return;
+    }
+    setStarting(true);
+    try {
+      const res = await fetch("/api/shopify-scraper/rebrand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rebrandBody({ action: "start", scope })),
+      });
+      const body = (await res.json()) as RebrandState & { error?: string };
+      if (!res.ok) throw new Error(body.error);
+      setRebrand(body);
+      toast.success(`${body.items.filter((item) => item.state === "pending").length} rendu(s) en cours`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Rebranding impossible");
+    } finally {
+      setStarting(false);
+    }
+  }, [logoUrl, rebrand, rebrandBody, scope]);
+
+  const retryImage = useCallback(
+    async (src: string) => {
+      try {
+        const res = await fetch("/api/shopify-scraper/rebrand", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(rebrandBody({ action: "retry", src })),
+        });
+        const body = (await res.json()) as RebrandState & { error?: string };
+        if (!res.ok) throw new Error(body.error);
+        setRebrand(body);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Relance impossible");
+      }
+    },
+    [rebrandBody]
+  );
+
+  const imageCount = result ? result.products.reduce((sum, product) => sum + (scope === "all" ? product.images : Math.min(1, product.images)), 0) : 0;
+  const estimatedCredits = imageCount * CREDITS_PER_IMAGE[model][resolution];
+  const itemsByHandle = useMemo(() => {
+    const map = new Map<string, RebrandItem[]>();
+    for (const item of rebrand?.items ?? []) map.set(item.handle, [...(map.get(item.handle) ?? []), item]);
+    return map;
+  }, [rebrand]);
 
   return (
     <div>
@@ -134,12 +307,22 @@ export default function ShopifyScraperPage() {
         description="Catalogue public d'une boutique Shopify, filtré par collection et par prix, exporté au format d'import Shopify."
         actions={
           result?.products.length ? (
-            <Button size="sm" asChild>
-              <a href={`/api/shopify-scraper/csv?${params}`}>
-                <Download className="h-3.5 w-3.5" />
-                CSV ({result.totals.variants} variantes)
-              </a>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant={doneCount ? "outline" : "default"} asChild>
+                <a href={`/api/shopify-scraper/csv?${params}`}>
+                  <Download className="h-3.5 w-3.5" />
+                  CSV ({result.totals.variants} variantes)
+                </a>
+              </Button>
+              {doneCount ? (
+                <Button size="sm" asChild>
+                  <a href={`/api/shopify-scraper/csv?${params}&rebrand=1`}>
+                    <Palette className="h-3.5 w-3.5" />
+                    CSV rebrandé ({doneCount} image{doneCount > 1 ? "s" : ""})
+                  </a>
+                </Button>
+              ) : null}
+            </div>
           ) : null
         }
       />
@@ -240,6 +423,102 @@ export default function ShopifyScraperPage() {
             {result.note ? <span className="text-amber-600">{result.note}</span> : null}
           </div>
 
+          {result.products.length ? (
+            <div className="mb-4 rounded-2xl bg-white p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-slate-100/[0.06]" data-rebrand-panel>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">Packaging rebrandé</div>
+                  <p className="text-[11px] text-slate-500">
+                    Même produit, même étiquette, mêmes inscriptions : seuls le logo et les couleurs changent. Les rendus remplacent les photos dans « CSV rebrandé ».
+                  </p>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {doneCount ? <span className="text-emerald-700 dark:text-emerald-300">{doneCount} prête{doneCount > 1 ? "s" : ""}</span> : null}
+                  {doneCount && pendingCount ? " · " : null}
+                  {pendingCount ? <span>{pendingCount} en cours</span> : null}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex items-center gap-2">
+                  <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                    {logoPreview || rebrand?.brand?.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={logoPreview ?? (rebrand?.brand?.logoUrl as string)} alt="" className="h-full w-full object-contain" />
+                    ) : uploadingLogo ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                    ) : (
+                      <Palette className="h-4 w-4 text-slate-400" />
+                    )}
+                  </span>
+                  <span className="text-[11.5px]">
+                    <span className="block font-medium text-slate-800 dark:text-slate-200">Mon logo</span>
+                    <input type="file" accept="image/*" className="block max-w-[180px] text-[11px]" onChange={(event) => void pickLogo(event.target.files?.[0] ?? null)} data-rebrand-logo />
+                  </span>
+                </label>
+
+                <label className="text-[11.5px]">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Couleur principale</span>
+                  <span className="flex items-center gap-1">
+                    <input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} className="h-8 w-9 cursor-pointer rounded border border-slate-200 bg-transparent p-0.5 dark:border-slate-700" />
+                    <input className={cn(inputClass, "w-[88px] font-mono")} value={accent} onChange={(event) => setAccent(event.target.value)} />
+                  </span>
+                </label>
+
+                <label className="text-[11.5px]">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Couleur de fond</span>
+                  <span className="flex items-center gap-1">
+                    <input type="color" value={background} onChange={(event) => setBackground(event.target.value)} className="h-8 w-9 cursor-pointer rounded border border-slate-200 bg-transparent p-0.5 dark:border-slate-700" />
+                    <input className={cn(inputClass, "w-[88px] font-mono")} value={background} onChange={(event) => setBackground(event.target.value)} />
+                  </span>
+                </label>
+
+                <label className="text-[11.5px]">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Nom de marque (jamais écrit, le logo le porte)</span>
+                  <input className={cn(inputClass, "w-[180px]")} placeholder="Ma marque" value={brandName} onChange={(event) => setBrandName(event.target.value)} />
+                </label>
+
+                <label className="text-[11.5px]">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Images</span>
+                  <select className={cn(inputClass)} value={scope} onChange={(event) => setScope(event.target.value as "first" | "all")}>
+                    <option value="first">Première image de chaque produit</option>
+                    <option value="all">Toutes les images</option>
+                  </select>
+                </label>
+
+                <label className="text-[11.5px]">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Modèle</span>
+                  <select className={cn(inputClass)} value={model} onChange={(event) => setModel(event.target.value as "nano-banana-pro" | "gpt-image-2")}>
+                    <option value="nano-banana-pro">Nano Banana Pro (fidèle aux inscriptions)</option>
+                    <option value="gpt-image-2">GPT Image 2</option>
+                  </select>
+                </label>
+
+                <label className="text-[11.5px]">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Définition</span>
+                  <select className={cn(inputClass)} value={resolution} onChange={(event) => setResolution(event.target.value as "1K" | "2K")}>
+                    <option value="1K">1K</option>
+                    <option value="2K">2K</option>
+                  </select>
+                </label>
+
+                <Button size="sm" onClick={startRebrand} disabled={starting || uploadingLogo || (!logoUrl && !rebrand?.brand)} data-rebrand-start>
+                  {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Palette className="h-3.5 w-3.5" />}
+                  Rebrander {imageCount} image{imageCount > 1 ? "s" : ""}
+                </Button>
+                <span className="text-[11px] text-slate-500">
+                  ≈ {estimatedCredits} crédits · {money(estimatedCredits * 0.005)}. Les images déjà prêtes ne sont pas refaites.
+                </span>
+              </div>
+
+              {rebrand && !rebrand.publicUrls && doneCount ? (
+                <p className="mt-2 text-[11px] text-amber-600">
+                  Supabase n&apos;est pas configuré sur ce serveur : les rendus ne sont servis que depuis cette machine, le CSV rebrandé ne sera pas importable ailleurs.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {result.products.length === 0 ? (
             <EmptyState
               title="Aucun produit"
@@ -247,10 +526,11 @@ export default function ShopifyScraperPage() {
             />
           ) : (
             <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-slate-900/[0.06] thin-scroll dark:bg-slate-900/70 dark:ring-slate-100/[0.06]">
-              <table className="w-full min-w-[720px] text-[12px]">
+              <table className="w-full min-w-[820px] text-[12px]">
                 <thead className="border-b border-slate-100 text-left text-[10px] uppercase tracking-wider text-slate-500 dark:border-slate-800">
                   <tr>
                     <th className="px-3 py-2 font-semibold">Produit</th>
+                    <th className="px-3 py-2 font-semibold">Packaging rebrandé</th>
                     <th className="px-3 py-2 font-semibold">Type</th>
                     <th className="px-3 py-2 text-right font-semibold">Variantes</th>
                     <th className="px-3 py-2 text-right font-semibold">Images</th>
@@ -258,47 +538,80 @@ export default function ShopifyScraperPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.products.map((product) => (
-                    <tr
-                      key={product.handle}
-                      className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
-                    >
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          {product.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={product.image}
-                              alt=""
-                              className="h-8 w-8 shrink-0 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700"
-                            />
-                          ) : (
-                            <div className="h-8 w-8 shrink-0 rounded-md bg-slate-100 dark:bg-slate-800" />
-                          )}
-                          <div className="min-w-0">
-                            <div className="truncate font-medium text-slate-900 dark:text-slate-100">
-                              {product.title}
+                  {result.products.map((product) => {
+                    const items = itemsByHandle.get(product.handle) ?? [];
+                    return (
+                      <tr
+                        key={product.handle}
+                        className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
+                      >
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            {product.image ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={product.image}
+                                alt=""
+                                className="h-8 w-8 shrink-0 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+                              />
+                            ) : (
+                              <div className="h-8 w-8 shrink-0 rounded-md bg-slate-100 dark:bg-slate-800" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-slate-900 dark:text-slate-100">
+                                {product.title}
+                              </div>
+                              <div className="truncate text-[11px] text-slate-500">{product.handle}</div>
                             </div>
-                            <div className="truncate text-[11px] text-slate-500">{product.handle}</div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="max-w-[160px] truncate px-3 py-2 text-slate-500">
-                        {product.type || "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">
-                        {product.variants}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-500">
-                        {product.images}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
-                        {product.minPrice === product.maxPrice
-                          ? money(product.minPrice)
-                          : `${money(product.minPrice)} – ${money(product.maxPrice)}`}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-3 py-2">
+                          {items.length ? (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {items.map((item) =>
+                                item.state === "done" && item.url ? (
+                                  <a key={item.src} href={item.url} target="_blank" rel="noreferrer" title="Voir le rendu">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={item.url} alt="" className="h-8 w-8 rounded-md object-cover ring-1 ring-emerald-300 dark:ring-emerald-700" />
+                                  </a>
+                                ) : item.state === "pending" ? (
+                                  <span key={item.src} className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                                  </span>
+                                ) : (
+                                  <button
+                                    key={item.src}
+                                    type="button"
+                                    onClick={() => void retryImage(item.src)}
+                                    title={item.error ?? "Échec"}
+                                    className="inline-flex h-8 items-center gap-1 rounded-md bg-red-50 px-2 text-[11px] text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300"
+                                  >
+                                    <RefreshCw className="h-3 w-3" /> Relancer
+                                  </button>
+                                )
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="max-w-[160px] truncate px-3 py-2 text-slate-500">
+                          {product.type || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300">
+                          {product.variants}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-500">
+                          {product.images}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-900 dark:text-slate-100">
+                          {product.minPrice === product.maxPrice
+                            ? money(product.minPrice)
+                            : `${money(product.minPrice)} – ${money(product.maxPrice)}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
