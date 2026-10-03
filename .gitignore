@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# … sauf le gabarit sans valeurs du Studio IA
+!.env.example
 
 # Airtable exports (may contain PII)
 /data/airtable-clean/
@@ -62,3 +64,9 @@ lesson*.html
 # Videos de reference d autrui
 /data/references/*
 !/data/references/README.md
+
+# Studio IA : base locale et médias (jamais versionnés)
+/data/db.json
+/data/db.json.*.tmp
+/data/media/
+/data/ig-cookies.txt
