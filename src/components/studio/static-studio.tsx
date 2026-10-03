@@ -362,8 +362,9 @@ export function StaticStudio() {
       if (!job.taskId) return;
       try {
         const task = await pollStudioTask(job.taskId);
-        let saved = false;
-        if (task.urls.length) {
+        // Le serveur range lui-même les tâches qu'il a vues aboutir : ici on ne complète que si ce n'est pas déjà fait.
+        let saved = Boolean(task.saved);
+        if (task.urls.length && !saved) {
           try {
             await saveStaticCreative({
               brief: job.brief,
@@ -373,6 +374,7 @@ export function StaticStudio() {
               resultUrls: task.urls,
               referenceUrls: job.referenceUrls,
               media: job.kind ?? "image",
+              taskId: job.taskId,
             });
             saved = true;
           } catch (error) {
@@ -592,6 +594,7 @@ export function StaticStudio() {
         });
         if (uploaded.url) referenceUrls.push(uploaded.url);
       }
+      const jobBrief = promptMode === "template" && selectedTemplate ? `Template · ${selectedTemplate.name}${activeProduct ? ` · ${activeProduct.name}` : ""}` : activeProduct ? activeProduct.name : "";
       const body = await studioPost<{
         jobs: Array<{ prompt: string; taskId: string }>;
         referenceUrls?: string[];
@@ -606,10 +609,11 @@ export function StaticStudio() {
         resolution,
         referenceUrls,
         model: modelId,
+        // Le serveur garde la tâche en attente avec son brief : il la rangera en bibliothèque même si cet onglet se ferme.
+        brief: jobBrief,
         ...(family.kind === "video" ? { duration } : {}),
       });
       const savedRefs = body.referenceUrls?.length ? body.referenceUrls : referenceUrls;
-      const jobBrief = promptMode === "template" && selectedTemplate ? `Template · ${selectedTemplate.name}${activeProduct ? ` · ${activeProduct.name}` : ""}` : activeProduct ? activeProduct.name : "";
       const createdAt = new Date().toISOString();
 
       // Les nouveaux passent devant, les lots précédents restent à l'écran.

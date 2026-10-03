@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { expandBrief } from "@/lib/studio/expand";
 import { modelFamily, resolveModel } from "@/lib/studio/models";
-import { createKieTask, getKieTask, uploadBase64 } from "@/lib/studio/kie";
+import { freshReferenceUrls } from "@/lib/creative-engine/store";
+import { createKieTask, getKieTask, isKieDone, uploadBase64 } from "@/lib/studio/kie";
+import { addPendingTasks, settlePendingTask } from "@/lib/studio/pending";
 import { RATIOS, type Ratio } from "@/lib/studio/ratios";
 import { expandVoiceScripts } from "@/lib/studio/vo-scripts";
 
@@ -36,6 +38,16 @@ export async function GET(request: Request) {
   if (!taskId) return NextResponse.json({ error: "taskId manquant" }, { status: 400 });
   try {
     const task = await getKieTask(taskId);
+    /* Le serveur voit la tâche aboutir avant le navigateur : il la range
+       lui-même, et le navigateur n'a plus qu'à afficher. Une tâche inconnue
+       du registre (ancien onglet, autre écran) rend simplement son état. */
+    if (isKieDone(task.state) && task.urls.length) {
+      const saved = await settlePendingTask(taskId, task.urls).catch((error: unknown) => {
+        console.error("[studio] rangement serveur impossible :", error instanceof Error ? error.message : error);
+        return null;
+      });
+      if (saved) return NextResponse.json({ ...task, saved: true, libraryId: saved.id });
+    }
     return NextResponse.json(task);
   } catch (error) {
     return NextResponse.json(
@@ -101,7 +113,13 @@ export async function POST(request: Request) {
     if (body.action === "image") {
       const prompts = (body.prompts?.length ? body.prompts : [body.prompt || ""]).filter(Boolean);
       if (!prompts.length) return NextResponse.json({ error: "Prompt manquant" }, { status: 400 });
-      const referenceUrls = (body.referenceUrls || []).filter((url) => /^https:\/\//i.test(url)).slice(0, 8);
+      let referenceUrls = (body.referenceUrls || []).filter((url) => /^https:\/\//i.test(url)).slice(0, 8);
+      // Une photo sur un hôte temporaire de Kie peut avoir expiré : ré-hébergée depuis sa copie, ou refusée clairement.
+      try {
+        referenceUrls = await freshReferenceUrls(referenceUrls);
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Référence illisible" }, { status: 400 });
+      }
       /**
        * Les créations partent une par une, espacées.
        *
@@ -155,6 +173,24 @@ export async function POST(request: Request) {
           { status: 502 }
         );
       }
+
+      /* Chaque tâche est notée côté serveur avec de quoi l'enregistrer : si
+         l'onglet se ferme avant la fin, la bibliothèque la recevra quand même. */
+      const createdAt = new Date().toISOString();
+      await addPendingTasks(
+        jobs.map((job) => ({
+          taskId: job.taskId,
+          createdAt,
+          brief: (body.brief || "").trim().slice(0, 500),
+          prompt: job.prompt,
+          ratio: (body.ratio || "3:4") as Ratio,
+          resolution: body.resolution === "2K" ? "2K" : "1K",
+          referenceUrls,
+          media: family.kind === "video" ? "video" : "image",
+        }))
+      ).catch((error: unknown) => {
+        console.error("[studio] registre des tâches indisponible :", error instanceof Error ? error.message : error);
+      });
 
       return NextResponse.json({
         jobs,

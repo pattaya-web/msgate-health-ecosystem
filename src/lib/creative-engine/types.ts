@@ -89,6 +89,8 @@ export type ProductReference = {
   url: string;
   source: "page" | "upload";
   selectedAt: string;
+  /** Copie locale (.msgate-cache/creative-engine/references) : les URL d'envoi Kie expirent, la copie permet de ré-héberger. */
+  file?: string;
 };
 
 export function primaryReference(product: Pick<ProductContext, "references">): ProductReference | null {

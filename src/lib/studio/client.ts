@@ -6,6 +6,9 @@ export type StudioTask = {
   state?: string;
   urls: string[];
   failMsg?: string;
+  /** Vrai quand le serveur a déjà rangé le rendu en bibliothèque pendant la sonde. */
+  saved?: boolean;
+  libraryId?: string;
 };
 
 export async function studioPost<T>(body: Record<string, unknown>): Promise<T> {
@@ -185,6 +188,7 @@ export async function saveStaticCreative(body: {
   resultUrls: string[];
   referenceUrls?: string[];
   media?: "image" | "video";
+  taskId?: string;
 }) {
   const res = await fetch("/api/studio/library", {
     method: "POST",

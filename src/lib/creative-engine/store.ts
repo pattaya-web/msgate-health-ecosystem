@@ -9,7 +9,7 @@ import type { Ratio } from "@/lib/studio/ratios";
 import { analyzeProductUrl, classify, inferGender } from "@/lib/creative-engine/analysis";
 import { creativeName } from "@/lib/creative-engine/naming";
 import { buildPromptBatch, type PromptBatchSpec } from "@/lib/creative-engine/prompt-batch";
-import type { ProductReferenceType } from "@/lib/creative-engine/types";
+import type { ProductReference, ProductReferenceType } from "@/lib/creative-engine/types";
 import { planBatch, presetsFrom, type Plan } from "@/lib/creative-engine/planner";
 import { composeCreativePrompt } from "@/lib/creative-engine/prompt";
 import {
@@ -39,6 +39,13 @@ const MODEL_IMAGE_TO_IMAGE = "gpt-image-2-image-to-image";
 const MODEL_TEXT_TO_IMAGE = "gpt-image-2-text-to-image";
 const MAX_REFS = 8;
 const CREATE_GAP_MS = 700;
+/** Copies locales des photos de référence : l'hébergement d'envoi de Kie expire, la copie permet de ré-héberger à la demande. */
+const REFERENCES = path.join(ROOT, "references");
+/* Les hôtes « tempfile » de Kie gardent un envoi quelques jours. Mesuré le
+   3 oct. 2026 : la référence principale d'un produit, choisie parmi des
+   photos envoyées à la main, rendait 404 — la vignette cassait et toute
+   génération image-to-image partait avec une image introuvable. */
+const KIE_TEMP_HOSTS = /^https:\/\/[^/]*(tempfile\.|kieai\.redpandaai\.co|aiquickdraw\.com)/i;
 
 function uid(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -242,6 +249,124 @@ export async function updateProduct(id: string, patch: { store?: string; name?: 
  * référence principale entre aussi dans les photos produit, pour que les lots
  * planifiés du Mass test la voient comme les autres.
  */
+function referenceExt(type: string, url: string) {
+  if (/jpeg|jpg/i.test(type)) return "jpg";
+  if (/webp/i.test(type)) return "webp";
+  if (/gif/i.test(type)) return "gif";
+  if (/png/i.test(type)) return "png";
+  const fromUrl = /\.(png|jpe?g|webp|gif)(\?|$)/i.exec(url)?.[1]?.toLowerCase();
+  return fromUrl === "jpeg" ? "jpg" : fromUrl || "png";
+}
+
+function referenceMime(file: string) {
+  const ext = file.split(".").pop()?.toLowerCase();
+  return ext === "jpg" ? "image/jpeg" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/png";
+}
+
+/** Copie une photo de référence sur le disque (et dans Supabase) ; rend le nom du fichier, ou null si la photo ne se charge pas. */
+async function copyReference(refId: string, url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return null;
+    const data = Buffer.from(await res.arrayBuffer());
+    if (!data.length) return null;
+    const file = `${refId}.${referenceExt(res.headers.get("content-type") || "", url)}`;
+    await persistBytes(path.join(REFERENCES, file), data, async () => {
+      await mkdir(REFERENCES, { recursive: true });
+      await writeFile(path.join(REFERENCES, file), data);
+    });
+    return file;
+  } catch {
+    return null;
+  }
+}
+
+/** Les octets d'une copie locale de référence : le disque, sinon le miroir Supabase. */
+export async function readReferenceFile(file: string): Promise<Buffer> {
+  if (!/^[\w-]+\.(png|jpe?g|webp|gif)$/i.test(file)) throw new Error("Fichier refusé");
+  const local = path.join(REFERENCES, file);
+  try {
+    return await readFile(local);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
+    const remote = await readMirrorBytes(local);
+    if (!remote) throw error;
+    return remote;
+  }
+}
+
+/** La copie locale d'une référence connue par son URL (vignette dont l'hôte Kie a expiré). */
+export async function readReferenceByUrl(url: string): Promise<{ data: Buffer; type: string } | null> {
+  const items = await listProducts();
+  for (const product of items) {
+    const reference = product.references?.find((entry) => entry.url === url && entry.file);
+    if (!reference?.file) continue;
+    try {
+      return { data: await readReferenceFile(reference.file), type: referenceMime(reference.file) };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+const aliveChecks = ((globalThis as typeof globalThis & { __msgateReferenceAlive?: Map<string, number> }).__msgateReferenceAlive ??= new Map<string, number>());
+const ALIVE_TTL_MS = 10 * 60 * 1000;
+
+async function referenceAlive(url: string) {
+  const seen = aliveChecks.get(url);
+  if (seen && Date.now() - seen < ALIVE_TTL_MS) return true;
+  try {
+    const res = await fetch(url, { method: "GET", cache: "no-store", signal: AbortSignal.timeout(10_000) });
+    await res.body?.cancel().catch(() => undefined);
+    if (!res.ok) return false;
+    aliveChecks.set(url, Date.now());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Rend des URL de référence que Kie pourra lire maintenant.
+ *
+ * Une photo sur un hôte temporaire de Kie est vérifiée ; si elle a expiré,
+ * sa copie locale est ré-hébergée et la fiche produit mise à jour, pour que
+ * la vignette et les prochains lots suivent. Sans copie, on refuse plutôt que
+ * de lancer une génération qui partirait sans la photo.
+ */
+export async function freshReferenceUrls(urls: string[]): Promise<string[]> {
+  const out: string[] = [];
+  let products: ProductContext[] | null = null;
+  let dirty = false;
+  for (const url of urls) {
+    if (!KIE_TEMP_HOSTS.test(url) || (await referenceAlive(url))) {
+      out.push(url);
+      continue;
+    }
+    products ??= await listProducts();
+    let replacement: string | null = null;
+    for (const product of products) {
+      const reference = product.references?.find((entry) => entry.url === url && entry.file) as ProductReference | undefined;
+      if (!reference?.file) continue;
+      const data = await readReferenceFile(reference.file);
+      replacement = await uploadBase64(`data:${referenceMime(reference.file)};base64,${data.toString("base64")}`, reference.file);
+      for (const entry of product.references ?? []) if (entry.url === url) entry.url = replacement;
+      product.imageUrls = product.imageUrls.map((entry) => (entry === url ? (replacement as string) : entry));
+      product.updatedAt = new Date().toISOString();
+      dirty = true;
+      break;
+    }
+    if (!replacement) {
+      throw new Error("La photo de référence a expiré chez Kie et n'a pas de copie locale : re-choisis-la dans « Produits »");
+    }
+    aliveChecks.set(replacement, Date.now());
+    out.push(replacement);
+  }
+  if (dirty && products) await saveProducts(products);
+  return out;
+}
+
 export async function setProductReference(id: string, input: { type: ProductReferenceType; url: string; source?: "page" | "upload" }) {
   const url = input.url.trim();
   if (!/^https:\/\//i.test(url)) throw new Error("La référence doit être une URL https");
@@ -249,7 +374,9 @@ export async function setProductReference(id: string, input: { type: ProductRefe
   const product = items.find((item) => item.id === id);
   if (!product) throw new Error("Produit introuvable");
   const references = (product.references ?? []).filter((reference) => reference.type !== input.type);
-  references.unshift({ id: uid("ref"), type: input.type, url, source: input.source ?? "page", selectedAt: new Date().toISOString() });
+  const refId = uid("ref");
+  const file = await copyReference(refId, url);
+  references.unshift({ id: refId, type: input.type, url, source: input.source ?? "page", selectedAt: new Date().toISOString(), ...(file ? { file } : {}) });
   product.references = references;
   if (input.type === "primary" && !product.imageUrls.includes(url)) product.imageUrls = [url, ...product.imageUrls].slice(0, MAX_REFS);
   product.updatedAt = new Date().toISOString();
@@ -369,7 +496,24 @@ function modelFor(inputs: string[]) {
 
 async function launch(item: BatchItem, batch: TestBatch) {
   // Lots de prompts (espace produit, Ask Hermes) : la créa dit elle-même si la photo du produit doit partir ; rien n'est joint en douce.
-  const inputs = batch.source && !item.referenceUsed ? [] : [...batch.referenceUrls, ...batch.productImageUrls].slice(0, MAX_REFS);
+  let inputs = batch.source && !item.referenceUsed ? [] : [...batch.referenceUrls, ...batch.productImageUrls].slice(0, MAX_REFS);
+  if (inputs.length) {
+    try {
+      const fresh = await freshReferenceUrls(inputs);
+      // Le lot suit : une référence ré-hébergée sert aux relances et aux variations sans nouvelle vérification.
+      inputs.forEach((url, index) => {
+        if (fresh[index] === url) return;
+        batch.referenceUrls = batch.referenceUrls.map((entry) => (entry === url ? fresh[index] : entry));
+        batch.productImageUrls = batch.productImageUrls.map((entry) => (entry === url ? fresh[index] : entry));
+        if (batch.primaryReferenceUrl === url) batch.primaryReferenceUrl = fresh[index];
+      });
+      inputs = fresh;
+    } catch (error) {
+      item.state = "fail";
+      item.error = error instanceof Error ? error.message : "Référence illisible";
+      return;
+    }
+  }
   try {
     item.taskId = inputs.length
       ? await createKieTask(MODEL_IMAGE_TO_IMAGE, { prompt: item.prompt, input_urls: inputs, aspect_ratio: batch.ratio, resolution: batch.resolution })
@@ -477,7 +621,7 @@ export async function createTestBatch(spec: GenerateSpec) {
 export async function createPromptBatch(spec: Omit<PromptBatchSpec, "referenceUrls" | "productImageUrls"> & { referenceDataUrls: string[]; useProductImages: boolean; /** Références déjà hébergées (https), ex. la référence principale d'un produit. */ hostedReferenceUrls?: string[] }) {
   const products = await listProducts();
   const product = spec.productId ? products.find((entry) => entry.id === spec.productId) ?? null : null;
-  const referenceUrls: string[] = (spec.hostedReferenceUrls ?? []).filter((url) => /^https:\/\//i.test(url)).slice(0, 3);
+  const referenceUrls: string[] = await freshReferenceUrls((spec.hostedReferenceUrls ?? []).filter((url) => /^https:\/\//i.test(url)).slice(0, 3));
   for (const [index, dataUrl] of spec.referenceDataUrls.slice(0, 3).entries()) {
     try {
       referenceUrls.push(await uploadBase64(dataUrl, `hermes-reference-${Date.now()}-${index}.png`));

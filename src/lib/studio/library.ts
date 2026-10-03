@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
+import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import { mirror } from "@/lib/storage";
 import type { StaticCreative } from "@/lib/studio/library-types";
@@ -7,6 +7,10 @@ export type { StaticCreative } from "@/lib/studio/library-types";
 
 const ROOT = path.join(process.cwd(), ".msgate-cache", "studio-static");
 const INDEX = path.join(ROOT, "index.json");
+/* Copie de l'index précédent, prise avant chaque réécriture : un index illisible
+   (coupure pendant le rename, fichier verrouillé) se relit depuis elle au lieu
+   de repartir du disque seul, où briefs et prompts n'existent pas. */
+const INDEX_BACKUP = path.join(ROOT, "index.bak.json");
 
 type Store = { items: StaticCreative[] };
 
@@ -50,7 +54,17 @@ async function load(): Promise<Store> {
     const parsed = JSON.parse(raw) as Store;
     mem.items = Array.isArray(parsed.items) ? parsed.items : mem.items;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") mem.items = [];
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      mem.items = [];
+    } else {
+      console.error("[library] index.json illisible, lecture de la copie de secours :", error instanceof Error ? error.message : error);
+      try {
+        const parsed = JSON.parse(await readFile(INDEX_BACKUP, "utf8")) as Store;
+        if (Array.isArray(parsed.items)) mem.items = parsed.items;
+      } catch {
+        // pas de copie : le rattrapage disque ci-dessous garde au moins les images
+      }
+    }
   }
 
   /*
@@ -91,6 +105,7 @@ async function persist() {
   const tmp = `${INDEX}.${process.pid}.${Date.now().toString(36)}.tmp`;
   const payload = JSON.stringify({ items: mem.items }, null, 2);
   await writeFile(tmp, payload);
+  await copyFile(INDEX, INDEX_BACKUP).catch(() => undefined);
   await rename(tmp, INDEX);
   mirror(INDEX, Buffer.from(payload));
 }
@@ -173,11 +188,18 @@ export async function saveStaticCreative(input: {
   media?: "image" | "video";
   origin?: StaticCreative["origin"];
   productName?: string;
+  taskId?: string;
 }) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("Prompt manquant");
   if (!input.resultUrls.length) throw new Error("Aucune image à sauver");
   const store = await load();
+  /* Le navigateur et le serveur peuvent tous deux ranger la même tâche : la première écriture gagne, l'autre rend l'existante. */
+  const taskId = input.taskId?.trim() || undefined;
+  if (taskId) {
+    const existing = store.items.find((item) => item.taskId === taskId);
+    if (existing) return existing;
+  }
   const id = uid();
   const dir = path.join(ROOT, id);
   await mkdir(dir, { recursive: true });
@@ -209,7 +231,13 @@ export async function saveStaticCreative(input: {
     media: input.media ?? (resultFiles.some((file) => /\.(mp4|webm|mov)$/i.test(file)) ? "video" : "image"),
     ...(input.origin ? { origin: input.origin } : {}),
     ...(input.productName ? { productName: input.productName } : {}),
+    ...(taskId ? { taskId } : {}),
   };
+  if (taskId && store.items.some((entry) => entry.taskId === taskId)) {
+    // Écrite entre-temps par l'autre chemin : on jette la copie, les images restent sur le disque jusqu'au prochain rattrapage.
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    return store.items.find((entry) => entry.taskId === taskId) as StaticCreative;
+  }
   store.items.unshift(item);
   await persist();
   return item;

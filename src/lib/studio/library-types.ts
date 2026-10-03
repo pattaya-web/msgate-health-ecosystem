@@ -22,6 +22,8 @@ export type StaticCreative = {
   resolution: "1K" | "2K";
   resultFiles: string[];
   refFiles: string[];
+  /** Tâche Kie d'origine : une créa ne s'enregistre qu'une fois, que ce soit le navigateur ou le serveur qui la range. */
+  taskId?: string;
 };
 
 export const STUDIO_REUSE_KEY = "msgate.studio.reuse";
