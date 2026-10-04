@@ -38,6 +38,12 @@ export type RebrandBrand = {
    * inscription. Il est donc le défaut, GPT Image 2 reste au choix.
    */
   model?: RebrandModel;
+  /**
+   * Un rendu réussi, pris comme modèle pour les autres (IMAGE 3) : même
+   * traitement des couleurs et même placement du logo d'un produit à l'autre,
+   * le texte venant toujours de la photo d'origine.
+   */
+  styleReferenceUrl?: string;
 };
 
 export type RenderKind = "rebrand" | "product-only";
@@ -138,19 +144,29 @@ async function saveRebrand(state: RebrandState) {
  * ferme une de ces portes. Le logo est la seule marque : on interdit de
  * composer le nom en lettres, sinon le modèle arbitre entre les deux.
  */
-export function rebrandPrompt(product: Pick<ShopifyProduct, "title" | "vendor">, brand: RebrandBrand) {
+export function rebrandPrompt(product: Pick<ShopifyProduct, "title" | "vendor"> & { variantTitles?: string[] }, brand: RebrandBrand) {
   /*
    * Mesuré : sans nommer la marque d'origine, le modèle garde son mot-symbole
    * (« bluum ») et pose le nouveau logo à côté, en petit. Le nom du vendeur,
-   * lu dans le catalogue, lui dit quel texte est la marque à remplacer.
+   * lu dans le catalogue, lui dit quel texte est la marque à remplacer. Et
+   * sans lister ce qui doit rester, il a aussi remplacé le nom du produit
+   * imprimé sur la boîte (« GHK-Cu ») par un second logo : on énumère donc
+   * les textes à garder, et on fixe le nombre de logos.
    */
   const original = (product.vendor || "").trim();
+  const originalWords = [...new Set(original.split(/\s+/).filter((word) => word.length > 2))];
+  const keep = [product.title, ...(product.variantTitles ?? [])].map((text) => text.trim()).filter((text) => text && text.toLowerCase() !== "default title");
+  const hasStyle = Boolean(brand.styleReferenceUrl);
   return [
-    "Product packaging photograph. You are given TWO reference images.",
+    `Product packaging photograph. You are given ${hasStyle ? "THREE" : "TWO"} reference images.`,
     "IMAGE 1 is the original product photo. IMAGE 2 is the new brand logo.",
+    hasStyle ? "IMAGE 3 is the finished pack of a sibling product already rebranded: match its colour treatment, its finish and its logo placement exactly, so the whole range looks consistent. But IMAGE 3 is only a style guide: every text, shape and layout detail comes from IMAGE 1." : "",
     original
-      ? `The original brand is "${original}". Every occurrence of its name, wordmark or logo on IMAGE 1 — on the label, on the box, on every visible side, large or small — is the brand mark to REPLACE with the logo from IMAGE 2. None of it may remain.`
-      : "The brand name or wordmark printed on IMAGE 1 (the largest text that is not the product name) is the brand mark to REPLACE with the logo from IMAGE 2, everywhere it appears. None of it may remain.",
+      ? `The original brand is "${original}"${originalWords.length > 1 ? ` (wordmark "${originalWords[0]}")` : ""}. ONLY this brand name / wordmark / logo is replaced: wherever it appears on IMAGE 1 — the large wordmark on the label, the large wordmark on the box, any small brand mention — put the logo from IMAGE 2 in its place, same size, same orientation, one logo per original wordmark, never more. No letter of the original brand may remain.`
+      : "The brand name or wordmark printed on IMAGE 1 (the largest text that is not the product name) is the only thing to REPLACE with the logo from IMAGE 2, wherever it appears, one logo per original wordmark.",
+    keep.length
+      ? `These texts are NOT the brand and MUST stay exactly where and as they are, on every surface where IMAGE 1 shows them (label AND box sides): ${keep.map((text) => `"${text}"`).join(", ")}. Never replace them with the logo, never move them, never retype them in another font.`
+      : "",
     "Reproduce IMAGE 1 exactly: same container type and shape, same proportions, same cap or closure,",
     "same label geometry, same placement and size of every block on the label, same camera angle,",
     "same lighting, same shadows, same background and same crop.",
@@ -160,7 +176,8 @@ export function rebrandPrompt(product: Pick<ShopifyProduct, "title" | "vendor">,
     "do not rephrase, do not remove and do not add any text.",
     `ONLY TWO THINGS CHANGE: the brand mark becomes the logo from IMAGE 2, and the colour scheme becomes ${brand.accent} as the main colour against ${brand.background}.`,
     "Place the logo from IMAGE 2 exactly where the original brand mark sits, at the same size and the same orientation, pixel-faithful —",
-    "never redrawn, never restyled, never replaced by typed letters. It must be legible. Do not add the logo anywhere else.",
+    "never redrawn, never restyled, never replaced by typed letters. It must be legible. Do not add the logo anywhere else, do not duplicate it.",
+    "Same objects, same count: if IMAGE 1 shows one vial and one box, the output shows that same vial and that same box, same proportions, same geometry, same text on each face of the box.",
     "Recolour only the areas that carried the original brand colours; keep white, black, metallic and photographic areas as they are.",
     brand.brandName ? `NEVER typeset the brand name "${brand.brandName}" as text: the logo already carries it.` : "",
     `This is the product "${product.title}". Do not invent certification seals, award badges, medical claims or star ratings.`,
@@ -170,7 +187,11 @@ export function rebrandPrompt(product: Pick<ShopifyProduct, "title" | "vendor">,
     .join(" ");
 }
 
-type Target = { handle: string; title: string; vendor: string; src: string; kind?: RenderKind; /** Rendu rebrandé (URL publique) qui sert de référence au produit seul. */ reference?: string };
+type Target = { handle: string; title: string; vendor: string; src: string; kind?: RenderKind; /** Rendu rebrandé (URL publique) qui sert de référence au produit seul. */ reference?: string; /** Titres des variantes (« 50mg ») : des textes imprimés à garder. */ variantTitles?: string[] };
+
+function variantTitlesOf(product: ShopifyProduct) {
+  return [...new Set((product.variants ?? []).map((variant) => (variant.title || "").trim()).filter(Boolean))].slice(0, 8);
+}
 
 /**
  * Le produit seul, sans sa boîte, dérivé du rendu rebrandé.
@@ -204,7 +225,7 @@ export function rebrandTargets(products: ShopifyProduct[], scope: "first" | "all
     if (wanted && !wanted.has(product.handle)) continue;
     const images = (product.images ?? []).filter((image) => /^https?:\/\//i.test(image.src));
     for (const image of scope === "all" ? images : images.slice(0, 1)) {
-      out.push({ handle: product.handle, title: product.title, vendor: product.vendor ?? "", src: image.src });
+      out.push({ handle: product.handle, title: product.title, vendor: product.vendor ?? "", src: image.src, variantTitles: variantTitlesOf(product) });
     }
   }
   return out;
@@ -213,9 +234,9 @@ export function rebrandTargets(products: ShopifyProduct[], scope: "first" | "all
 async function createTask(target: Target, brand: RebrandBrand) {
   const productOnly = target.kind === "product-only";
   if (productOnly && !target.reference) throw new Error("Rendu rebrandé manquant pour ce produit");
-  const prompt = productOnly ? productOnlyPrompt({ title: target.title }, brand) : rebrandPrompt({ title: target.title, vendor: target.vendor }, brand);
-  // La photo de départ en PREMIÈRE référence : le prompt l'appelle IMAGE 1 (l'original, ou le rendu rebrandé pour le produit seul).
-  const references = [productOnly ? (target.reference as string) : target.src, brand.logoUrl];
+  const prompt = productOnly ? productOnlyPrompt({ title: target.title }, brand) : rebrandPrompt({ title: target.title, vendor: target.vendor, variantTitles: target.variantTitles }, brand);
+  // La photo de départ en PREMIÈRE référence : le prompt l'appelle IMAGE 1 (l'original, ou le rendu rebrandé pour le produit seul), puis le logo, puis le modèle de style s'il y en a un.
+  const references = [productOnly ? (target.reference as string) : target.src, brand.logoUrl, ...(!productOnly && brand.styleReferenceUrl ? [brand.styleReferenceUrl] : [])];
   if (brand.model === "gpt-image-2") {
     return createKieTask("gpt-image-2-image-to-image", { prompt, input_urls: references, aspect_ratio: "1:1", resolution: brand.resolution });
   }
@@ -505,6 +526,21 @@ export async function readRebrandThumb(host: string, name: string, width: number
     console.error("[rebrand] miniature impossible :", { code: detail.code, signal: detail.signal, stderr: String(detail.stderr ?? "").slice(0, 300), message: detail.message?.slice(0, 120) });
     return readRebrandFile(host, name);
   }
+}
+
+/** L'adresse publique d'un rendu prêt (Supabase, sinon Kie), pour le passer en référence à un modèle. */
+export async function publicUrlOfRender(host: string, src: string): Promise<string | null> {
+  const state = await getRebrand(host);
+  const item = state.items.find((entry) => sameItem(entry, src, "rebrand") && entry.state === "done" && entry.file);
+  if (!item) return null;
+  if (item.url && /^https:\/\//i.test(item.url)) return item.url;
+  const data = await readRebrandFile(host, item.file as string);
+  if (!data) return null;
+  const url = await uploadBase64(`data:image/png;base64,${data.toString("base64")}`, `rebrand-style-${host}-${item.file}`);
+  item.url = url;
+  item.temporary = true;
+  await saveRebrand(state);
+  return url;
 }
 
 /** La table « image d'origine → image rebrandée » pour l'export CSV. */

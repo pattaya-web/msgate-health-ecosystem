@@ -47,7 +47,7 @@ type RebrandItem = {
 
 type RebrandState = {
   host: string;
-  brand: { logoUrl: string; accent: string; background: string; brandName: string; resolution: "1K" | "2K"; model?: "nano-banana-pro" | "gpt-image-2" } | null;
+  brand: { logoUrl: string; accent: string; background: string; brandName: string; resolution: "1K" | "2K"; model?: "nano-banana-pro" | "gpt-image-2"; styleReferenceUrl?: string } | null;
   items: RebrandItem[];
   /** Faux quand un rendu n'est servi que par cette machine : le CSV ne sera pas importable ailleurs. */
   publicUrls: boolean;
@@ -114,7 +114,9 @@ export default function ShopifyScraperPage() {
   /* Produits cochés : l'export et le rebranding ne portent que sur eux (aucune coche = tous). */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /* Aperçu plein écran d'une image : la photo d'origine, et le rendu en face quand il existe. */
-  const [preview, setPreview] = useState<{ title: string; original: string | null; rebranded: string | null } | null>(null);
+  const [preview, setPreview] = useState<{ title: string; original: string | null; rebranded: string | null; /** Image d'origine du rendu affiché, pour le proposer comme modèle de style. */ src?: string } | null>(null);
+  /* Modèle de style choisi dans un aperçu : envoyé au prochain lancement (image d'origine du rendu). */
+  const [styleSrc, setStyleSrc] = useState<string | null>(null);
 
   useEffect(() => {
     if (!preview) return;
@@ -278,9 +280,10 @@ export default function ShopifyScraperPage() {
       brandName,
       resolution,
       model,
+      ...(styleSrc !== null ? { styleReferenceSrc: styleSrc } : {}),
       ...extra,
     }),
-    [shop, resolvedCollection, min, max, logoUrl, accent, background, brandName, resolution, model]
+    [shop, resolvedCollection, min, max, logoUrl, accent, background, brandName, resolution, model, styleSrc]
   );
 
   const startRebrand = useCallback(async () => {
@@ -598,6 +601,16 @@ export default function ShopifyScraperPage() {
                   <input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} className="h-3.5 w-3.5 accent-emerald-600" data-rebrand-force />
                   Refaire les images déjà prêtes
                 </label>
+                {styleSrc || (styleSrc === null && rebrand?.brand?.styleReferenceUrl) ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-sky-50 px-2 py-1 text-[11px] text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800" data-style-reference>
+                    Modèle de style : un rendu réussi guide les autres (couleurs et logo)
+                    <button type="button" onClick={() => setStyleSrc("")} className="font-semibold underline-offset-2 hover:underline">
+                      retirer
+                    </button>
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-slate-500">Astuce : dans l&apos;aperçu d&apos;un rendu réussi, « Utiliser comme modèle » aligne les autres dessus.</span>
+                )}
                 <Button size="sm" variant="outline" onClick={startProductOnly} disabled={startingProductOnly || !doneCount} data-product-only-start title="Une seconde photo par produit : le produit seul, sans sa boîte, à partir du rendu rebrandé">
                   {startingProductOnly ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Palette className="h-3.5 w-3.5" />}
                   Photo produit seule ({selectedHandles.length || targetProducts.length})
@@ -681,7 +694,7 @@ export default function ShopifyScraperPage() {
                             <div className="flex flex-wrap items-center gap-1.5">
                               {items.map((item) =>
                                 item.state === "done" && (item.localUrl || item.url) ? (
-                                  <button key={`${item.src}#${item.kind ?? "rebrand"}`} type="button" onClick={() => setPreview({ title: `${product.title}${item.kind === "product-only" ? " — produit seul" : ""}`, original: item.kind === "product-only" ? (firstDone?.localUrl ?? firstDone?.url ?? item.src) : item.src, rebranded: item.localUrl ?? item.url })} title={item.kind === "product-only" ? "Produit seul — aperçu" : "Aperçu avant / après"} className="relative">
+                                  <button key={`${item.src}#${item.kind ?? "rebrand"}`} type="button" onClick={() => setPreview({ title: `${product.title}${item.kind === "product-only" ? " — produit seul" : ""}`, original: item.kind === "product-only" ? (firstDone?.localUrl ?? firstDone?.url ?? item.src) : item.src, rebranded: item.localUrl ?? item.url, src: item.kind === "product-only" ? undefined : item.src })} title={item.kind === "product-only" ? "Produit seul — aperçu" : "Aperçu avant / après"} className="relative">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img src={item.localUrl ? `${item.localUrl}&w=160` : (item.url as string)} alt="" loading="lazy" className={cn("h-20 w-20 rounded-lg object-cover ring-1 transition hover:ring-2", item.kind === "product-only" ? "ring-sky-300 dark:ring-sky-700" : "ring-emerald-300 dark:ring-emerald-700")} />
                                     {item.kind === "product-only" ? <span className="absolute -bottom-1 -right-1 rounded bg-sky-600 px-1.5 text-[9px] font-semibold leading-4 text-white">2</span> : null}
@@ -765,11 +778,27 @@ export default function ShopifyScraperPage() {
                 <figure className="min-w-0">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={preview.rebranded} alt="" className="max-h-[70vh] w-full rounded-xl object-contain bg-slate-50 dark:bg-slate-950" />
-                  <figcaption className="mt-1 text-center text-[11px] text-emerald-700 dark:text-emerald-300">
-                    Rebrandé ·{" "}
-                    <a href={preview.rebranded} target="_blank" rel="noreferrer" className="underline">
-                      ouvrir en grand
-                    </a>
+                  <figcaption className="mt-1 flex flex-wrap items-center justify-center gap-2 text-center text-[11px] text-emerald-700 dark:text-emerald-300">
+                    <span>
+                      Rebrandé ·{" "}
+                      <a href={preview.rebranded} target="_blank" rel="noreferrer" className="underline">
+                        ouvrir en grand
+                      </a>
+                    </span>
+                    {preview.src ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStyleSrc(preview.src as string);
+                          setPreview(null);
+                          toast.success("Ce rendu guidera les prochains : coche « Refaire » puis « Rebrander » pour aligner les autres dessus.");
+                        }}
+                        className="rounded-md bg-sky-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-sky-500"
+                        data-use-as-style
+                      >
+                        Utiliser comme modèle pour les autres
+                      </button>
+                    ) : null}
                   </figcaption>
                 </figure>
               ) : null}

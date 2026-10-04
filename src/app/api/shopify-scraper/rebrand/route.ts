@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchProducts, filterByPrice, normalizeShopUrl } from "@/lib/shopify-scraper/client";
-import { getRebrand, hostOf, localUrl, productOnlyTargets, rebrandTargets, refreshRebrand, startRebrand, type RebrandBrand } from "@/lib/shopify-scraper/rebrand";
+import { getRebrand, hostOf, localUrl, productOnlyTargets, publicUrlOfRender, rebrandTargets, refreshRebrand, startRebrand, type RebrandBrand } from "@/lib/shopify-scraper/rebrand";
 import { isStorageReady } from "@/lib/storage";
 import { uploadBase64 } from "@/lib/studio/kie";
 
@@ -27,6 +27,8 @@ type Body = {
   /** Image d'origine à relancer (action retry), et le type de rendu concerné. */
   src?: string;
   kind?: "rebrand" | "product-only";
+  /** Image d'origine dont le rendu prêt sert de modèle de style aux autres ; chaîne vide pour retirer le modèle. */
+  styleReferenceSrc?: string | null;
 };
 
 const COLOR = /^#[0-9a-f]{6}$/i;
@@ -101,6 +103,19 @@ export async function POST(request: Request) {
             }
           : current.brand;
       if (!brand) return NextResponse.json({ error: "Charge ton logo avant de lancer" }, { status: 400 });
+
+      // Modèle de style : un rendu prêt, désigné par l'image d'origine ; absent du corps = inchangé, vide = retiré.
+      if (typeof body.styleReferenceSrc === "string") {
+        if (!body.styleReferenceSrc) {
+          delete brand.styleReferenceUrl;
+        } else {
+          const styleUrl = await publicUrlOfRender(host, body.styleReferenceSrc);
+          if (!styleUrl) return NextResponse.json({ error: "Le rendu choisi comme modèle n'est pas prêt" }, { status: 400 });
+          brand.styleReferenceUrl = styleUrl;
+        }
+      } else if (current.brand?.styleReferenceUrl) {
+        brand.styleReferenceUrl = current.brand.styleReferenceUrl;
+      }
 
       const { products } = await fetchProducts(shop, body.collection || undefined);
       const filtered = filterByPrice(products, num(body.min), num(body.max));
