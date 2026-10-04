@@ -44,7 +44,38 @@ export type RebrandBrand = {
    * le texte venant toujours de la photo d'origine.
    */
   styleReferenceUrl?: string;
+  /**
+   * « retouch » : la photo d'origine est retouchée (marque et couleurs).
+   * « template » : le packaging validé (styleReferenceUrl) est reproduit tel
+   * quel, seules les inscriptions propres au produit, lues sur la photo
+   * d'origine, changent. Plus homogène quand toute la gamme partage le même
+   * contenant.
+   */
+  mode?: "retouch" | "template";
 };
+
+/**
+ * Le packaging validé comme gabarit : IMAGE 1 fait autorité sur tout ce qui
+ * est visuel, IMAGE 2 (la photo d'origine du produit) n'apporte que ses
+ * textes. Rien n'est à « deviner » sur la marque ni les couleurs, elles sont
+ * déjà sur le gabarit.
+ */
+export function templatePrompt(product: Pick<ShopifyProduct, "title" | "vendor"> & { variantTitles?: string[] }, brand: RebrandBrand) {
+  const original = (product.vendor || "").trim();
+  const texts = [product.title, ...(product.variantTitles ?? [])].map((text) => text.trim()).filter((text) => text && text.toLowerCase() !== "default title");
+  return [
+    "Product packaging photograph. You are given THREE reference images.",
+    "IMAGE 1 is the APPROVED packaging of a sibling product of the same range: it is the template. IMAGE 2 is the original photo of the product to produce. IMAGE 3 is the brand logo.",
+    "Reproduce IMAGE 1 EXACTLY: same container, same box, same proportions, same colours, same finish, same logo in the same places at the same size, same layout of every text block, same typefaces, same camera angle, same lighting, same shadows, same background, same crop.",
+    `Change ONLY the product-specific texts, so that they read exactly as on IMAGE 2: the product name${texts.length ? ` ("${texts[0]}")` : ""}, the dosage or quantity${texts.length > 1 ? ` ("${texts.slice(1).join('", "')}")` : ""}, and any other product-specific mention printed on IMAGE 2 — same wording, same spelling, same capitalisation as IMAGE 2, placed where the template places the corresponding text, in the template's typeface.`,
+    "Everything that is not product-specific stays as on IMAGE 1: the logo, the brand colours, the generic mentions (storage, usage warnings) exactly as the template shows them.",
+    original ? `Never show the original brand "${original}" or any of its letters: IMAGE 2 is only read for the product texts.` : "",
+    brand.brandName ? `NEVER typeset the brand name "${brand.brandName}" as text beyond what the template already shows: the logo carries it.` : "",
+    "Do not invent certification seals, award badges, medical claims or star ratings. Photorealistic, sharp label text, no watermark, no border, no collage.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 export type RenderKind = "rebrand" | "product-only";
 
@@ -234,9 +265,23 @@ export function rebrandTargets(products: ShopifyProduct[], scope: "first" | "all
 async function createTask(target: Target, brand: RebrandBrand) {
   const productOnly = target.kind === "product-only";
   if (productOnly && !target.reference) throw new Error("Rendu rebrandé manquant pour ce produit");
-  const prompt = productOnly ? productOnlyPrompt({ title: target.title }, brand) : rebrandPrompt({ title: target.title, vendor: target.vendor, variantTitles: target.variantTitles }, brand);
-  // La photo de départ en PREMIÈRE référence : le prompt l'appelle IMAGE 1 (l'original, ou le rendu rebrandé pour le produit seul), puis le logo, puis le modèle de style s'il y en a un.
-  const references = [productOnly ? (target.reference as string) : target.src, brand.logoUrl, ...(!productOnly && brand.styleReferenceUrl ? [brand.styleReferenceUrl] : [])];
+  const template = !productOnly && brand.mode === "template" && brand.styleReferenceUrl;
+  const prompt = productOnly
+    ? productOnlyPrompt({ title: target.title }, brand)
+    : template
+      ? templatePrompt({ title: target.title, vendor: target.vendor, variantTitles: target.variantTitles }, brand)
+      : rebrandPrompt({ title: target.title, vendor: target.vendor, variantTitles: target.variantTitles }, brand);
+  /*
+   * L'ordre des références est celui du prompt. Retouche : l'original (IMAGE 1),
+   * le logo, le modèle de style éventuel. Gabarit : le packaging validé
+   * (IMAGE 1), l'original pour ses textes (IMAGE 2), le logo (IMAGE 3). Produit
+   * seul : le rendu rebrandé, le logo.
+   */
+  const references = productOnly
+    ? [target.reference as string, brand.logoUrl]
+    : template
+      ? [brand.styleReferenceUrl as string, target.src, brand.logoUrl]
+      : [target.src, brand.logoUrl, ...(brand.styleReferenceUrl ? [brand.styleReferenceUrl] : [])];
   if (brand.model === "gpt-image-2") {
     return createKieTask("gpt-image-2-image-to-image", { prompt, input_urls: references, aspect_ratio: "1:1", resolution: brand.resolution });
   }

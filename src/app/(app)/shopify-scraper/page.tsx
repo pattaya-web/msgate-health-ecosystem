@@ -47,7 +47,7 @@ type RebrandItem = {
 
 type RebrandState = {
   host: string;
-  brand: { logoUrl: string; accent: string; background: string; brandName: string; resolution: "1K" | "2K"; model?: "nano-banana-pro" | "gpt-image-2"; styleReferenceUrl?: string } | null;
+  brand: { logoUrl: string; accent: string; background: string; brandName: string; resolution: "1K" | "2K"; model?: "nano-banana-pro" | "gpt-image-2"; styleReferenceUrl?: string; mode?: "retouch" | "template" } | null;
   items: RebrandItem[];
   /** Faux quand un rendu n'est servi que par cette machine : le CSV ne sera pas importable ailleurs. */
   publicUrls: boolean;
@@ -106,6 +106,8 @@ export default function ShopifyScraperPage() {
   const [scope, setScope] = useState<"first" | "all">("first");
   const [resolution, setResolution] = useState<"1K" | "2K">("1K");
   const [model, setModel] = useState<"nano-banana-pro" | "gpt-image-2">("nano-banana-pro");
+  /* « retouch » : retoucher la photo d'origine ; « template » : reproduire le packaging validé et n'y changer que les textes du produit. */
+  const [mode, setMode] = useState<"retouch" | "template">("retouch");
   const [starting, setStarting] = useState(false);
   const [startingProductOnly, setStartingProductOnly] = useState(false);
   /* Refaire aussi les images déjà prêtes : nécessaire après un changement de logo ou de couleurs. */
@@ -280,10 +282,11 @@ export default function ShopifyScraperPage() {
       brandName,
       resolution,
       model,
+      mode,
       ...(styleSrc !== null ? { styleReferenceSrc: styleSrc } : {}),
       ...extra,
     }),
-    [shop, resolvedCollection, min, max, logoUrl, accent, background, brandName, resolution, model, styleSrc]
+    [shop, resolvedCollection, min, max, logoUrl, accent, background, brandName, resolution, model, mode, styleSrc]
   );
 
   const startRebrand = useCallback(async () => {
@@ -577,6 +580,14 @@ export default function ShopifyScraperPage() {
                   </select>
                 </label>
 
+                <label className="text-[11.5px]" title="Retouche : la photo d'origine est retouchée. Packaging modèle : ton rendu validé est reproduit tel quel, seuls les textes du produit changent (plus homogène)">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Méthode</span>
+                  <select className={cn(inputClass)} value={mode} onChange={(event) => setMode(event.target.value as "retouch" | "template")} data-rebrand-mode>
+                    <option value="retouch">Retoucher la photo d&apos;origine</option>
+                    <option value="template">Appliquer le packaging modèle (textes du produit seuls)</option>
+                  </select>
+                </label>
+
                 <label className="text-[11.5px]">
                   <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Définition</span>
                   <select className={cn(inputClass)} value={resolution} onChange={(event) => setResolution(event.target.value as "1K" | "2K")}>
@@ -603,13 +614,15 @@ export default function ShopifyScraperPage() {
                 </label>
                 {styleSrc || (styleSrc === null && rebrand?.brand?.styleReferenceUrl) ? (
                   <span className="inline-flex items-center gap-1.5 rounded-lg bg-sky-50 px-2 py-1 text-[11px] text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:ring-sky-800" data-style-reference>
-                    Modèle de style : un rendu réussi guide les autres (couleurs et logo)
+                    {mode === "template" ? "Packaging modèle : reproduit tel quel, seuls les textes du produit changent" : "Modèle de style : un rendu réussi guide les autres (couleurs et logo)"}
                     <button type="button" onClick={() => setStyleSrc("")} className="font-semibold underline-offset-2 hover:underline">
                       retirer
                     </button>
                   </span>
                 ) : (
-                  <span className="text-[11px] text-slate-500">Astuce : dans l&apos;aperçu d&apos;un rendu réussi, « Utiliser comme modèle » aligne les autres dessus.</span>
+                  <span className={cn("text-[11px]", mode === "template" ? "text-amber-600" : "text-slate-500")}>
+                    {mode === "template" ? "Choisis d'abord un packaging validé : ouvre l'aperçu d'un rendu réussi et clique « Utiliser comme modèle »." : "Astuce : dans l'aperçu d'un rendu réussi, « Utiliser comme modèle » aligne les autres dessus."}
+                  </span>
                 )}
                 <Button size="sm" variant="outline" onClick={startProductOnly} disabled={startingProductOnly || !doneCount} data-product-only-start title="Une seconde photo par produit : le produit seul, sans sa boîte, à partir du rendu rebrandé">
                   {startingProductOnly ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Palette className="h-3.5 w-3.5" />}

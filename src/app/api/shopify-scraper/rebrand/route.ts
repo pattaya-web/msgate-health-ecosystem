@@ -22,6 +22,7 @@ type Body = {
   brandName?: string;
   resolution?: "1K" | "2K";
   model?: "nano-banana-pro" | "gpt-image-2";
+  mode?: "retouch" | "template";
   scope?: "first" | "all";
   handles?: string[];
   /** Image d'origine à relancer (action retry), et le type de rendu concerné. */
@@ -100,8 +101,10 @@ export async function POST(request: Request) {
               brandName: (body.brandName || "").trim().slice(0, 80),
               resolution: body.resolution === "2K" ? "2K" : "1K",
               model: body.model === "gpt-image-2" ? "gpt-image-2" : "nano-banana-pro",
+              mode: body.mode === "template" ? "template" : "retouch",
             }
           : current.brand;
+      if (brand && body.mode) brand.mode = body.mode === "template" ? "template" : "retouch";
       if (!brand) return NextResponse.json({ error: "Charge ton logo avant de lancer" }, { status: 400 });
 
       // Modèle de style : un rendu prêt, désigné par l'image d'origine ; absent du corps = inchangé, vide = retiré.
@@ -115,6 +118,9 @@ export async function POST(request: Request) {
         }
       } else if (current.brand?.styleReferenceUrl) {
         brand.styleReferenceUrl = current.brand.styleReferenceUrl;
+      }
+      if (brand.mode === "template" && !brand.styleReferenceUrl) {
+        return NextResponse.json({ error: "Choisis d'abord un packaging validé comme modèle (dans l'aperçu d'un rendu réussi)." }, { status: 400 });
       }
 
       const { products } = await fetchProducts(shop, body.collection || undefined);
