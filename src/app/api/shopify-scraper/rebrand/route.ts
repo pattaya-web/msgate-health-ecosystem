@@ -53,7 +53,7 @@ async function stateOf(host: string, refresh: boolean) {
      * pas du tout dans le navigateur (vignettes blanches), alors que le rendu
      * est sur le disque. `url` reste l'adresse publique, pour le CSV.
      */
-    items: state.items.map((item) => ({ ...item, localUrl: item.state === "done" && item.file ? localUrl(host, item.file) : null })),
+    items: state.items.map((item) => ({ ...item, localUrl: item.state === "done" && item.file ? localUrl(host, item.file, item.updatedAt) : null })),
     storageConfigured: isStorageReady(),
     publicUrls: done.every((item) => /^https?:\/\//i.test(item.url ?? "")),
     temporaryUrls: done.some((item) => item.temporary),

@@ -540,19 +540,19 @@ export default function ShopifyScraperPage() {
                   </span>
                 </label>
 
-                <label className="text-[11.5px]">
-                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Couleur principale</span>
-                  <span className="flex items-center gap-1">
-                    <input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} className="h-8 w-9 cursor-pointer rounded border border-slate-200 bg-transparent p-0.5 dark:border-slate-700" />
-                    <input className={cn(inputClass, "w-[88px] font-mono")} value={accent} onChange={(event) => setAccent(event.target.value)} />
-                  </span>
-                </label>
-
-                <label className="text-[11.5px]">
-                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Couleur de fond</span>
+                <label className="text-[11.5px]" title="La couleur des surfaces : faces de la boîte et fond de l'étiquette">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Couleur du packaging</span>
                   <span className="flex items-center gap-1">
                     <input type="color" value={background} onChange={(event) => setBackground(event.target.value)} className="h-8 w-9 cursor-pointer rounded border border-slate-200 bg-transparent p-0.5 dark:border-slate-700" />
                     <input className={cn(inputClass, "w-[88px] font-mono")} value={background} onChange={(event) => setBackground(event.target.value)} />
+                  </span>
+                </label>
+
+                <label className="text-[11.5px]" title="La couleur des textes et du logo posés sur ces surfaces">
+                  <span className="mb-1 block font-medium text-slate-800 dark:text-slate-200">Couleur textes &amp; logo</span>
+                  <span className="flex items-center gap-1">
+                    <input type="color" value={accent} onChange={(event) => setAccent(event.target.value)} className="h-8 w-9 cursor-pointer rounded border border-slate-200 bg-transparent p-0.5 dark:border-slate-700" />
+                    <input className={cn(inputClass, "w-[88px] font-mono")} value={accent} onChange={(event) => setAccent(event.target.value)} />
                   </span>
                 </label>
 

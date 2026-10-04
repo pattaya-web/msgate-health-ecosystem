@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { lookup } from "dns/promises";
-import { access, mkdir, readFile, writeFile } from "fs/promises";
+import { access, mkdir, readFile, stat, writeFile } from "fs/promises";
 import path from "path";
 import { promisify } from "util";
 import ffmpegPath from "ffmpeg-static";
@@ -174,9 +174,9 @@ export function rebrandPrompt(product: Pick<ShopifyProduct, "title" | "vendor"> 
     "Keep EVERY OTHER printed text of IMAGE 1 exactly as it is — product name, dosage, quantity, ingredients,",
     "claims, warnings, barcodes, small print — same wording, same fonts, same positions. Do not translate,",
     "do not rephrase, do not remove and do not add any text.",
-    `ONLY TWO THINGS CHANGE: the brand mark becomes the logo from IMAGE 2, and the colour scheme becomes ${brand.accent} as the main colour against ${brand.background}.`,
+    `ONLY TWO THINGS CHANGE: the brand mark becomes the logo from IMAGE 2, and the packaging colours become these, exactly: every surface that carried the original brand colour — the box faces and the label background — becomes ${brand.background}; the printed text and the logo on those surfaces become ${brand.accent}. Use these two colours and no other new colour; do not darken, do not lighten, do not pick a different hue.`,
     "Place the logo from IMAGE 2 exactly where the original brand mark sits, at the same size and the same orientation, pixel-faithful —",
-    "never redrawn, never restyled, never replaced by typed letters. It must be legible. Do not add the logo anywhere else, do not duplicate it.",
+    "the COMPLETE logo of IMAGE 2, symbol and lettering together, with its own typeface and spacing, never redrawn, never restyled, never retyped in another font. It must be legible. Do not add the logo anywhere else, do not duplicate it.",
     "Same objects, same count: if IMAGE 1 shows one vial and one box, the output shows that same vial and that same box, same proportions, same geometry, same text on each face of the box.",
     "Recolour only the areas that carried the original brand colours; keep white, black, metallic and photographic areas as they are.",
     brand.brandName ? `NEVER typeset the brand name "${brand.brandName}" as text: the logo already carries it.` : "",
@@ -356,9 +356,15 @@ async function tryPutFile(remote: string, data: Buffer): Promise<string | null> 
   }
 }
 
-/** Le rendu servi par l'outil lui-même, depuis son disque : c'est ce que la page affiche, l'URL publique ne sert qu'au CSV. */
-export function localUrl(host: string, file: string) {
-  return `/api/shopify-scraper/rebrand/file?shop=${encodeURIComponent(host)}&name=${file}`;
+/**
+ * Le rendu servi par l'outil lui-même, depuis son disque : c'est ce que la
+ * page affiche, l'URL publique ne sert qu'au CSV. `version` change à chaque
+ * rendu : un rendu refait garde le même nom de fichier, et sans ça le
+ * navigateur montrait l'ancien (mesuré : GHK-Cu refait, aperçu inchangé).
+ */
+export function localUrl(host: string, file: string, version?: string) {
+  const v = version ? `&v=${encodeURIComponent(version.replace(/[^0-9a-z]/gi, "").slice(-10))}` : "";
+  return `/api/shopify-scraper/rebrand/file?shop=${encodeURIComponent(host)}&name=${file}${v}`;
 }
 
 /**
@@ -505,10 +511,11 @@ export async function readRebrandThumb(host: string, name: string, width: number
   const source = path.join(imageDir(host), name);
   const thumb = path.join(imageDir(host), `${name.replace(/\.png$/, "")}.w${width}.jpg`);
   try {
-    await access(thumb);
-    return await readFile(thumb);
+    // Une miniature plus ancienne que le rendu est celle d'un rendu refait : on la refabrique.
+    const [thumbStat, sourceStat] = await Promise.all([stat(thumb), stat(source)]);
+    if (thumbStat.mtimeMs >= sourceStat.mtimeMs) return await readFile(thumb);
   } catch {
-    // pas encore fabriquée
+    // pas encore fabriquée, ou rendu absent du disque
   }
   try {
     await access(source);
