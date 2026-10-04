@@ -786,18 +786,34 @@ export default function ShopifyScraperPage() {
                       </a>
                     </span>
                     {preview.src ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStyleSrc(preview.src as string);
-                          setPreview(null);
-                          toast.success("Ce rendu guidera les prochains : coche « Refaire » puis « Rebrander » pour aligner les autres dessus.");
-                        }}
-                        className="rounded-md bg-sky-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-sky-500"
-                        data-use-as-style
-                      >
-                        Utiliser comme modèle pour les autres
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const src = preview.src as string;
+                            setPreview(null);
+                            void retryImage(src, "rebrand");
+                            toast.success("Rendu relancé : il remplacera celui-ci dans une minute, avec le modèle de style.");
+                          }}
+                          className="rounded-md bg-slate-900 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-slate-700 dark:bg-white dark:text-slate-900"
+                          data-redo-render
+                          title="Refaire seulement cette image (≈ 18 crédits) : pour un rendu qui dévie du reste de la gamme"
+                        >
+                          Refaire ce rendu
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStyleSrc(preview.src as string);
+                            setPreview(null);
+                            toast.success("Ce rendu guidera les prochains : coche « Refaire » puis « Rebrander » pour aligner les autres dessus.");
+                          }}
+                          className="rounded-md bg-sky-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-sky-500"
+                          data-use-as-style
+                        >
+                          Utiliser comme modèle pour les autres
+                        </button>
+                      </>
                     ) : null}
                   </figcaption>
                 </figure>
