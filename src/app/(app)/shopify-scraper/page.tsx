@@ -34,6 +34,8 @@ type ScrapeResult = {
 type RebrandItem = {
   handle: string;
   src: string;
+  /** « product-only » : le produit seul, sans sa boîte, dérivé du rendu rebrandé. */
+  kind?: "rebrand" | "product-only";
   taskId: string | null;
   state: "pending" | "done" | "fail";
   /** Adresse publique (CSV). */
@@ -105,6 +107,9 @@ export default function ShopifyScraperPage() {
   const [resolution, setResolution] = useState<"1K" | "2K">("1K");
   const [model, setModel] = useState<"nano-banana-pro" | "gpt-image-2">("nano-banana-pro");
   const [starting, setStarting] = useState(false);
+  const [startingProductOnly, setStartingProductOnly] = useState(false);
+  /* Refaire aussi les images déjà prêtes : nécessaire après un changement de logo ou de couleurs. */
+  const [force, setForce] = useState(false);
   const polling = useRef(false);
   /* Produits cochés : l'export et le rebranding ne portent que sur eux (aucune coche = tous). */
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -206,7 +211,8 @@ export default function ShopifyScraperPage() {
   }, [shop, params, loadRebrand]);
 
   const pendingCount = rebrand?.items.filter((item) => item.state === "pending").length ?? 0;
-  const doneCount = rebrand?.items.filter((item) => item.state === "done").length ?? 0;
+  const doneCount = rebrand?.items.filter((item) => item.state === "done" && item.kind !== "product-only").length ?? 0;
+  const productOnlyDone = rebrand?.items.filter((item) => item.state === "done" && item.kind === "product-only").length ?? 0;
 
   /* Tant que des rendus sont en cours, on sonde toutes les quatre secondes. */
   useEffect(() => {
@@ -287,26 +293,51 @@ export default function ShopifyScraperPage() {
       const res = await fetch("/api/shopify-scraper/rebrand", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rebrandBody({ action: "start", scope, handles: selectedHandles.length ? selectedHandles : undefined })),
+        body: JSON.stringify(rebrandBody({ action: "start", scope, force, handles: selectedHandles.length ? selectedHandles : undefined })),
       });
       const body = (await res.json()) as RebrandState & { error?: string };
       if (!res.ok) throw new Error(body.error);
       setRebrand(body);
-      toast.success(`${body.items.filter((item) => item.state === "pending").length} rendu(s) en cours`);
+      const pending = body.items.filter((item) => item.state === "pending").length;
+      if (pending) toast.success(`${pending} rendu(s) en cours`);
+      else toast.message("Toutes ces images sont déjà prêtes", { description: "Coche « Refaire les images déjà prêtes » pour les regénérer avec le logo et les couleurs actuels." });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Rebranding impossible");
     } finally {
       setStarting(false);
     }
-  }, [logoUrl, rebrand, rebrandBody, scope, selectedHandles]);
+  }, [logoUrl, rebrand, rebrandBody, scope, force, selectedHandles]);
+
+  /** Seconde image par produit : le produit seul, sans sa boîte, dérivé du rendu rebrandé. */
+  const startProductOnly = useCallback(async () => {
+    setStartingProductOnly(true);
+    try {
+      const res = await fetch("/api/shopify-scraper/rebrand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rebrandBody({ action: "product-only", force, handles: selectedHandles.length ? selectedHandles : undefined })),
+      });
+      const body = (await res.json()) as RebrandState & { error?: string; missing?: string[] };
+      if (!res.ok) throw new Error(body.error);
+      setRebrand(body);
+      const pending = body.items.filter((item) => item.state === "pending" && item.kind === "product-only").length;
+      if (pending) toast.success(`${pending} photo(s) produit seul en cours`);
+      else toast.message("Toutes ces photos sont déjà prêtes", { description: "Coche « Refaire les images déjà prêtes » pour les regénérer." });
+      if (body.missing?.length) toast.warning(`${body.missing.length} produit(s) sans rendu rebrandé prêt : lance d'abord « Rebrander » pour eux.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Génération impossible");
+    } finally {
+      setStartingProductOnly(false);
+    }
+  }, [rebrandBody, force, selectedHandles]);
 
   const retryImage = useCallback(
-    async (src: string) => {
+    async (src: string, kind?: "rebrand" | "product-only") => {
       try {
         const res = await fetch("/api/shopify-scraper/rebrand", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(rebrandBody({ action: "retry", src })),
+          body: JSON.stringify(rebrandBody({ action: "retry", src, kind })),
         });
         const body = (await res.json()) as RebrandState & { error?: string };
         if (!res.ok) throw new Error(body.error);
@@ -553,7 +584,21 @@ export default function ShopifyScraperPage() {
                 <span className="text-[11px] text-slate-500">
                   {starting
                     ? `Création des rendus chez Kie, environ ${Math.max(5, Math.round(imageCount * 1.2))} s…`
-                    : `≈ ${estimatedCredits} crédits · ${money(estimatedCredits * 0.005)}. Les images déjà prêtes ne sont pas refaites.`}
+                    : `≈ ${estimatedCredits} crédits · ${money(estimatedCredits * 0.005)}.`}
+                </span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                <label className="flex items-center gap-1.5 text-[11.5px] text-slate-700 dark:text-slate-300">
+                  <input type="checkbox" checked={force} onChange={(event) => setForce(event.target.checked)} className="h-3.5 w-3.5 accent-emerald-600" data-rebrand-force />
+                  Refaire les images déjà prêtes
+                </label>
+                <Button size="sm" variant="outline" onClick={startProductOnly} disabled={startingProductOnly || !doneCount} data-product-only-start title="Une seconde photo par produit : le produit seul, sans sa boîte, à partir du rendu rebrandé">
+                  {startingProductOnly ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Palette className="h-3.5 w-3.5" />}
+                  Photo produit seule ({selectedHandles.length || targetProducts.length})
+                </Button>
+                <span className="text-[11px] text-slate-500">
+                  Seconde image par produit, sans la boîte, ajoutée au CSV rebrandé.{productOnlyDone ? ` ${productOnlyDone} prête${productOnlyDone > 1 ? "s" : ""}.` : ""}
                 </span>
               </div>
 
@@ -593,7 +638,7 @@ export default function ShopifyScraperPage() {
                 <tbody>
                   {result.products.map((product) => {
                     const items = itemsByHandle.get(product.handle) ?? [];
-                    const firstDone = items.find((item) => item.state === "done" && (item.localUrl || item.url)) ?? null;
+                    const firstDone = items.find((item) => item.state === "done" && item.kind !== "product-only" && (item.localUrl || item.url)) ?? null;
                     const checked = selected.has(product.handle);
                     return (
                       <tr
@@ -630,19 +675,20 @@ export default function ShopifyScraperPage() {
                             <div className="flex flex-wrap items-center gap-1.5">
                               {items.map((item) =>
                                 item.state === "done" && (item.localUrl || item.url) ? (
-                                  <button key={item.src} type="button" onClick={() => setPreview({ title: product.title, original: item.src, rebranded: item.localUrl ?? item.url })} title="Aperçu avant / après">
+                                  <button key={`${item.src}#${item.kind ?? "rebrand"}`} type="button" onClick={() => setPreview({ title: `${product.title}${item.kind === "product-only" ? " — produit seul" : ""}`, original: item.kind === "product-only" ? (firstDone?.localUrl ?? firstDone?.url ?? item.src) : item.src, rebranded: item.localUrl ?? item.url })} title={item.kind === "product-only" ? "Produit seul — aperçu" : "Aperçu avant / après"} className="relative">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={item.localUrl ? `${item.localUrl}&w=96` : (item.url as string)} alt="" loading="lazy" className="h-8 w-8 rounded-md object-cover ring-1 ring-emerald-300 dark:ring-emerald-700" />
+                                    <img src={item.localUrl ? `${item.localUrl}&w=96` : (item.url as string)} alt="" loading="lazy" className={cn("h-8 w-8 rounded-md object-cover ring-1", item.kind === "product-only" ? "ring-sky-300 dark:ring-sky-700" : "ring-emerald-300 dark:ring-emerald-700")} />
+                                    {item.kind === "product-only" ? <span className="absolute -bottom-1 -right-1 rounded bg-sky-600 px-1 text-[8px] font-semibold leading-3 text-white">2</span> : null}
                                   </button>
                                 ) : item.state === "pending" ? (
-                                  <span key={item.src} className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
+                                  <span key={`${item.src}#${item.kind ?? "rebrand"}`} className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
                                     <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
                                   </span>
                                 ) : (
                                   <button
-                                    key={item.src}
+                                    key={`${item.src}#${item.kind ?? "rebrand"}`}
                                     type="button"
-                                    onClick={() => void retryImage(item.src)}
+                                    onClick={() => void retryImage(item.src, item.kind)}
                                     title={item.error ?? "Échec"}
                                     className="inline-flex h-8 items-center gap-1 rounded-md bg-red-50 px-2 text-[11px] text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300"
                                   >

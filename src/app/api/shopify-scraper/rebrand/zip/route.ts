@@ -29,9 +29,10 @@ export async function GET(request: Request) {
   for (const item of done) {
     const data = await readRebrandFile(host, item.file as string);
     if (!data) continue;
-    const n = (counts.get(item.handle) ?? 0) + 1;
-    counts.set(item.handle, n);
-    zip.file(`${item.handle}${n > 1 ? `-${n}` : ""}.png`, data);
+    const base = item.kind === "product-only" ? `${item.handle}-produit` : item.handle;
+    const n = (counts.get(base) ?? 0) + 1;
+    counts.set(base, n);
+    zip.file(`${base}${n > 1 ? `-${n}` : ""}.png`, data);
     added += 1;
   }
   if (!added) return NextResponse.json({ error: "Les fichiers des rendus sont introuvables sur le disque" }, { status: 404 });

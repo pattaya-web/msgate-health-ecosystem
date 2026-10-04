@@ -40,9 +40,14 @@ export type RebrandBrand = {
   model?: RebrandModel;
 };
 
+export type RenderKind = "rebrand" | "product-only";
+
 export type RebrandItem = {
   handle: string;
+  /** Image d'origine du catalogue : la clé, avec `kind`. */
   src: string;
+  /** « rebrand » : la photo d'origine rebrandée ; « product-only » : le produit seul, sans sa boîte, dérivé du rendu rebrandé. */
+  kind?: RenderKind;
   taskId: string | null;
   state: "pending" | "done" | "fail";
   /** URL publique du rendu (Supabase) ou route locale de l'outil. */
@@ -80,11 +85,20 @@ function imageDir(host: string) {
   return path.join(ROOT, host);
 }
 
-/** Nom de fichier stable pour une image source : le même rendu remplace le précédent. */
-function fileNameFor(src: string) {
+/** Nom de fichier stable pour une image source et un type de rendu : le même rendu remplace le précédent. */
+function fileNameFor(src: string, kind: RenderKind = "rebrand") {
+  const seed = kind === "rebrand" ? src : `${src}#${kind}`;
   let h = 0;
-  for (const ch of src) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return `${h.toString(36)}.png`;
+}
+
+function kindOf(item: Pick<RebrandItem, "kind">): RenderKind {
+  return item.kind ?? "rebrand";
+}
+
+function sameItem(item: RebrandItem, src: string, kind: RenderKind) {
+  return item.src === src && kindOf(item) === kind;
 }
 
 export function isRebrandFile(name: string) {
@@ -140,6 +154,7 @@ export function rebrandPrompt(product: Pick<ShopifyProduct, "title" | "vendor">,
     "Reproduce IMAGE 1 exactly: same container type and shape, same proportions, same cap or closure,",
     "same label geometry, same placement and size of every block on the label, same camera angle,",
     "same lighting, same shadows, same background and same crop.",
+    "Treat IMAGE 1 as a photograph to EDIT, not a scene to re-imagine: the output must look like the very same photo in which only the brand mark and the colours were retouched.",
     "Keep EVERY OTHER printed text of IMAGE 1 exactly as it is — product name, dosage, quantity, ingredients,",
     "claims, warnings, barcodes, small print — same wording, same fonts, same positions. Do not translate,",
     "do not rephrase, do not remove and do not add any text.",
@@ -155,7 +170,31 @@ export function rebrandPrompt(product: Pick<ShopifyProduct, "title" | "vendor">,
     .join(" ");
 }
 
-type Target = { handle: string; title: string; vendor: string; src: string };
+type Target = { handle: string; title: string; vendor: string; src: string; kind?: RenderKind; /** Rendu rebrandé (URL publique) qui sert de référence au produit seul. */ reference?: string };
+
+/**
+ * Le produit seul, sans sa boîte, dérivé du rendu rebrandé.
+ *
+ * On part du rendu et non de la photo d'origine : la marque et les couleurs
+ * sont déjà les bonnes, il ne reste qu'à retirer l'emballage extérieur. Tout
+ * ce qui est imprimé sur le produit lui-même reste tel quel.
+ */
+export function productOnlyPrompt(product: Pick<ShopifyProduct, "title">, brand: RebrandBrand) {
+  return [
+    "Product photograph. You are given TWO reference images.",
+    "IMAGE 1 is the finished packshot of the product with its outer box or carton. IMAGE 2 is the brand logo.",
+    "Produce the SAME photograph with the outer box, carton, sleeve or any secondary packaging REMOVED: only the product itself remains",
+    "(the vial, bottle, jar, tube, pouch or device exactly as it appears in IMAGE 1), centred, same camera angle, same lighting, same shadows,",
+    "same background and same crop. Do not move the camera, do not change the scale, do not add props.",
+    "The product keeps its label EXACTLY as in IMAGE 1: identical brand mark (the logo of IMAGE 2, pixel-faithful), identical colours,",
+    "identical text — product name, dosage, quantity, warnings, small print — same wording, same fonts, same positions. Nothing added, nothing removed, nothing rephrased.",
+    brand.brandName ? `NEVER typeset the brand name "${brand.brandName}" as text: the logo already carries it.` : "",
+    `This is the product "${product.title}". Do not invent certification seals, award badges, medical claims or star ratings.`,
+    "Photorealistic, sharp label text, no watermark, no border, no collage, one single product in frame.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 /** Les images à traiter : la première de chaque produit, ou toutes. */
 export function rebrandTargets(products: ShopifyProduct[], scope: "first" | "all", handles?: string[]): Target[] {
@@ -172,9 +211,11 @@ export function rebrandTargets(products: ShopifyProduct[], scope: "first" | "all
 }
 
 async function createTask(target: Target, brand: RebrandBrand) {
-  const prompt = rebrandPrompt({ title: target.title, vendor: target.vendor }, brand);
-  // La photo d'origine en PREMIÈRE référence : le prompt l'appelle IMAGE 1.
-  const references = [target.src, brand.logoUrl];
+  const productOnly = target.kind === "product-only";
+  if (productOnly && !target.reference) throw new Error("Rendu rebrandé manquant pour ce produit");
+  const prompt = productOnly ? productOnlyPrompt({ title: target.title }, brand) : rebrandPrompt({ title: target.title, vendor: target.vendor }, brand);
+  // La photo de départ en PREMIÈRE référence : le prompt l'appelle IMAGE 1 (l'original, ou le rendu rebrandé pour le produit seul).
+  const references = [productOnly ? (target.reference as string) : target.src, brand.logoUrl];
   if (brand.model === "gpt-image-2") {
     return createKieTask("gpt-image-2-image-to-image", { prompt, input_urls: references, aspect_ratio: "1:1", resolution: brand.resolution });
   }
@@ -188,11 +229,12 @@ async function createTask(target: Target, brand: RebrandBrand) {
 export async function startRebrand(host: string, brand: RebrandBrand, targets: Target[], force = false): Promise<RebrandState> {
   const state = await getRebrand(host);
   state.brand = brand;
-  const byScr = new Map(state.items.map((item) => [item.src, item]));
   for (const target of targets) {
-    const existing = byScr.get(target.src);
-    if (existing && !force && (existing.state === "done" || existing.state === "pending")) continue;
-    const item: RebrandItem = existing ?? { handle: target.handle, src: target.src, taskId: null, state: "pending", url: null, file: null, error: null, updatedAt: "" };
+    const kind = target.kind ?? "rebrand";
+    const existing = state.items.find((item) => sameItem(item, target.src, kind));
+    // Une image en cours n'est jamais relancée ; une image prête ne l'est que sur demande (« Refaire »).
+    if (existing && (existing.state === "pending" || (existing.state === "done" && !force))) continue;
+    const item: RebrandItem = existing ?? { handle: target.handle, src: target.src, kind, taskId: null, state: "pending", url: null, file: null, error: null, updatedAt: "" };
     try {
       item.taskId = await createTask(target, brand);
       item.state = "pending";
@@ -204,14 +246,43 @@ export async function startRebrand(host: string, brand: RebrandBrand, targets: T
       item.error = TRANSIENT.test(message) ? "Kie saturé — relance cette image" : message;
     }
     item.updatedAt = new Date().toISOString();
-    if (!existing) {
-      state.items.push(item);
-      byScr.set(item.src, item);
-    }
+    if (!existing) state.items.push(item);
     await sleep(CREATE_GAP_MS);
   }
   await saveRebrand(state);
   return state;
+}
+
+/**
+ * Les cibles « produit seul » : un rendu rebrandé prêt par produit (sa première
+ * image) sert de référence. Un rendu qui n'a qu'une adresse locale est d'abord
+ * déposé chez Kie, dont les modèles ne lisent que des URL publiques.
+ */
+export async function productOnlyTargets(host: string, products: ShopifyProduct[], handles?: string[]): Promise<{ targets: Target[]; missing: string[] }> {
+  const state = await getRebrand(host);
+  const wanted = handles?.length ? new Set(handles) : null;
+  const targets: Target[] = [];
+  const missing: string[] = [];
+  for (const product of products) {
+    if (wanted && !wanted.has(product.handle)) continue;
+    const first = (product.images ?? []).find((image) => /^https?:\/\//i.test(image.src));
+    const render = first ? state.items.find((item) => sameItem(item, first.src, "rebrand") && item.state === "done" && item.file) : null;
+    if (!first || !render) {
+      missing.push(product.handle);
+      continue;
+    }
+    let reference = render.url && /^https:\/\//i.test(render.url) ? render.url : null;
+    if (!reference) {
+      const data = await readRebrandFile(host, render.file as string);
+      if (!data) {
+        missing.push(product.handle);
+        continue;
+      }
+      reference = await uploadBase64(`data:image/png;base64,${data.toString("base64")}`, `rebrand-ref-${host}-${render.file}`);
+    }
+    targets.push({ handle: product.handle, title: product.title, vendor: product.vendor ?? "", src: first.src, kind: "product-only", reference });
+  }
+  return { targets, missing };
 }
 
 /*
@@ -276,11 +347,11 @@ export function localUrl(host: string, file: string) {
  * se perd plus parce que Supabase ne répond pas (mesuré : « fetch failed »
  * sur le stable). Dans ce cas l'URL est locale et l'envoi sera retenté.
  */
-async function storeResult(host: string, src: string, resultUrl: string) {
+async function storeResult(host: string, src: string, resultUrl: string, kind: RenderKind = "rebrand") {
   const res = await fetch(resultUrl, { cache: "no-store", signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`Téléchargement du rendu impossible (HTTP ${res.status})`);
   const data = Buffer.from(await res.arrayBuffer());
-  const file = fileNameFor(src);
+  const file = fileNameFor(src, kind);
   const dir = imageDir(host);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, file), data);
@@ -331,7 +402,7 @@ export async function refreshRebrand(host: string): Promise<RebrandState> {
     try {
       const task = await getKieTask(item.taskId as string);
       if (isKieDone(task.state) && task.urls[0]) {
-        const stored = await storeResult(host, item.src, task.urls[0]);
+        const stored = await storeResult(host, item.src, task.urls[0], kindOf(item));
         item.file = stored.file;
         item.url = stored.url;
         item.uploadPending = stored.uploadPending;
@@ -414,5 +485,16 @@ export async function readRebrandThumb(host: string, name: string, width: number
 export async function rebrandedSources(host: string): Promise<Map<string, string>> {
   // Un dernier essai d'envoi avant l'export : le CSV doit porter des URL publiques quand c'est possible.
   const state = await refreshRebrand(host);
-  return new Map(state.items.filter((item) => item.state === "done" && item.url).map((item) => [item.src, item.url as string]));
+  return new Map(state.items.filter((item) => kindOf(item) === "rebrand" && item.state === "done" && item.url).map((item) => [item.src, item.url as string]));
+}
+
+/** Les photos « produit seul » prêtes, par produit : elles s'ajoutent au CSV comme image supplémentaire. */
+export async function productOnlyImages(host: string): Promise<Map<string, string[]>> {
+  const state = await getRebrand(host);
+  const out = new Map<string, string[]>();
+  for (const item of state.items) {
+    if (kindOf(item) !== "product-only" || item.state !== "done" || !item.url) continue;
+    out.set(item.handle, [...(out.get(item.handle) ?? []), item.url]);
+  }
+  return out;
 }

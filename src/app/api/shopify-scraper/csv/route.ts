@@ -1,6 +1,6 @@
 import { fetchProducts, filterByPrice, normalizeShopUrl } from "@/lib/shopify-scraper/client";
 import { buildShopifyCsv, csvFileName } from "@/lib/shopify-scraper/csv";
-import { hostOf, rebrandedSources } from "@/lib/shopify-scraper/rebrand";
+import { hostOf, productOnlyImages, rebrandedSources } from "@/lib/shopify-scraper/rebrand";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,9 +37,11 @@ export async function GET(request: Request) {
 
     // `rebrand=1` : les images rebrandées remplacent celles d'origine là où un rendu existe.
     const replace = url.searchParams.get("rebrand") === "1" ? await rebrandedSources(hostOf(shop)) : undefined;
+    // Les photos « produit seul » prêtes s'ajoutent comme images supplémentaires.
+    const extra = replace ? await productOnlyImages(hostOf(shop)) : undefined;
 
     // BOM UTF-8 : sans lui Excel casse les accents et les caractères des titres.
-    const csv = `﻿${buildShopifyCsv(filtered, replace)}`;
+    const csv = `﻿${buildShopifyCsv(filtered, replace, extra)}`;
 
     return new Response(csv, {
       headers: {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchProducts, filterByPrice, normalizeShopUrl } from "@/lib/shopify-scraper/client";
-import { getRebrand, hostOf, localUrl, rebrandTargets, refreshRebrand, startRebrand, type RebrandBrand } from "@/lib/shopify-scraper/rebrand";
+import { getRebrand, hostOf, localUrl, productOnlyTargets, rebrandTargets, refreshRebrand, startRebrand, type RebrandBrand } from "@/lib/shopify-scraper/rebrand";
 import { isStorageReady } from "@/lib/storage";
 import { uploadBase64 } from "@/lib/studio/kie";
 
@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type Body = {
-  action?: "logo" | "start" | "refresh" | "retry";
+  action?: "logo" | "start" | "refresh" | "retry" | "product-only";
+  /** Refaire aussi les images déjà prêtes (nouveau logo, nouvelles couleurs). */
+  force?: boolean;
   shop?: string;
   collection?: string;
   min?: number | null;
@@ -22,8 +24,9 @@ type Body = {
   model?: "nano-banana-pro" | "gpt-image-2";
   scope?: "first" | "all";
   handles?: string[];
-  /** Image d'origine à relancer (action retry). */
+  /** Image d'origine à relancer (action retry), et le type de rendu concerné. */
   src?: string;
+  kind?: "rebrand" | "product-only";
 };
 
 const COLOR = /^#[0-9a-f]{6}$/i;
@@ -83,7 +86,7 @@ export async function POST(request: Request) {
 
     if (body.action === "refresh") return NextResponse.json(await stateOf(host, true));
 
-    if (body.action === "start" || body.action === "retry") {
+    if (body.action === "start" || body.action === "retry" || body.action === "product-only") {
       const current = await getRebrand(host);
       const brand: RebrandBrand | null =
         body.logoUrl && /^https:\/\//i.test(body.logoUrl)
@@ -100,13 +103,24 @@ export async function POST(request: Request) {
 
       const { products } = await fetchProducts(shop, body.collection || undefined);
       const filtered = filterByPrice(products, num(body.min), num(body.max));
+      if (body.action === "product-only") {
+        const { targets, missing } = await productOnlyTargets(host, filtered, body.handles);
+        if (!targets.length) {
+          return NextResponse.json({ error: "Aucun rendu rebrandé prêt pour ces produits : lance d'abord « Rebrander »." }, { status: 400 });
+        }
+        await startRebrand(host, brand, targets, Boolean(body.force));
+        return NextResponse.json({ ...(await stateOf(host, false)), missing });
+      }
+
       const targets =
         body.action === "retry"
-          ? rebrandTargets(filtered, "all").filter((target) => target.src === body.src)
+          ? body.kind === "product-only"
+            ? (await productOnlyTargets(host, filtered)).targets.filter((target) => target.src === body.src)
+            : rebrandTargets(filtered, "all").filter((target) => target.src === body.src)
           : rebrandTargets(filtered, body.scope === "all" ? "all" : "first", body.handles);
       if (!targets.length) return NextResponse.json({ error: "Aucune image à traiter" }, { status: 400 });
 
-      await startRebrand(host, brand, targets, body.action === "retry");
+      await startRebrand(host, brand, targets, body.action === "retry" || Boolean(body.force));
       return NextResponse.json(await stateOf(host, false));
     }
 

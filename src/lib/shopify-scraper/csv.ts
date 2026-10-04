@@ -117,7 +117,7 @@ function variantRow(product: ShopifyProduct, variant: ShopifyVariant, first: boo
  * Reproduit la structure d'un export Shopify : une ligne par variante, puis une
  * ligne par image non rattachée à une variante (Handle + image seulement).
  */
-export function buildShopifyCsv(products: ShopifyProduct[], replaceImages?: Map<string, string>) {
+export function buildShopifyCsv(products: ShopifyProduct[], replaceImages?: Map<string, string>, extraImages?: Map<string, string[]>) {
   const rows: Row[] = [];
   // Packaging rebrandé : l'URL d'origine est remplacée par le rendu, le reste de la ligne ne bouge pas.
   const imageSrc = (src: string) => replaceImages?.get(src) ?? src;
@@ -154,6 +154,13 @@ export function buildShopifyCsv(products: ShopifyProduct[], replaceImages?: Map<
         "Image Position": String(image.position),
         "Image Alt Text": image.alt ?? "",
       });
+    }
+
+    // Photos supplémentaires (produit seul, sans sa boîte) : après les images du catalogue.
+    let position = images.reduce((max, image) => Math.max(max, image.position), 0);
+    for (const src of extraImages?.get(product.handle) ?? []) {
+      position += 1;
+      rows.push({ Handle: product.handle, "Image Src": src, "Image Position": String(position), "Image Alt Text": `${product.title} — produit` });
     }
   }
 
