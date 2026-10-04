@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchProducts, filterByPrice, normalizeShopUrl } from "@/lib/shopify-scraper/client";
-import { getRebrand, hostOf, rebrandTargets, refreshRebrand, startRebrand, type RebrandBrand } from "@/lib/shopify-scraper/rebrand";
+import { getRebrand, hostOf, localUrl, rebrandTargets, refreshRebrand, startRebrand, type RebrandBrand } from "@/lib/shopify-scraper/rebrand";
 import { isStorageReady } from "@/lib/storage";
 import { uploadBase64 } from "@/lib/studio/kie";
 
@@ -43,6 +43,12 @@ async function stateOf(host: string, refresh: boolean) {
   const done = state.items.filter((item) => item.state === "done");
   return {
     ...state,
+    /*
+     * Pour l'affichage, le fichier local : les URL Kie se chargent lentement ou
+     * pas du tout dans le navigateur (vignettes blanches), alors que le rendu
+     * est sur le disque. `url` reste l'adresse publique, pour le CSV.
+     */
+    items: state.items.map((item) => ({ ...item, localUrl: item.state === "done" && item.file ? localUrl(host, item.file) : null })),
     storageConfigured: isStorageReady(),
     publicUrls: done.every((item) => /^https?:\/\//i.test(item.url ?? "")),
     temporaryUrls: done.some((item) => item.temporary),

@@ -36,7 +36,10 @@ type RebrandItem = {
   src: string;
   taskId: string | null;
   state: "pending" | "done" | "fail";
+  /** Adresse publique (CSV). */
   url: string | null;
+  /** Même rendu servi depuis le disque de l'outil : c'est lui qu'on affiche. */
+  localUrl?: string | null;
   error: string | null;
 };
 
@@ -590,7 +593,7 @@ export default function ShopifyScraperPage() {
                 <tbody>
                   {result.products.map((product) => {
                     const items = itemsByHandle.get(product.handle) ?? [];
-                    const firstDone = items.find((item) => item.state === "done" && item.url) ?? null;
+                    const firstDone = items.find((item) => item.state === "done" && (item.localUrl || item.url)) ?? null;
                     const checked = selected.has(product.handle);
                     return (
                       <tr
@@ -603,7 +606,7 @@ export default function ShopifyScraperPage() {
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-2">
                             {product.image ? (
-                              <button type="button" onClick={() => setPreview({ title: product.title, original: product.image, rebranded: firstDone?.url ?? null })} title="Aperçu" className="shrink-0">
+                              <button type="button" onClick={() => setPreview({ title: product.title, original: product.image, rebranded: firstDone?.localUrl ?? firstDone?.url ?? null })} title="Aperçu" className="shrink-0">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={product.image}
@@ -626,10 +629,10 @@ export default function ShopifyScraperPage() {
                           {items.length ? (
                             <div className="flex flex-wrap items-center gap-1.5">
                               {items.map((item) =>
-                                item.state === "done" && item.url ? (
-                                  <button key={item.src} type="button" onClick={() => setPreview({ title: product.title, original: item.src, rebranded: item.url })} title="Aperçu avant / après">
+                                item.state === "done" && (item.localUrl || item.url) ? (
+                                  <button key={item.src} type="button" onClick={() => setPreview({ title: product.title, original: item.src, rebranded: item.localUrl ?? item.url })} title="Aperçu avant / après">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={item.url} alt="" className="h-8 w-8 rounded-md object-cover ring-1 ring-emerald-300 dark:ring-emerald-700" />
+                                    <img src={item.localUrl ? `${item.localUrl}&w=96` : (item.url as string)} alt="" loading="lazy" className="h-8 w-8 rounded-md object-cover ring-1 ring-emerald-300 dark:ring-emerald-700" />
                                   </button>
                                 ) : item.state === "pending" ? (
                                   <span key={item.src} className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">

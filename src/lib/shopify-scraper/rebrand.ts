@@ -1,6 +1,9 @@
+import { execFile } from "child_process";
 import { lookup } from "dns/promises";
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { access, mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
+import { promisify } from "util";
+import ffmpegPath from "ffmpeg-static";
 import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from "@/lib/studio/kie";
 import { isStorageReady, persistJson, putFile, readMirror, readMirrorBytes } from "@/lib/storage";
 import type { ShopifyProduct } from "@/lib/shopify-scraper/client";
@@ -261,7 +264,8 @@ async function tryPutFile(remote: string, data: Buffer): Promise<string | null> 
   }
 }
 
-function localUrl(host: string, file: string) {
+/** Le rendu servi par l'outil lui-même, depuis son disque : c'est ce que la page affiche, l'URL publique ne sert qu'au CSV. */
+export function localUrl(host: string, file: string) {
   return `/api/shopify-scraper/rebrand/file?shop=${encodeURIComponent(host)}&name=${file}`;
 }
 
@@ -365,6 +369,44 @@ export async function readRebrandFile(host: string, name: string): Promise<Buffe
     return await readFile(local);
   } catch {
     return readMirrorBytes(local);
+  }
+}
+
+const runFfmpeg = promisify(execFile);
+const THUMB_WIDTHS = new Set([96, 160, 320]);
+
+/**
+ * Miniature d'un rendu, fabriquée une fois par ffmpeg et gardée à côté.
+ *
+ * Un rendu pèse plus d'un mégaoctet : en afficher cinquante dans le tableau
+ * laissait des cases blanches le temps du chargement. Une largeur hors liste
+ * rend l'original.
+ */
+export async function readRebrandThumb(host: string, name: string, width: number): Promise<Buffer | null> {
+  if (!THUMB_WIDTHS.has(width) || !isRebrandFile(name) || !ffmpegPath) return readRebrandFile(host, name);
+  const source = path.join(imageDir(host), name);
+  const thumb = path.join(imageDir(host), `${name.replace(/\.png$/, "")}.w${width}.jpg`);
+  try {
+    await access(thumb);
+    return await readFile(thumb);
+  } catch {
+    // pas encore fabriquée
+  }
+  try {
+    await access(source);
+  } catch {
+    const remote = await readMirrorBytes(source);
+    if (!remote) return null;
+    await mkdir(imageDir(host), { recursive: true });
+    await writeFile(source, remote);
+  }
+  try {
+    await runFfmpeg(ffmpegPath, ["-y", "-loglevel", "error", "-i", source, "-vf", `scale=${width}:-1`, "-q:v", "4", thumb], { timeout: 30_000 });
+    return await readFile(thumb);
+  } catch (error) {
+    const detail = error as { code?: unknown; signal?: unknown; stderr?: unknown; message?: string };
+    console.error("[rebrand] miniature impossible :", { code: detail.code, signal: detail.signal, stderr: String(detail.stderr ?? "").slice(0, 300), message: detail.message?.slice(0, 120) });
+    return readRebrandFile(host, name);
   }
 }
 
