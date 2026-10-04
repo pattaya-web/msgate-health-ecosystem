@@ -58,10 +58,11 @@ async function stateOf(host: string, refresh: boolean) {
   };
 }
 
+/** Lecture seule, instantanée : la page affiche l'état connu, puis sonde (action refresh) tant qu'il reste des rendus en cours. */
 export async function GET(request: Request) {
   const shop = normalizeShopUrl(new URL(request.url).searchParams.get("shop") || "");
   if (!shop) return NextResponse.json({ error: "URL de boutique invalide" }, { status: 400 });
-  return NextResponse.json(await stateOf(hostOf(shop), true));
+  return NextResponse.json(await stateOf(hostOf(shop), false));
 }
 
 export async function POST(request: Request) {
