@@ -71,12 +71,15 @@ export function templatePrompt(product: Pick<ShopifyProduct, "title" | "vendor">
   const title = product.title.trim();
   return [
     "Product packaging photograph. You are given THREE reference images.",
-    "IMAGE 1 is the APPROVED packaging of a sibling product of the same range: it is the template. IMAGE 2 is the original photo of the product to produce. IMAGE 3 is the brand logo.",
+    "YOUR OUTPUT IS IMAGE 1 WITH A FEW WORDS CHANGED. Nothing else.",
+    "IMAGE 1 is the APPROVED packaging of a sibling product of the same range: it is the template and the base of the output — its colours, its logo, its box, its label, its layout, its typefaces, its camera, its lighting, its background.",
+    "IMAGE 2 is the ORIGINAL photo of the product to produce. It must NOT be reproduced: do not copy its colours, its brand, its box, its label design or its fonts. It is only read, like a text source, to know what the product-specific words are.",
+    "IMAGE 3 is the brand logo, as it already appears on IMAGE 1.",
     "Reproduce IMAGE 1 EXACTLY: same container, same box, same proportions, same colours, same finish, same logo in the same places at the same size, same layout of every text block, same typefaces, same camera angle, same lighting, same shadows, same background, same crop.",
     `Change ONLY the product-specific texts, so that they read exactly as printed on IMAGE 2: the product name${title ? ` ("${title}")` : ""}, the dosage or quantity EXACTLY as IMAGE 2 prints it (read the number on IMAGE 2 — never take it from anywhere else, never choose another strength), and any other product-specific mention printed on IMAGE 2 — same wording, same spelling, same capitalisation as IMAGE 2, placed where the template places the corresponding text, in the template's typeface.`,
     "Everything that is not product-specific stays as on IMAGE 1: the logo, the brand colours, the generic mentions (storage, usage warnings) exactly as the template shows them.",
     "The product texts take the template's typeface, size, weight AND colour (the colour IMAGE 1 uses for the corresponding text), never the colour or font of IMAGE 2: IMAGE 2 provides the words only.",
-    original ? `Never show the original brand "${original}" or any of its letters: IMAGE 2 is only read for the product texts.` : "",
+    original ? `Never show the original brand "${original}" or any of its letters, and never show IMAGE 2's black or white packaging: the output has IMAGE 1's colours and IMAGE 1's logo. IMAGE 2 is only read for the product texts.` : "Never show IMAGE 2's packaging, brand or colours: the output has IMAGE 1's colours and logo.",
     brand.brandName ? `NEVER typeset the brand name "${brand.brandName}" as text beyond what the template already shows: the logo carries it.` : "",
     "Do not invent certification seals, award badges, medical claims or star ratings. Photorealistic, sharp label text, no watermark, no border, no collage.",
   ]
