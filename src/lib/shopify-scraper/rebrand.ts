@@ -452,7 +452,8 @@ export async function refreshRebrand(host: string, budgetMs = 12_000): Promise<R
     await Promise.all(pending.slice(i, i + 4).map(settle));
     await sleep(200);
   }
-  if (await ensurePublicUrls(host, state.items, 3, Math.max(2_000, budgetMs - (Date.now() - started)))) dirty = true;
+  // Un seul envoi par passage : la page sonde toutes les quatre secondes, l'export CSV finit le travail.
+  if (await ensurePublicUrls(host, state.items, 1, 6_000)) dirty = true;
   if (dirty) await saveRebrand(state);
   return state;
 }
