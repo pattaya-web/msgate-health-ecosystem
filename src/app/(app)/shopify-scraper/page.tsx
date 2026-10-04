@@ -507,10 +507,15 @@ export default function ShopifyScraperPage() {
                     Même produit, même étiquette, mêmes inscriptions : seuls le logo et les couleurs changent. Les rendus remplacent les photos dans « CSV rebrandé ».
                   </p>
                 </div>
-                <div className="text-[11px] text-slate-500">
-                  {doneCount ? <span className="text-emerald-700 dark:text-emerald-300">{doneCount} prête{doneCount > 1 ? "s" : ""}</span> : null}
-                  {doneCount && pendingCount ? " · " : null}
-                  {pendingCount ? <span>{pendingCount} en cours</span> : null}
+                <div className="text-[11px] text-slate-500" data-rebrand-progress>
+                  {pendingCount ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {doneCount + productOnlyDone}/{doneCount + productOnlyDone + pendingCount} prêtes · les rendus arrivent au fil de l&apos;eau, environ une minute chacun
+                    </span>
+                  ) : doneCount ? (
+                    <span className="text-emerald-700 dark:text-emerald-300">{doneCount} prête{doneCount > 1 ? "s" : ""}</span>
+                  ) : null}
                 </div>
               </div>
 
@@ -656,11 +661,12 @@ export default function ShopifyScraperPage() {
                                 <img
                                   src={product.image}
                                   alt=""
-                                  className="h-8 w-8 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+                                  loading="lazy"
+                                  className="h-12 w-12 rounded-md object-cover ring-1 ring-slate-200 dark:ring-slate-700"
                                 />
                               </button>
                             ) : (
-                              <div className="h-8 w-8 shrink-0 rounded-md bg-slate-100 dark:bg-slate-800" />
+                              <div className="h-12 w-12 shrink-0 rounded-md bg-slate-100 dark:bg-slate-800" />
                             )}
                             <div className="min-w-0">
                               <div className="truncate font-medium text-slate-900 dark:text-slate-100">
@@ -677,12 +683,14 @@ export default function ShopifyScraperPage() {
                                 item.state === "done" && (item.localUrl || item.url) ? (
                                   <button key={`${item.src}#${item.kind ?? "rebrand"}`} type="button" onClick={() => setPreview({ title: `${product.title}${item.kind === "product-only" ? " — produit seul" : ""}`, original: item.kind === "product-only" ? (firstDone?.localUrl ?? firstDone?.url ?? item.src) : item.src, rebranded: item.localUrl ?? item.url })} title={item.kind === "product-only" ? "Produit seul — aperçu" : "Aperçu avant / après"} className="relative">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={item.localUrl ? `${item.localUrl}&w=96` : (item.url as string)} alt="" loading="lazy" className={cn("h-8 w-8 rounded-md object-cover ring-1", item.kind === "product-only" ? "ring-sky-300 dark:ring-sky-700" : "ring-emerald-300 dark:ring-emerald-700")} />
-                                    {item.kind === "product-only" ? <span className="absolute -bottom-1 -right-1 rounded bg-sky-600 px-1 text-[8px] font-semibold leading-3 text-white">2</span> : null}
+                                    <img src={item.localUrl ? `${item.localUrl}&w=160` : (item.url as string)} alt="" loading="lazy" className={cn("h-20 w-20 rounded-lg object-cover ring-1 transition hover:ring-2", item.kind === "product-only" ? "ring-sky-300 dark:ring-sky-700" : "ring-emerald-300 dark:ring-emerald-700")} />
+                                    {item.kind === "product-only" ? <span className="absolute -bottom-1 -right-1 rounded bg-sky-600 px-1.5 text-[9px] font-semibold leading-4 text-white">2</span> : null}
                                   </button>
                                 ) : item.state === "pending" ? (
-                                  <span key={`${item.src}#${item.kind ?? "rebrand"}`} className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                                  <span key={`${item.src}#${item.kind ?? "rebrand"}`} className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-lg bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700" title="Rendu en cours">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={item.src} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-cover opacity-30" />
+                                    <Loader2 className="relative h-5 w-5 animate-spin text-slate-500" />
                                   </span>
                                 ) : (
                                   <button
@@ -690,7 +698,7 @@ export default function ShopifyScraperPage() {
                                     type="button"
                                     onClick={() => void retryImage(item.src, item.kind)}
                                     title={item.error ?? "Échec"}
-                                    className="inline-flex h-8 items-center gap-1 rounded-md bg-red-50 px-2 text-[11px] text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300"
+                                    className="inline-flex h-20 items-center gap-1 rounded-lg bg-red-50 px-2 text-[11px] text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-300"
                                   >
                                     <RefreshCw className="h-3 w-3" /> Relancer
                                   </button>

@@ -355,50 +355,70 @@ async function storeResult(host: string, src: string, resultUrl: string, kind: R
   const dir = imageDir(host);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, file), data);
-  // Attendu, pas lancé en arrière-plan : le CSV peut référencer l'URL tout de suite.
-  const remote = await tryPutFile(`shopify-scraper/rebrand/${host}/${file}`, data);
-  if (remote) return { file, url: remote, uploadPending: false, temporary: false };
   /*
-   * Sans copie Supabase, une URL publique reste nécessaire : l'import Shopify
-   * télécharge les images lui-même. L'hébergement d'envoi de Kie convient le
-   * temps d'un import — ses fichiers vivent quelques jours, pas plus.
+   * Rien de plus ici : copier chaque rendu vers Supabase ou Kie dans la sonde
+   * la faisait durer plusieurs minutes pour cinquante images, et la page
+   * restait sur ses spinners alors que tout était fini. L'adresse publique
+   * est obtenue ensuite, quelques rendus par passage, et avant tout export.
    */
-  try {
-    const url = await uploadBase64(`data:image/png;base64,${data.toString("base64")}`, `rebrand-${host}-${file}`);
-    return { file, url, uploadPending: isStorageReady(), temporary: true };
-  } catch {
-    return { file, url: localUrl(host, file), uploadPending: isStorageReady(), temporary: false };
-  }
+  return { file, url: localUrl(host, file), uploadPending: true, temporary: false };
 }
 
-/** Retente l'envoi Supabase des rendus restés en local. */
-async function retryUploads(host: string, items: RebrandItem[]) {
-  let changed = false;
-  for (const item of items.filter((entry) => entry.state === "done" && entry.uploadPending && entry.file).slice(0, 10)) {
-    if (!storageUsable()) break;
+/**
+ * Donne une adresse publique aux rendus qui n'en ont pas encore, quelques-uns
+ * par passage : Supabase quand il répond, sinon l'hébergement d'envoi de Kie
+ * (public, valable quelques jours). Un rendu déjà chez Kie retente Supabase
+ * plus tard, pour une adresse durable.
+ */
+async function ensurePublicUrls(host: string, items: RebrandItem[], max = 3, budgetMs = 8_000) {
+  const started = Date.now();
+  let changed = 0;
+  for (const item of items) {
+    if (changed >= max || Date.now() - started > budgetMs) break;
+    if (item.state !== "done" || !item.file || !item.uploadPending) continue;
+    const isPublic = /^https:\/\//i.test(item.url ?? "");
     let data: Buffer;
     try {
-      data = await readFile(path.join(imageDir(host), item.file as string));
+      data = await readFile(path.join(imageDir(host), item.file));
     } catch {
       continue;
     }
     const remote = await tryPutFile(`shopify-scraper/rebrand/${host}/${item.file}`, data);
-    if (!remote) break;
-    item.url = remote;
-    item.uploadPending = false;
-    item.temporary = false;
-    item.updatedAt = new Date().toISOString();
-    changed = true;
+    if (remote) {
+      item.url = remote;
+      item.uploadPending = false;
+      item.temporary = false;
+      item.updatedAt = new Date().toISOString();
+      changed += 1;
+      continue;
+    }
+    if (isPublic) continue; // déjà chez Kie, Supabase attendra
+    try {
+      item.url = await uploadBase64(`data:image/png;base64,${data.toString("base64")}`, `rebrand-${host}-${item.file}`);
+      item.temporary = true;
+      item.uploadPending = isStorageReady();
+      item.updatedAt = new Date().toISOString();
+      changed += 1;
+    } catch {
+      // Kie refuse l'envoi : on garde l'adresse locale, prochain passage
+    }
   }
-  return changed;
+  return changed > 0;
 }
 
-/** Sonde les rendus en attente et range ceux qui ont abouti. */
-export async function refreshRebrand(host: string): Promise<RebrandState> {
+/**
+ * Sonde les rendus en attente et range ceux qui ont abouti.
+ *
+ * Bornée : quatre tâches interrogées à la fois, et on s'arrête au budget.
+ * Une sonde qui durait des minutes bloquait la page sur ses spinners ; le
+ * reste sera vu au passage suivant, quelques secondes plus tard.
+ */
+export async function refreshRebrand(host: string, budgetMs = 12_000): Promise<RebrandState> {
   const state = await getRebrand(host);
-  const pending = state.items.filter((item) => item.state === "pending" && item.taskId).slice(0, 40);
+  const started = Date.now();
+  const pending = state.items.filter((item) => item.state === "pending" && item.taskId);
   let dirty = false;
-  for (const item of pending) {
+  const settle = async (item: RebrandItem) => {
     try {
       const task = await getKieTask(item.taskId as string);
       if (isKieDone(task.state) && task.urls[0]) {
@@ -414,20 +434,25 @@ export async function refreshRebrand(host: string): Promise<RebrandState> {
         item.state = "fail";
         item.error = task.failMsg || "Génération échouée";
         dirty = true;
+      } else {
+        return;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
       // Une limite de cadence ou un téléchargement raté ne condamne pas la tâche : on réessaiera.
-      if (!TRANSIENT.test(message) && !/Téléchargement/.test(message)) {
-        item.state = "fail";
-        item.error = message || "Statut illisible";
-        dirty = true;
-      }
+      if (TRANSIENT.test(message) || /Téléchargement/.test(message)) return;
+      item.state = "fail";
+      item.error = message || "Statut illisible";
+      dirty = true;
     }
-    if (dirty) item.updatedAt = new Date().toISOString();
-    await sleep(250);
+    item.updatedAt = new Date().toISOString();
+  };
+  for (let i = 0; i < pending.length; i += 4) {
+    if (Date.now() - started > budgetMs) break;
+    await Promise.all(pending.slice(i, i + 4).map(settle));
+    await sleep(200);
   }
-  if (await retryUploads(host, state.items)) dirty = true;
+  if (await ensurePublicUrls(host, state.items, 3, Math.max(2_000, budgetMs - (Date.now() - started)))) dirty = true;
   if (dirty) await saveRebrand(state);
   return state;
 }
@@ -483,8 +508,9 @@ export async function readRebrandThumb(host: string, name: string, width: number
 
 /** La table « image d'origine → image rebrandée » pour l'export CSV. */
 export async function rebrandedSources(host: string): Promise<Map<string, string>> {
-  // Un dernier essai d'envoi avant l'export : le CSV doit porter des URL publiques quand c'est possible.
-  const state = await refreshRebrand(host);
+  // Avant l'export, tous les rendus prêts reçoivent une adresse publique : le CSV ne peut pas porter d'adresse locale.
+  const state = await refreshRebrand(host, 20_000);
+  if (await ensurePublicUrls(host, state.items, state.items.length, 240_000)) await saveRebrand(state);
   return new Map(state.items.filter((item) => kindOf(item) === "rebrand" && item.state === "done" && item.url).map((item) => [item.src, item.url as string]));
 }
 
