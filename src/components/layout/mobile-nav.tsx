@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Mail, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, Handshake, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/auth-context";
 
 const items = [
   { href: "/phoenix", label: "Stats", icon: BarChart3 },
@@ -12,13 +13,16 @@ const items = [
   { href: "/process", label: "Process", icon: Workflow },
 ];
 
+const associateItems = [{ href: "/associate", label: "Straight Sale", icon: Handshake }];
+
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
+  const { isAssociate } = useAuth();
 
   return (
     <nav className="safe-bottom fixed inset-x-3 bottom-3 z-40 lg:hidden">
       <div className="float-header flex items-stretch px-1 py-1">
-        {items.map((item) => {
+        {(isAssociate ? associateItems : items).map((item) => {
           const active =
             item.href === "/process"
               ? pathname === "/process" ||

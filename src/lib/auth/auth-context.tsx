@@ -10,6 +10,8 @@ interface AuthContextValue {
   logout: () => void;
   canWrite: boolean;
   isAdmin: boolean;
+  /** Accès Associé : ne voit que la page Straight Sale. */
+  isAssociate: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -75,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       canWrite: user?.role === "admin" || user?.role === "operator",
       isAdmin: user?.role === "admin",
+      isAssociate: user?.role === "associate",
       async login(email, password) {
         try {
           const res = await fetch("/api/auth/login", {

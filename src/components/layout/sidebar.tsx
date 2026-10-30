@@ -12,6 +12,7 @@ import {
   Eye,
   FolderOpen,
   GripVertical,
+  Handshake,
   HardDrive,
   ImagePlus,
   Landmark,
@@ -115,6 +116,9 @@ export const SECTIONS: NavSection[] = [
   },
 ];
 
+/** La barre d'un associé : une seule section, une seule page, pas de réglage d'ordre. */
+const ASSOCIATE_SECTIONS: NavSection[] = [{ id: "straight-sale", label: "Straight Sale", items: [{ href: "/associate", label: "Ventes & Meta Ads", icon: Handshake }] }];
+
 const SECTIONS_KEY = "msgate-nav-sections";
 export const ORDER_KEY = "msgate-nav-order";
 
@@ -198,7 +202,7 @@ function activeSection(sections: NavSection[], pathname: string) {
  */
 export function currentPage(pathname: string): { section: string; label: string } | null {
   let best: { section: string; label: string; href: string } | null = null;
-  for (const section of applyOrder(loadOrder())) {
+  for (const section of [...ASSOCIATE_SECTIONS, ...applyOrder(loadOrder())]) {
     for (const item of section.items) {
       if (!isActive(item.href, pathname)) continue;
       if (!best || item.href.length > best.href.length) {
@@ -280,9 +284,9 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const [sections, setSections] = useState<NavSection[]>(() => applyOrder(loadOrder()));
-  const [custom, setCustom] = useState<boolean>(() => loadOrder() !== null);
+  const { user, logout, isAssociate } = useAuth();
+  const [sections, setSections] = useState<NavSection[]>(() => (isAssociate ? ASSOCIATE_SECTIONS : applyOrder(loadOrder())));
+  const [custom, setCustom] = useState<boolean>(() => !isAssociate && loadOrder() !== null);
   const [open, setOpen] = useState<string[]>(() => initialOpen(sections, pathname));
   const [drag, setDrag] = useState<NavDrag | null>(null);
   // La source du glisser vit aussi dans une ref : dragover/drop peuvent arriver avant que React ait rendu l'état.
@@ -320,6 +324,10 @@ export function Sidebar({
   }
 
   function startDrag(event: DragEvent, value: NavDrag) {
+    if (isAssociate) {
+      event.preventDefault();
+      return;
+    }
     event.stopPropagation();
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", value.kind === "section" ? `section:${value.id}` : `item:${value.href}`);
@@ -482,7 +490,7 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-slate-200/70 p-3 dark:border-slate-800">
-        <KieCredit />
+        {isAssociate ? null : <KieCredit />}
 
         <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-800 dark:bg-slate-900/50">
           <div className="flex items-center gap-2.5">
@@ -502,7 +510,7 @@ export function Sidebar({
             </div>
           </div>
           <div className="mt-2.5 flex items-center justify-between gap-2">
-            <span className="eyebrow">{user?.role ?? "viewer"}</span>
+            <span className="eyebrow">{user?.role === "associate" ? "associé" : (user?.role ?? "viewer")}</span>
             <button
               onClick={() => {
                 logout();

@@ -12,8 +12,10 @@ import { verifySession, type SessionUser } from "@/lib/auth/session";
  *   - /api/sav/digest     : le cron Vercel, qui porte son propre secret ;
  *   - POST messages/orders : le formulaire de contact et la commande des
  *                            boutiques publiques.
- * Tout le reste exige une session. Un « viewer » lit seulement. Une mutation
- * venue d'une autre origine est refusée, en plus du cookie SameSite.
+ * Tout le reste exige une session. Un « viewer » lit seulement. Un « associate »
+ * ne lit que son tableau de bord (/api/associate/overview) : le périmètre
+ * Straight Sale est tenu côté serveur, aucune autre route ne lui répond. Une
+ * mutation venue d'une autre origine est refusée, en plus du cookie SameSite.
  */
 
 export type GuardDecision = { kind: "pass"; user: SessionUser | null } | { kind: "deny"; status: 401 | 403 | 503; message: string };
@@ -39,6 +41,11 @@ export function isPublicApi(method: string, pathname: string) {
   return method === "POST" && PUBLIC_POSTS.has(pathname);
 }
 
+/** Ce qu'un associé peut appeler, en lecture : son tableau de bord et rien d'autre. */
+export function isAssociateApi(method: string, pathname: string) {
+  return SAFE_METHODS.has(method.toUpperCase()) && pathname === "/api/associate/overview";
+}
+
 /** L'origine que doit annoncer une requête légitime : schéma, hôte et port tels que le navigateur les voit. */
 export function expectedOrigin(headers: Headers, fallbackProtocol: string) {
   const proto = (headers.get("x-forwarded-proto") ?? fallbackProtocol).split(",")[0].trim().toLowerCase().replace(/:$/, "") || "https";
@@ -54,6 +61,10 @@ export function apiGuard(input: GuardInput): GuardDecision {
 
   const user = verifySession(input.cookieValue, input.secret);
   if (!user) return { kind: "deny", status: 401, message: "Connexion requise" };
+
+  if (user.role === "associate" && !isAssociateApi(method, input.pathname)) {
+    return { kind: "deny", status: 403, message: "Accès limité à la partie Straight Sale" };
+  }
 
   if (!SAFE_METHODS.has(method)) {
     if (user.role === "viewer") return { kind: "deny", status: 403, message: "Lecture seule pour ce compte" };

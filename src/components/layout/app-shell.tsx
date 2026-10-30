@@ -17,6 +17,7 @@ import { ShellSkeleton } from "@/components/shared/page-states";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_KEY = "msgate-sidebar-open";
+const ASSOCIATE_HOME = "/associate";
 
 type ViewTransitionProps = {
   children: React.ReactNode;
@@ -49,9 +50,11 @@ function initials(name: string | undefined) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, isAssociate } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  // Un associé n'a qu'une page : ailleurs, on le ramène dessus sans rien monter (les autres écrans lui répondraient 403).
+  const confined = isAssociate && !(pathname === ASSOCIATE_HOME || pathname?.startsWith(`${ASSOCIATE_HOME}/`));
   const wideContent =
     pathname === "/ads" ||
     pathname?.startsWith("/ads/") ||
@@ -81,6 +84,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [loading, user, router]);
 
   useEffect(() => {
+    if (confined) router.replace(ASSOCIATE_HOME);
+  }, [confined, router]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(SIDEBAR_KEY, desktopOpen ? "1" : "0");
     } catch {
@@ -102,7 +109,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  if (loading || !user) {
+  if (loading || !user || confined) {
     return <ShellSkeleton />;
   }
 
@@ -219,8 +226,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <MobileNav onOpenMenu={() => setMobileOpen(true)} />
-      <AskHermes />
-      <GenerationWatcher />
+      {isAssociate ? null : (
+        <>
+          <AskHermes />
+          <GenerationWatcher />
+        </>
+      )}
     </div>
   );
 }

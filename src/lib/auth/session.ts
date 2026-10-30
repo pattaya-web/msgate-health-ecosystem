@@ -19,7 +19,7 @@ import type { AppUser, UserRole } from "@/types";
 export const SESSION_COOKIE = "msgate_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MIN_SECRET_LENGTH = 32;
-const ROLES: UserRole[] = ["admin", "operator", "viewer"];
+const ROLES: UserRole[] = ["admin", "operator", "viewer", "associate"];
 
 export type SessionUser = { email: string; role: UserRole };
 

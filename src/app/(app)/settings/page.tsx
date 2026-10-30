@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Database, Lock, Save, Shield } from "lucide-react";
+import { Database, Handshake, Lock, Save, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { mockProvider } from "@/lib/providers/mock-provider";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { AssociateScopeCard } from "@/components/settings/associate-scope-card";
 
 const thresholdsSchema = z.object({
   min_active_banks: z.number().int().min(0),
@@ -372,6 +373,8 @@ export default function SettingsPage() {
             ))}
           </CardContent>
         </Card>
+
+        <AssociateScopeCard isAdmin={isAdmin} icon={<Handshake className="h-4 w-4 text-indigo-600" />} />
 
         <Card>
           <CardHeader>

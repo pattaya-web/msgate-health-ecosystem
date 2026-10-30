@@ -77,6 +77,12 @@ function tokenId(token: string) {
   return createHash("sha256").update(token).digest("hex").slice(0, 12);
 }
 
+/** Les comptes publicitaires déjà rencontrés, tels que l'arbre Meta les a nommés. */
+export async function getKnownAccounts(): Promise<KnownAccount[]> {
+  const store = await load();
+  return Object.values(store.accounts);
+}
+
 export async function getExtraTokens() {
   const store = await load();
   return store.tokens.map((row) => row.token);
