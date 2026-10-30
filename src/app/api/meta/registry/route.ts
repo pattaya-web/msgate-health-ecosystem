@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isMetaConfigured } from "@/lib/meta/client";
+import { isMetaConfigured, invalidateSpendCache } from "@/lib/meta/client";
 import { invalidateTreeCache } from "@/lib/meta/tree";
 import {
   acknowledgeAccounts,
@@ -59,6 +59,7 @@ export async function POST(request: Request) {
 
       const result = await addStoredToken(body.label || "Agence Meta", body.token);
       invalidateTreeCache();
+      invalidateSpendCache();
       return NextResponse.json({
         ok: true,
         ...result,

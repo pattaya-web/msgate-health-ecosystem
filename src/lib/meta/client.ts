@@ -176,10 +176,23 @@ type CachedFetch = {
 // Insights are several sequential calls; a short cache keeps the cockpit snappy
 // without ever serving genuinely stale numbers.
 const CACHE_TTL_MS = 5 * 60 * 1000;
+/** Quand la période contient aujourd'hui, la dépense bouge en continu : 2 minutes. */
+const CACHE_TTL_TODAY_MS = 2 * 60 * 1000;
+
+/** Le jour en cours dans le fuseau des comptes Meta (Paris). */
+function todayParis() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
 
 const cache = ((globalThis as typeof globalThis & {
   __msgateMetaRaw?: Map<string, { at: number; value: CachedFetch }>;
 }).__msgateMetaRaw ??= new Map());
+
+/** Vide le cache des dépenses, quand un jeton est ajouté ou retiré. */
+export function invalidateSpendCache() {
+  cache.clear();
+}
 
 async function fetchRaw(
   config: MetaConfig,
@@ -189,7 +202,8 @@ async function fetchRaw(
 ): Promise<CachedFetch> {
   const key = `${start}:${end}`;
   const hit = cache.get(key);
-  if (!force && hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value;
+  const ttl = end >= todayParis() ? CACHE_TTL_TODAY_MS : CACHE_TTL_MS;
+  if (!force && hit && Date.now() - hit.at < ttl) return hit.value;
 
   const { accounts, errors, working } = await discoverAdAccounts(config);
   const timeRange = encodeURIComponent(JSON.stringify({ since: start, until: end }));

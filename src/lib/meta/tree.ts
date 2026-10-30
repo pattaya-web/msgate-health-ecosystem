@@ -276,7 +276,13 @@ const state: MetaTreeState = (globalRef.__msgateMetaTree ??= {
 
 // Soft refreshes hit cache; Sync forces a rebuild.
 // Historical ranges barely move — keep them warm so date toggles feel instant.
-const ttlFor = (preset: DatePreset) => (preset === "today" ? 60_000 : 20 * 60_000);
+/** Le jour en cours dans le fuseau des comptes Meta (Paris). */
+function todayParis() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+// Une période qui contient aujourd'hui bouge en continu : 2 minutes, pour coller au gestionnaire de pubs.
+const ttlFor = (preset: DatePreset, range?: { start: string; end: string }) =>
+  preset === "today" ? 60_000 : range && range.end >= todayParis() ? 2 * 60_000 : 20 * 60_000;
 const LIFETIME_TTL_MS = 30 * 60_000;
 const STRUCTURE_TTL_MS = 12 * 60_000;
 const STRUCTURE_TTL_TODAY_MS = 60_000;
@@ -313,7 +319,7 @@ export async function buildAdsTree(params: {
   const cacheKey = `${params.preset}:${range.start}:${range.end}`;
 
   const hit = state.cache.get(cacheKey);
-  if (!params.force && hit && Date.now() - hit.at < ttlFor(params.preset)) return hit.tree;
+  if (!params.force && hit && Date.now() - hit.at < ttlFor(params.preset, range)) return hit.tree;
 
   const started = Date.now();
   const errors: string[] = [];
