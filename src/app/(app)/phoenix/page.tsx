@@ -276,6 +276,8 @@ export default function PhoenixPage() {
           setProgress(body.progress || { running: true, phase: "customers", done: 0, total: 0 });
           return;
         }
+        // Source mémorisée mais arrêtée (SkinRenew) : la bascule automatique prend le relais, pas de message.
+        if (res.status === 503) return;
         if (!res.ok) throw new Error(body.error || "Overview failed");
 
         setOverview(body.overview);
