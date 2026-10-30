@@ -32,15 +32,18 @@ const appMono = Geist_Mono({
 });
 
 /**
- * La vraie police des sous-titres TikTok. On ne charge que les deux graisses
- * réellement dessinées à l'écran et à l'export : demander une graisse qui n'est
- * pas servie la fait synthétiser en faux-gras baveux, ce qui est précisément le
- * rendu qu'on cherche à éviter.
+ * La vraie police des sous-titres TikTok, chargée en police variable : un seul
+ * fichier porte toutes les vraies graisses (300 à 900), donc 600 et 700 sont
+ * dessinés, jamais synthétisés en faux-gras.
+ *
+ * Ne pas revenir à `weight: ["600", "700"]` : Google sert désormais le même
+ * fichier pour les deux graisses, et Turbopack refuse ce doublon (« next/font/
+ * google queries have exactly one entry »), ce qui fait tomber toutes les pages
+ * en 500 dès que le cache .next est vidé.
  */
 const tiktok = TikTok_Sans({
   variable: "--font-tiktok",
   subsets: ["latin"],
-  weight: ["600", "700"],
   display: "swap",
 });
 
