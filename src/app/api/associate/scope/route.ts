@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   const session = sessionFromRequest(request);
   if (session?.role !== "admin") return NextResponse.json({ error: "Réservé à l'admin" }, { status: 403 });
-  let body: { stores?: unknown; metaAccountIds?: unknown; campaignKeyword?: unknown };
+  let body: { stores?: unknown; metaAccountIds?: unknown; campaignKeyword?: unknown; processingRate?: unknown; targetMargin?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -26,6 +26,8 @@ export async function PUT(request: Request) {
     stores: list(body.stores),
     metaAccountIds: list(body.metaAccountIds),
     campaignKeyword: typeof body.campaignKeyword === "string" ? body.campaignKeyword : undefined,
+    processingRate: body.processingRate,
+    targetMargin: body.targetMargin,
   });
   return NextResponse.json({ scope });
 }

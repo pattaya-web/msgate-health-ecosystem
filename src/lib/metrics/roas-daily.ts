@@ -4,6 +4,7 @@ import { getShopifyDaily, isShopifyConfigured } from "@/lib/shopify/client";
 import { getMetaDailySpend, isMetaConfigured } from "@/lib/meta/client";
 import type { CampaignBucket } from "@/lib/meta/buckets";
 import { getSpendRange } from "@/lib/metrics/spend-store";
+import { REPORT_CURRENCY } from "@/lib/fx";
 import type { RefundAttribution } from "@/lib/shopify/types";
 
 /**
@@ -209,7 +210,8 @@ export async function buildRoasDaily(params: {
 
   if (isMetaConfigured()) {
     try {
-      const meta = await getMetaDailySpend({ start, end, buckets: params.buckets });
+      const meta = await getMetaDailySpend({ start, end, buckets: params.buckets, convertTo: REPORT_CURRENCY });
+      if (meta.conversion) warnings.push(`Info : ${meta.conversion}.`);
       for (const [date, amount] of meta.byDate) metaByDate.set(date, amount);
       metaInfo = {
         accounts: meta.accounts.map((a) => ({

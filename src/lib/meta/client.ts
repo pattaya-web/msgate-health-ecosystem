@@ -1,3 +1,4 @@
+import { describeConversion, fxRates } from "@/lib/fx";
 import {
   classifyCampaign,
   emptyBucketTotals,
@@ -45,6 +46,8 @@ export type MetaSpendResult = {
   accounts: MetaAccountSummary[];
   campaigns: MetaCampaignRow[];
   currencies: string[];
+  /** La conversion appliquée (« dépense EUR convertie en USD… »), ou null. */
+  conversion: string | null;
   buckets: CampaignBucket[];
   errors: string[];
   tokensTotal: number;
@@ -251,12 +254,18 @@ export async function getMetaDailySpend(params: {
   /** Empty means every bucket counts. */
   buckets?: CampaignBucket[];
   force?: boolean;
+  /** Convertit chaque compte dans cette devise (celle des ventes) avant d'additionner. */
+  convertTo?: string;
 }): Promise<MetaSpendResult> {
   const config = await getMetaConfigWithExtras();
   if (!config) throw new Error("Meta is not configured (missing META_ACCESS_TOKENS)");
 
   const raw = await fetchRaw(config, params.start, params.end, params.force);
   const wanted = params.buckets?.length ? new Set(params.buckets) : null;
+  // Un compte en euros et un compte en dollars ne s'additionnent qu'une fois convertis.
+  const accountCurrency = new Map(raw.accounts.map((account) => [account.accountId, account.currency]));
+  const rates = params.convertTo ? await fxRates(raw.currencies, params.convertTo) : null;
+  const factor = (accountId: string) => (rates ? (rates.get((accountCurrency.get(accountId) || params.convertTo || "").toUpperCase())?.rate ?? 1) : 1);
 
   const byDate = new Map<string, number>();
   const byDateBucket = new Map<string, Record<CampaignBucket, number>>();
@@ -265,7 +274,7 @@ export async function getMetaDailySpend(params: {
   const accountTotals = new Map<string, { spend: number; buckets: Record<CampaignBucket, number> }>();
 
   for (const row of raw.rows) {
-    const amount = Number(row.spend) || 0;
+    const amount = (Number(row.spend) || 0) * factor(row.accountId);
     if (!amount) continue;
 
     const campaignName = row.campaign_name || "(sans nom)";
@@ -326,7 +335,8 @@ export async function getMetaDailySpend(params: {
     campaigns: [...campaignTotals.values()]
       .map((row) => ({ ...row, spend: round(row.spend) }))
       .sort((a, b) => b.spend - a.spend),
-    currencies: raw.currencies,
+    currencies: rates ? [params.convertTo as string] : raw.currencies,
+    conversion: rates ? describeConversion(rates, params.convertTo) : null,
     buckets: params.buckets ?? [],
     errors: raw.errors,
     tokensTotal: raw.tokensTotal,

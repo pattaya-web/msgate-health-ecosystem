@@ -116,7 +116,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const container = wideContent ? "max-w-[100rem]" : "max-w-7xl";
 
   return (
-    <div className="app-aurora flex min-h-screen">
+    // Alison (ou l'admin en « Vue Alison ») : la peau rosé, claire ou prune selon le thème.
+    <div className="app-aurora flex min-h-screen" data-skin={isAssociate ? "rose" : undefined}>
       <div
         className={cn(
           "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] lg:block",
@@ -196,11 +197,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </div>
 
-            <div className="hidden md:block">
-              <TimezoneClocks />
-            </div>
+            {isAssociate ? null : (
+              <>
+                <div className="hidden md:block">
+                  <TimezoneClocks />
+                </div>
 
-            <EnvBadge className="mx-0.5" />
+                <EnvBadge className="mx-0.5" />
+              </>
+            )}
 
             <ThemeToggle />
 

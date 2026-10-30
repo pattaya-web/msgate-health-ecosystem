@@ -3,13 +3,17 @@ import path from "path";
 import { getKnownAccounts } from "@/lib/meta/registry";
 import { buildAdsTree } from "@/lib/meta/tree";
 import { getMetaConfig } from "@/lib/meta/client";
-import { buildOverview } from "@/lib/phoenix/analytics";
+import { classifyCategory, isApproved, isAttempt } from "@/lib/phoenix/analytics";
 import { focusIncludesToday, isStale } from "@/lib/phoenix/snapshot";
 import { resolveSource } from "@/lib/phoenix/sources";
 import type { SnapshotProgress } from "@/lib/phoenix/types";
 import type { AccountNode } from "@/lib/meta/types";
 import { buildSalesBreakdown } from "@/lib/metrics/sales-breakdown";
 import type { ProfitInputs } from "@/lib/metrics/profit-inputs";
+import { reportToday } from "@/lib/report-tz";
+import { REPORT_CURRENCY, describeConversion, fxRates } from "@/lib/fx";
+import { peekOrders, peekShopifyFeed } from "@/lib/reign/snapshot";
+import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
 
 /**
  * Le périmètre « Straight Sale » de l'accès Associé.
@@ -28,17 +32,27 @@ export type AssociateScope = {
   metaAccountIds: string[];
   /** Mot-clé (insensible à la casse) : un compte ou une campagne dont le nom le contient compte aussi. */
   campaignKeyword: string;
+  /** Frais de paiement estimés, en % du chiffre d'affaires (Shopify Payments, Reign…). */
+  processingRate: number;
+  /** Marge nette visée après pub, en % : elle fixe le ROAS cible. */
+  targetMargin: number;
   updatedAt: string;
 };
 
+const DEFAULT_PROCESSING_RATE = 4;
+const DEFAULT_TARGET_MARGIN = 20;
+
 export type AssociateOverview = {
   range: { start: string; end: string };
-  straightSale: {
-    attempts: number;
-    approved: number;
-    approvalRate: number;
+  /** La boutique, telle qu'on l'affiche (« Venom »), et ses domaines. */
+  shop: { name: string; domains: string[] };
+  sales: {
     revenue: number;
-    series: Array<{ date: string; revenue: number }>;
+    orders: number;
+    /** Panier moyen. */
+    average: number | null;
+    series: Array<{ date: string; revenue: number; orders: number }>;
+    today: { revenue: number; orders: number };
   };
   meta: {
     spend: number;
@@ -46,10 +60,34 @@ export type AssociateOverview = {
     accounts: Array<{ id: string; name: string; spend: number; campaigns: number }>;
     configured: boolean;
     error: string | null;
+    /** La conversion appliquée (comptes en euros, ventes en dollars), ou null. */
+    conversion: string | null;
   };
   roas: number | null;
   cpa: number | null;
-  /** L'état de la source des ventes (Reign aujourd'hui) ; le nom du champ date de Phoenix. */
+  /** Visites Shopify et conversion (commandes / visites) ; null sans Shopify branché. */
+  conversion: { sessions: number; rate: number; cartRate: number; checkoutRate: number } | null;
+  /** Les dernières ventes, toutes dates, pour le fil en temps réel. */
+  live: { updatedAt: string | null; orders: Array<{ at: string; amount: number; number: string | null }> };
+  profit: {
+    revenue: number;
+    refunds: number;
+    cogs: number;
+    cogsUnits: number;
+    /** Unités vendues sans coût de revient renseigné. */
+    cogsMissing: number;
+    fees: number;
+    ads: number;
+    net: number;
+    /** Marge nette après pub, en %. */
+    margin: number | null;
+    /** ROAS sous lequel on perd de l'argent, et ROAS qui donne la marge visée. */
+    breakEvenRoas: number | null;
+    targetRoas: number | null;
+    processingRate: number;
+    targetMargin: number;
+  };
+  /** L'état de la synchro des ventes. */
   phoenix: { configured: boolean; building: boolean; stale: boolean; progress: SnapshotProgress | null };
   scope: Pick<AssociateScope, "stores" | "metaAccountIds" | "campaignKeyword">;
 };
@@ -59,7 +97,12 @@ const FILE = path.join(process.cwd(), ".msgate-cache", "associate-scope.json");
 const state = ((globalThis as typeof globalThis & { __msgateAssociateScope?: { scope: AssociateScope | null } }).__msgateAssociateScope ??= { scope: null });
 
 function empty(): AssociateScope {
-  return { stores: [], metaAccountIds: [], campaignKeyword: "", updatedAt: "" };
+  return { stores: [], metaAccountIds: [], campaignKeyword: "", processingRate: DEFAULT_PROCESSING_RATE, targetMargin: DEFAULT_TARGET_MARGIN, updatedAt: "" };
+}
+
+function rate(value: unknown, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= 90 ? Math.round(number * 100) / 100 : fallback;
 }
 
 export async function getAssociateScope(): Promise<AssociateScope> {
@@ -70,6 +113,8 @@ export async function getAssociateScope(): Promise<AssociateScope> {
       stores: Array.isArray(parsed.stores) ? parsed.stores.map(String) : [],
       metaAccountIds: Array.isArray(parsed.metaAccountIds) ? parsed.metaAccountIds.map(String) : [],
       campaignKeyword: typeof parsed.campaignKeyword === "string" ? parsed.campaignKeyword : "",
+      processingRate: rate(parsed.processingRate, DEFAULT_PROCESSING_RATE),
+      targetMargin: rate(parsed.targetMargin, DEFAULT_TARGET_MARGIN),
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
     };
   } catch {
@@ -78,12 +123,16 @@ export async function getAssociateScope(): Promise<AssociateScope> {
   return state.scope;
 }
 
-export async function saveAssociateScope(patch: Partial<Pick<AssociateScope, "stores" | "metaAccountIds" | "campaignKeyword">>): Promise<AssociateScope> {
+export async function saveAssociateScope(
+  patch: Partial<Pick<AssociateScope, "stores" | "metaAccountIds" | "campaignKeyword">> & { processingRate?: unknown; targetMargin?: unknown }
+): Promise<AssociateScope> {
   const current = await getAssociateScope();
   const next: AssociateScope = {
     stores: (patch.stores ?? current.stores).map((value) => value.trim()).filter(Boolean).slice(0, 200),
     metaAccountIds: (patch.metaAccountIds ?? current.metaAccountIds).map((value) => value.trim()).filter((value) => /^\d+$/.test(value)).slice(0, 200),
     campaignKeyword: (patch.campaignKeyword ?? current.campaignKeyword).trim().slice(0, 60),
+    processingRate: patch.processingRate === undefined ? current.processingRate : rate(patch.processingRate, current.processingRate),
+    targetMargin: patch.targetMargin === undefined ? current.targetMargin : rate(patch.targetMargin, current.targetMargin),
     updatedAt: new Date().toISOString(),
   };
   await mkdir(path.dirname(FILE), { recursive: true });
@@ -118,7 +167,7 @@ function spendInScope(account: AccountNode, scope: AssociateScope) {
 
 /** La dépense Meta du périmètre : comptes retenus en entier, plus les campagnes au mot-clé des autres comptes. */
 async function scopedMetaSpend(start: string, end: string, scope: AssociateScope): Promise<AssociateOverview["meta"]> {
-  let meta: AssociateOverview["meta"] = { spend: 0, currency: null, accounts: [], configured: Boolean(getMetaConfig()), error: null };
+  let meta: AssociateOverview["meta"] = { spend: 0, currency: null, accounts: [], configured: Boolean(getMetaConfig()), error: null, conversion: null };
   const hasScope = scope.metaAccountIds.length > 0 || Boolean(scope.campaignKeyword);
   if (meta.configured && hasScope) {
     try {
@@ -126,13 +175,16 @@ async function scopedMetaSpend(start: string, end: string, scope: AssociateScope
       const rows = tree.accounts
         .map((account) => ({ account, ...spendInScope(account, scope) }))
         .filter((row) => row.campaigns > 0 || scope.metaAccountIds.includes(row.account.accountId));
-      const currencies = new Set(rows.map((row) => row.account.currency).filter(Boolean));
+      // Tout en dollars, la devise des ventes : les comptes de Badgal Collection sont en euros.
+      const rates = await fxRates(rows.map((row) => row.account.currency), REPORT_CURRENCY);
+      const inUsd = (row: (typeof rows)[number]) => row.spend * (rates.get((row.account.currency || REPORT_CURRENCY).toUpperCase())?.rate ?? 1);
       meta = {
-        spend: rows.reduce((sum, row) => sum + row.spend, 0),
-        currency: currencies.size === 1 ? [...currencies][0] : null,
-        accounts: rows.map((row) => ({ id: row.account.accountId, name: row.account.name, spend: row.spend, campaigns: row.campaigns })).sort((a, b) => b.spend - a.spend),
+        spend: rows.reduce((sum, row) => sum + inUsd(row), 0),
+        currency: REPORT_CURRENCY,
+        accounts: rows.map((row) => ({ id: row.account.accountId, name: row.account.name, spend: inUsd(row), campaigns: row.campaigns })).sort((a, b) => b.spend - a.spend),
         configured: true,
         error: null,
+        conversion: describeConversion(rates, REPORT_CURRENCY),
       };
     } catch (error) {
       meta = { ...meta, error: error instanceof Error ? error.message : "Meta indisponible" };
@@ -144,50 +196,145 @@ async function scopedMetaSpend(start: string, end: string, scope: AssociateScope
 /**
  * Le tableau de bord de l'associé, calculé ici et nulle part ailleurs.
  *
- * Phoenix : la même construction que l'écran Stats, réduite aux boutiques du
- * périmètre, dont on ne garde que la catégorie « direct ». Meta : l'arbre des
- * comptes de la fenêtre, dont on ne somme que ce qui entre dans le périmètre.
- * Tout ce qui n'est pas Straight Sale reste sur le serveur.
+ * Ventes : les ventes directes (Straight sale) des boutiques du périmètre,
+ * Shopify compris, jour par jour à l'heure de Paris. Meta : la dépense des
+ * comptes et campagnes du périmètre. Conversion : les visites Shopify. Profit :
+ * remboursements, COGS au coût de base, frais de paiement estimés et pub.
+ * Aucun nom de processeur ni rien des abonnements ne sort d'ici.
  */
 export async function buildAssociateOverview(start: string, end: string): Promise<AssociateOverview> {
   const scope = await getAssociateScope();
+  const storeSet = new Set(scope.stores);
+  const inScope = (domain: string) => !storeSet.size || storeSet.has(domain);
 
   const billing = resolveSource(null);
   const { peekSnapshot, startSync, getProgress } = billing;
-  const phoenixConfigured = billing.configured;
-  let straightSale: AssociateOverview["straightSale"] = { attempts: 0, approved: 0, approvalRate: 0, revenue: 0, series: [] };
-  let phoenix: AssociateOverview["phoenix"] = { configured: phoenixConfigured, building: false, stale: false, progress: null };
-  if (phoenixConfigured) {
+  const today = reportToday();
+  const byDay = new Map<string, { revenue: number; orders: number }>();
+  let revenue = 0;
+  let orders = 0;
+  const todayTotals = { revenue: 0, orders: 0 };
+  const latest: Array<{ at: string; amount: number; orderId: string | null }> = [];
+  let phoenix: AssociateOverview["phoenix"] = { configured: billing.configured, building: false, stale: false, progress: null };
+
+  if (billing.configured) {
     const snapshot = await peekSnapshot();
     const needsSync = !snapshot || !snapshot.complete || isStale(snapshot) || (focusIncludesToday({ start, end }) && isStale(snapshot, billing.todayMaxAgeMs));
     if (needsSync) void startSync({ focus: { start, end } });
     if (snapshot) {
-      const overview = buildOverview(snapshot, { start, end, stores: scope.stores });
-      const direct = overview.orderSummary.direct;
-      straightSale = {
-        attempts: direct.attempts,
-        approved: direct.approved,
-        approvalRate: direct.approvalRate,
-        revenue: direct.revenue,
-        series: overview.revenue.series.map((point) => ({ date: point.date, revenue: point.direct })),
-      };
+      // Une vente directe approuvée par commande : une relance refusée puis acceptée ne compte qu'une fois.
+      const seen = new Set<string>();
+      for (const tx of snapshot.transactions) {
+        if (!inScope(tx.domain) || !isAttempt(tx) || !isApproved(tx) || classifyCategory(tx) !== "direct") continue;
+        const key = tx.orderId != null ? String(tx.orderId) : `${tx.customerId}:${tx.date}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        latest.push({ at: tx.date, amount: tx.amount, orderId: tx.orderId != null ? String(tx.orderId) : null });
+        const day = tx.date.slice(0, 10);
+        if (day === today) {
+          todayTotals.revenue += tx.amount;
+          todayTotals.orders += 1;
+        }
+        if (day < start || day > end) continue;
+        revenue += tx.amount;
+        orders += 1;
+        const point = byDay.get(day) ?? { revenue: 0, orders: 0 };
+        point.revenue += tx.amount;
+        point.orders += 1;
+        byDay.set(day, point);
+      }
       phoenix = { configured: true, building: !snapshot.complete, stale: isStale(snapshot), progress: getProgress() };
     } else {
       phoenix = { configured: true, building: true, stale: false, progress: getProgress() };
     }
   }
 
-  const meta = await scopedMetaSpend(start, end, scope);
+  const days: string[] = [];
+  for (let cursor = new Date(`${start}T00:00:00Z`); cursor <= new Date(`${end}T00:00:00Z`) && days.length < 400; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    days.push(cursor.toISOString().slice(0, 10));
+  }
+  const series = days.map((date) => ({ date, revenue: round2(byDay.get(date)?.revenue ?? 0), orders: byDay.get(date)?.orders ?? 0 }));
+
+  const [meta, sales, feed, orderMap] = await Promise.all([
+    scopedMetaSpend(start, end, scope),
+    buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }),
+    peekShopifyFeed(),
+    peekOrders(),
+  ]);
+
+  // Conversion : seulement si la boutique Shopify branchée est dans le périmètre.
+  let conversion: AssociateOverview["conversion"] = null;
+  if (isShopifySalesConfigured() && feed?.domain && inScope(feed.domain)) {
+    try {
+      const traffic = await fetchShopifyTraffic(start, end);
+      conversion = {
+        sessions: traffic.sessions,
+        rate: traffic.sessions ? orders / traffic.sessions : 0,
+        cartRate: traffic.sessions ? traffic.cart / traffic.sessions : 0,
+        checkoutRate: traffic.sessions ? traffic.checkout / traffic.sessions : 0,
+      };
+    } catch {
+      conversion = null;
+    }
+  }
+
+  latest.sort((a, b) => b.at.localeCompare(a.at));
+  const live = {
+    updatedAt: feed?.fetchedAt ?? null,
+    orders: latest.slice(0, 8).map((sale) => ({
+      at: sale.at,
+      amount: round2(sale.amount),
+      number: (sale.orderId && orderMap.get(sale.orderId)?.shopifyName) || null,
+    })),
+  };
+
+  const refunds = sales?.refunds.amount ?? 0;
+  const cogs = sales?.cogs?.total ?? 0;
+  const fees = (revenue * scope.processingRate) / 100;
+  const contribution = revenue - refunds - cogs - fees;
+  const net = contribution - meta.spend;
+  const marginBeforeAds = revenue > 0 ? contribution / revenue : null;
+  const targetShare = marginBeforeAds != null ? marginBeforeAds - scope.targetMargin / 100 : null;
+
+  const shopName = feed?.domain && inScope(feed.domain) && feed.name ? feed.name : scope.stores[0] ?? "Toutes les boutiques";
 
   return {
     range: { start, end },
-    straightSale,
+    shop: { name: shopName, domains: scope.stores },
+    sales: {
+      revenue: round2(revenue),
+      orders,
+      average: orders ? round2(revenue / orders) : null,
+      series,
+      today: { revenue: round2(todayTotals.revenue), orders: todayTotals.orders },
+    },
     meta,
-    roas: meta.spend > 0 ? straightSale.revenue / meta.spend : null,
-    cpa: meta.spend > 0 && straightSale.approved > 0 ? meta.spend / straightSale.approved : null,
+    roas: meta.spend > 0 ? revenue / meta.spend : null,
+    cpa: meta.spend > 0 && orders > 0 ? meta.spend / orders : null,
+    conversion,
+    live,
+    profit: {
+      revenue: round2(revenue),
+      refunds: round2(refunds),
+      cogs: round2(cogs),
+      cogsUnits: sales?.cogs?.units ?? 0,
+      cogsMissing: sales?.cogs && sales.cogs.defaultUnitCost === 0 ? sales.cogs.unitsAtDefault : 0,
+      fees: round2(fees),
+      ads: round2(meta.spend),
+      net: round2(net),
+      margin: revenue > 0 ? (net / revenue) * 100 : null,
+      breakEvenRoas: marginBeforeAds && marginBeforeAds > 0 ? 1 / marginBeforeAds : null,
+      targetRoas: targetShare && targetShare > 0 ? 1 / targetShare : null,
+      processingRate: scope.processingRate,
+      targetMargin: scope.targetMargin,
+    },
     phoenix,
     scope: { stores: scope.stores, metaAccountIds: scope.metaAccountIds, campaignKeyword: scope.campaignKeyword },
   };
+}
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 /**

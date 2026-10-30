@@ -29,6 +29,8 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
   const [stores, setStores] = useState<string[]>([]);
   const [accountIds, setAccountIds] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [processingRate, setProcessingRate] = useState("");
+  const [targetMargin, setTargetMargin] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +47,8 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
         setStores(body.scope.stores);
         setAccountIds(body.scope.metaAccountIds);
         setKeyword(body.scope.campaignKeyword);
+        setProcessingRate(String(body.scope.processingRate ?? ""));
+        setTargetMargin(String(body.scope.targetMargin ?? ""));
       })
       .catch((err: unknown) => {
         if (alive) setError(err instanceof Error ? err.message : "Périmètre illisible");
@@ -68,7 +72,7 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
       const res = await fetch("/api/associate/scope", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stores, metaAccountIds: accountIds, campaignKeyword: keyword }),
+        body: JSON.stringify({ stores, metaAccountIds: accountIds, campaignKeyword: keyword, processingRate, targetMargin }),
       });
       const body = (await res.json()) as { scope?: AssociateScope; error?: string };
       if (!res.ok || !body.scope) throw new Error(body.error || `HTTP ${res.status}`);
@@ -83,7 +87,11 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
 
   const dirty =
     !!scope &&
-    (stores.join("|") !== scope.stores.join("|") || accountIds.join("|") !== scope.metaAccountIds.join("|") || keyword.trim() !== scope.campaignKeyword);
+    (stores.join("|") !== scope.stores.join("|") ||
+      accountIds.join("|") !== scope.metaAccountIds.join("|") ||
+      keyword.trim() !== scope.campaignKeyword ||
+      Number(processingRate) !== scope.processingRate ||
+      Number(targetMargin) !== scope.targetMargin);
 
   return (
     <Card>
@@ -141,6 +149,16 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
                 placeholder="Aucun compte"
               />
               <p className="text-xs text-slate-500">Toute la dépense de ces comptes compte pour Straight Sale.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Frais de paiement estimés (%)</Label>
+              <Input inputMode="decimal" value={processingRate} onChange={(event) => setProcessingRate(event.target.value)} placeholder="4" />
+              <p className="text-xs text-slate-500">Retirés du chiffre d&apos;affaires dans le profit de l&apos;associé.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Marge nette visée (%)</Label>
+              <Input inputMode="decimal" value={targetMargin} onChange={(event) => setTargetMargin(event.target.value)} placeholder="20" />
+              <p className="text-xs text-slate-500">Fixe le ROAS cible affiché à l&apos;associé.</p>
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label>Mot-clé de campagne</Label>

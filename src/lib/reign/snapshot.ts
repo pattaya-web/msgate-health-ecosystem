@@ -102,7 +102,7 @@ type ReignStoreFile = {
    */
   orderLines?: Record<string, NonNullable<OrderSummary["lines"]>>;
   /** Les commandes de la boutique Shopify (toutes passerelles), relues avec Reign. */
-  shopify?: { fetchedAt: string; domain: string; orders: ShopifySaleOrder[]; error: string | null };
+  shopify?: { fetchedAt: string; name?: string; domain: string; orders: ShopifySaleOrder[]; error: string | null };
   windows: Record<string, Window>;
 };
 
@@ -401,10 +401,11 @@ async function syncShopify(current: ReignStoreFile, focus?: { start: string; end
   const config = getReignConfig()!;
   try {
     const feed = await fetchShopifySales(config.historyFrom);
-    current.shopify = { fetchedAt: new Date().toISOString(), domain: feed.domain, orders: feed.orders, error: null };
+    current.shopify = { fetchedAt: new Date().toISOString(), name: feed.name, domain: feed.domain, orders: feed.orders, error: null };
   } catch (error) {
     current.shopify = {
       fetchedAt: new Date().toISOString(),
+      name: current.shopify?.name,
       domain: current.shopify?.domain ?? "",
       orders: current.shopify?.orders ?? [],
       // Un message GraphQL se répète une fois par commande : on n'en garde que la première occurrence.
@@ -668,7 +669,7 @@ export async function peekOrders(): Promise<Map<string, OrderSummary>> {
 export async function peekShopifyFeed() {
   const current = await loadStore();
   if (!current.shopify) return null;
-  return { domain: current.shopify.domain, fetchedAt: current.shopify.fetchedAt, orders: current.shopify.orders.length, error: current.shopify.error };
+  return { name: current.shopify.name ?? "", domain: current.shopify.domain, fetchedAt: current.shopify.fetchedAt, orders: current.shopify.orders.length, error: current.shopify.error };
 }
 
 /** Ce que le cache contient (mémoire puis disque), sans appeler Reign. */
