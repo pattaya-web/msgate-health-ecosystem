@@ -55,7 +55,7 @@ function Cell({ label, value, sub, tone }: { label: string; value: string; sub?:
   );
 }
 
-export function LifetimePanel() {
+export function LifetimePanel({ source = "phoenix" }: { source?: string }) {
   const [months, setMonths] = useState<number>(6);
   const [data, setData] = useState<PhoenixRetention | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,7 +66,7 @@ export function LifetimePanel() {
 
     (async () => {
       try {
-        const res = await fetch(`/api/phoenix/retention?start=${start}&end=${end}`, {
+        const res = await fetch(`/api/phoenix/retention?start=${start}&end=${end}&source=${source}`, {
           cache: "no-store",
         });
         const body = await res.json();
@@ -81,7 +81,7 @@ export function LifetimePanel() {
     return () => {
       cancelled = true;
     };
-  }, [months]);
+  }, [months, source]);
 
   const totals = data?.totals;
   const hasDisputes = (totals?.disputes ?? 0) > 0;

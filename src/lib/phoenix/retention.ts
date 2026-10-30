@@ -143,8 +143,8 @@ export function buildRetention(
   const granularity = pickGranularity(start, end);
 
   // Earliest refund and chargeback per customer, from the transaction history.
-  const firstRefund = new Map<number, number>();
-  const firstDispute = new Map<number, number>();
+  const firstRefund = new Map<number | string, number>();
+  const firstDispute = new Map<number | string, number>();
 
   for (const tx of snapshot.transactions) {
     const at = toTime(tx.date);

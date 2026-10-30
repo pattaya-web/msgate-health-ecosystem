@@ -234,7 +234,7 @@ export function buildOverview(
   const processorRows = new Map<string, ProcessorRow>();
   const storeRows = new Map<string, ProcessorRow>();
   const declines = new Map<string, DeclineRow>();
-  const salvageSubscribers = new Set<number>();
+  const salvageSubscribers = new Set<number | string>();
 
   let totalTransactions = 0;
   let approvedCount = 0;

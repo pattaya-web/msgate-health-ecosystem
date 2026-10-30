@@ -52,7 +52,8 @@ export function focusIncludesToday(focus?: { start: string; end: string }) {
 }
 
 export type SnapshotCustomer = {
-  id: number;
+  /** Numérique chez Phoenix, « cus_… » chez Reign. */
+  id: number | string;
   status: string;
   price: number | null;
   enrolledAt: string | null;
@@ -63,14 +64,14 @@ export type SnapshotCustomer = {
 };
 
 export type SnapshotTransaction = {
-  customerId: number;
+  customerId: number | string;
   date: string;
   amount: number;
   type: string;
   leg: string;
   code: string;
   message: string;
-  orderId: number | null;
+  orderId: number | string | null;
   domain: string;
   processor: string;
   processorId: string;
@@ -152,7 +153,7 @@ function trimCustomer(c: PhoenixCustomer): SnapshotCustomer {
   };
 }
 
-function trimTransaction(customerId: number, tx: PhoenixTransaction): SnapshotTransaction {
+function trimTransaction(customerId: number | string, tx: PhoenixTransaction): SnapshotTransaction {
   return {
     customerId,
     date: tx.Date || tx.TimeStart || "",

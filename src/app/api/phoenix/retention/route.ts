@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPhoenixConfig } from "@/lib/phoenix/client";
-import { getProgress, peekSnapshot } from "@/lib/phoenix/snapshot";
+import { resolveSource } from "@/lib/phoenix/sources";
 import { buildRetention } from "@/lib/phoenix/retention";
 
 export const dynamic = "force-dynamic";
@@ -16,14 +15,10 @@ const isDate = (value: string | null): value is string => Boolean(value?.match(/
 
 export async function GET(request: Request) {
   try {
-    if (!getPhoenixConfig()) {
-      return NextResponse.json(
-        { error: "Phoenix not configured — set PHOENIX_* in .env.local" },
-        { status: 503 }
-      );
-    }
-
     const { searchParams } = new URL(request.url);
+    const source = resolveSource(searchParams.get("source"));
+    if (!source.configured) return NextResponse.json({ error: source.notConfigured }, { status: 503 });
+    const { peekSnapshot, getProgress } = source;
     const fallback = defaultRange();
     const start = searchParams.get("start");
     const end = searchParams.get("end");

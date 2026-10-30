@@ -48,6 +48,21 @@ import type { RoasDaily } from "@/lib/metrics/roas-daily";
 
 type TabId = "overview" | "breakeven" | "checkout" | "refunds";
 
+/** Phoenix (phxcrm) ou Reign : le choix est gardé dans le navigateur. */
+type SourceId = "phoenix" | "reign";
+type SourceInfo = { id: SourceId; label: string; configured: boolean };
+const SOURCE_KEY = "msgate-stats-source";
+
+function loadSource(): SourceId {
+  if (typeof window === "undefined") return "phoenix";
+  try {
+    const stored = localStorage.getItem(SOURCE_KEY);
+    return stored === "reign" ? "reign" : "phoenix";
+  } catch {
+    return "phoenix";
+  }
+}
+
 const CATEGORIES: Array<{ key: OrderCategory; label: string; color: string }> = [
   { key: "direct", label: "Direct Sale", color: "#6366f1" },
   { key: "initial", label: "Initial Subscription", color: "#8b5cf6" },
@@ -227,6 +242,8 @@ function useIsNarrow() {
 export default function PhoenixPage() {
   const { canWrite, isAdmin } = useAuth();
   const [tab, setTab] = useState<TabId>("overview");
+  const [source, setSource] = useState<SourceId>(() => loadSource());
+  const [sources, setSources] = useState<SourceInfo[]>([]);
   const initial = useMemo(() => monthRange(), []);
   const [start, setStart] = useState(initial.start);
   const [end, setEnd] = useState(initial.end);
@@ -250,6 +267,7 @@ export default function PhoenixPage() {
         if (stores.length) params.set("stores", stores.join(","));
         if (processors.length) params.set("processors", processors.join(","));
         if (opts?.refresh) params.set("refresh", "1");
+        params.set("source", source);
 
         const res = await fetch(`/api/phoenix/overview?${params}`, { cache: "no-store" });
         const body = await res.json();
@@ -268,8 +286,37 @@ export default function PhoenixPage() {
         setLoading(false);
       }
     },
-    [start, end, stores, processors]
+    [start, end, stores, processors, source]
   );
+
+  // Les sources disponibles (Phoenix, Reign) : le sélecteur n'apparaît que s'il y en a deux de configurées.
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/phoenix/sources", { cache: "no-store" })
+      .then(async (res) => {
+        const body = (await res.json()) as { sources?: SourceInfo[] };
+        if (alive && Array.isArray(body.sources)) setSources(body.sources);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Changer de source recharge tout : l'instantané, la progression, les filtres de stores.
+  const switchSource = useCallback((next: SourceId) => {
+    setSource(next);
+    setStores([]);
+    setProcessors([]);
+    setOverview(null);
+    setProgress(null);
+    setLoading(true);
+    try {
+      localStorage.setItem(SOURCE_KEY, next);
+    } catch {
+      // sans importance
+    }
+  }, []);
 
   // Meta and Shopify are slower than Phoenix and independent of its filters, so
   // that block loads on its own rather than holding the page back.
@@ -293,7 +340,7 @@ export default function PhoenixPage() {
     void load();
     void loadRoas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [source]);
 
   // A full sync is rate-limited and can run for tens of minutes: poll its
   // progress and fold in partial results as they land.
@@ -311,7 +358,7 @@ export default function PhoenixPage() {
     pollRef.current = setInterval(async () => {
       ticks += 1;
       try {
-        const res = await fetch("/api/phoenix/snapshot", { cache: "no-store" });
+        const res = await fetch(`/api/phoenix/snapshot?source=${source}`, { cache: "no-store" });
         const body = await res.json();
         const next: SnapshotProgress = body.progress;
         setProgress(next);
@@ -337,7 +384,7 @@ export default function PhoenixPage() {
         pollRef.current = null;
       }
     };
-  }, [progress?.running, load]);
+  }, [progress?.running, load, source]);
 
   const revenueData = useMemo(
     () => (overview?.revenue.series || []).map((p) => ({ ...p, label: shortDay(p.date) })),
@@ -387,8 +434,18 @@ export default function PhoenixPage() {
               : ""}
           </p>
         </div>
+        {sources.filter((entry) => entry.configured).length > 1 ? (
+          <Segmented
+            className="ml-auto shrink-0"
+            size="sm"
+            accent="indigo"
+            value={source}
+            onChange={switchSource}
+            options={sources.filter((entry) => entry.configured).map((entry) => ({ value: entry.id, label: entry.label }))}
+          />
+        ) : null}
         <GhostButton
-          className="ml-auto shrink-0"
+          className={cn("shrink-0", sources.filter((entry) => entry.configured).length > 1 ? "" : "ml-auto")}
           onClick={() => void load({ refresh: true })}
           disabled={syncing}
         >
@@ -414,7 +471,8 @@ export default function PhoenixPage() {
               { value: "overview" as TabId, label: "Vue d'ensemble" },
               { value: "breakeven" as TabId, label: "Break-even" },
               { value: "checkout" as TabId, label: "Checkout" },
-              { value: "refunds" as TabId, label: "Remboursements" },
+              // Les remboursements passent par l'API Phoenix ; Reign n'y est pas encore branché.
+              ...(source === "phoenix" ? [{ value: "refunds" as TabId, label: "Remboursements" }] : []),
             ]}
           />
         </div>
@@ -811,7 +869,7 @@ export default function PhoenixPage() {
             </Card>
           </div>
 
-          <LifetimePanel />
+          <LifetimePanel source={source} />
 
           {/* Calendar month */}
           <Section title={overview.month.label} source="phoenix" hint="mois calendaire complet">
@@ -949,7 +1007,7 @@ export default function PhoenixPage() {
         </div>
       ) : null}
 
-      {tab === "refunds" ? (
+      {tab === "refunds" && source === "phoenix" ? (
         <PhoenixRefundPanel canWrite={canWrite || isAdmin} onDone={() => void load()} />
       ) : null}
     </div>
