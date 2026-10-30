@@ -126,7 +126,8 @@ export async function buildSalesBreakdown(params: {
       }
       for (const line of lines) {
         const { cost, fallback } = unitCostFor(costs, line.productId, line.name);
-        const key = line.productId || line.name || "?";
+        // Regroupé par nom : la même pièce vendue via Shopify et via Reign n'a pas le même identifiant.
+        const key = line.name || line.productId || "?";
         const row = rows.get(key) ?? { key, name: line.name || key, units: 0, unitCost: cost, cogs: 0, fallback };
         row.units += line.quantity;
         row.cogs += line.quantity * cost;

@@ -17,20 +17,27 @@ async function loadCatalog(): Promise<{ products: CatalogProduct[]; error: strin
   if (catalog && Date.now() - catalog.at < 10 * 60 * 1000) return { products: catalog.products, error: null };
   try {
     const stores = await listStores();
-    const products: CatalogProduct[] = [];
+    // Un coût par nom de produit : c'est le seul repère commun aux commandes Reign et Shopify,
+    // et deux fiches au même nom (« Snakelace - Venom » à 29,99 et 39,99 $) sont le même article.
+    const byTitle = new Map<string, CatalogProduct>();
     for (const store of stores) {
       for (const product of await listStoreProducts(store.id)) {
         if (product.isSubscriptionProduct || product.status === "draft") continue;
         const prices = product.variants.map((variant) => moneyToNumber(variant.price)).filter((price) => price > 0);
-        products.push({
-          id: product.id,
+        const domain = store.domain || store.name || store.id;
+        const key = `${domain}|${product.title}`;
+        const known = byTitle.get(key);
+        const price = prices.length ? Math.min(...prices) : null;
+        byTitle.set(key, {
+          id: product.title,
           title: product.title,
-          store: store.domain || store.name || store.id,
-          price: prices.length ? Math.min(...prices) : null,
-          imageUrl: product.imageUrl,
+          store: domain,
+          price: known?.price != null && price != null ? Math.min(known.price, price) : (known?.price ?? price),
+          imageUrl: known?.imageUrl ?? product.imageUrl,
         });
       }
     }
+    const products = [...byTitle.values()];
     catalog = { at: Date.now(), products };
     (globalThis as typeof globalThis & { __msgateCogsCatalog?: typeof catalog }).__msgateCogsCatalog = catalog;
     return { products, error: null };

@@ -20,6 +20,8 @@ import {
   type ReignTransaction,
 } from "@/lib/reign/client";
 import { focusIncludesToday, type PhoenixSnapshot, type SnapshotCustomer, type SnapshotTransaction } from "@/lib/phoenix/snapshot";
+import { toReportLocal } from "@/lib/report-tz";
+import { fetchShopifySales, isShopifySalesConfigured, type ShopifySaleOrder } from "@/lib/shopify/sales-orders";
 import type { SnapshotProgress } from "@/lib/phoenix/types";
 
 /**
@@ -79,6 +81,8 @@ type OrderSummary = {
   createdAt: string;
   /** Les articles de la commande (connus seulement par la lecture par client) : ils font le COGS. */
   lines?: Array<{ productId: string | null; name: string; quantity: number }>;
+  /** Le numéro de la commande dans Shopify (« #V1298 ») : il relie la commande Reign à celle de la boutique. */
+  shopifyName?: string | null;
 };
 
 type ReignStoreFile = {
@@ -97,6 +101,8 @@ type ReignStoreFile = {
    * ne change plus d'articles, on ne la relit donc jamais.
    */
   orderLines?: Record<string, NonNullable<OrderSummary["lines"]>>;
+  /** Les commandes de la boutique Shopify (toutes passerelles), relues avec Reign. */
+  shopify?: { fetchedAt: string; domain: string; orders: ShopifySaleOrder[]; error: string | null };
   windows: Record<string, Window>;
 };
 
@@ -205,6 +211,7 @@ function summarizeOrder(order: ReignOrder, billingTypes: Record<string, string>)
     upsell: order.isUpsell === true,
     recurringCanceledAt: order.recurringCanceledAt,
     createdAt: order.createdAt ?? "",
+    shopifyName: order.shopifyOrderNumber,
     ...(order.lineItems
       ? { lines: order.lineItems.map((line) => ({ productId: line.productId, name: line.name ?? "", quantity: line.quantity || 0 })) }
       : {}),
@@ -332,25 +339,8 @@ function buildCustomers(customers: ReignCustomer[], subscriptions: ReignSubscrip
   return result;
 }
 
-/** Une date Reign (UTC) en heure locale de New York, « YYYY-MM-DDTHH:mm:ss » : les jours de Reign sont ceux de New York. */
-const NY_PARTS = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/New_York",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hourCycle: "h23",
-});
-
-function nyLocal(value: string | null): string | null {
-  if (!value || !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(value)) return value;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const parts = Object.fromEntries(NY_PARTS.formatToParts(date).map((part) => [part.type, part.value]));
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
-}
+/** Les dates de l'instantané sont en heure de Paris, comme Shopify et Meta (src/lib/report-tz.ts). */
+const nyLocal = toReportLocal;
 
 /* ---------------------------------------------------------------- *
  * Synchronisation
@@ -394,6 +384,86 @@ function allOrders(current: ReignStoreFile) {
     if (order && !order.lines?.length) map.set(orderId, { ...order, lines });
   }
   return map;
+}
+
+/**
+ * Relit les commandes de la boutique Shopify : 2 minutes quand l'écran regarde
+ * aujourd'hui, 30 sinon. Une panne Shopify n'arrête pas la synchro Reign.
+ */
+async function syncShopify(current: ReignStoreFile, focus?: { start: string; end: string }, force?: boolean) {
+  if (!isShopifySalesConfigured()) {
+    current.shopify = undefined;
+    return;
+  }
+  const ttl = focusIncludesToday(focus) ? 2 * MINUTE : 30 * MINUTE;
+  const fresh = current.shopify && !current.shopify.error && Date.now() - Date.parse(current.shopify.fetchedAt) < ttl;
+  if (fresh && !force) return;
+  const config = getReignConfig()!;
+  try {
+    const feed = await fetchShopifySales(config.historyFrom);
+    current.shopify = { fetchedAt: new Date().toISOString(), domain: feed.domain, orders: feed.orders, error: null };
+  } catch (error) {
+    current.shopify = {
+      fetchedAt: new Date().toISOString(),
+      domain: current.shopify?.domain ?? "",
+      orders: current.shopify?.orders ?? [],
+      // Un message GraphQL se répète une fois par commande : on n'en garde que la première occurrence.
+      error: (error instanceof Error ? error.message : "Shopify indisponible").split(" | ")[0].slice(0, 300),
+    };
+  }
+}
+
+const GATEWAY_LABEL: Record<string, string> = { shopify_payments: "Shopify Payments", paypal: "PayPal" };
+
+/**
+ * Les ventes de la boutique que Reign n'a pas facturées (Shopify Payments,
+ * PayPal…), en transactions de vente directe, plus leurs remboursements. Une
+ * commande déjà connue de Reign par son numéro, ou sans passerelle (payée par
+ * le checkout Reign), n'est jamais ajoutée : pas de double compte.
+ */
+function shopifyOnlySales(current: ReignStoreFile, orders: Map<string, OrderSummary>) {
+  const feed = current.shopify;
+  if (!feed?.orders.length) return { transactions: [] as SnapshotTransaction[], summaries: [] as OrderSummary[] };
+  const billedByReign = new Set<string>();
+  for (const order of orders.values()) if (order.shopifyName) billedByReign.add(order.shopifyName);
+  const transactions: SnapshotTransaction[] = [];
+  const summaries: OrderSummary[] = [];
+  for (const order of feed.orders) {
+    if (billedByReign.has(order.name) || !order.gateways.length) continue;
+    const orderId = `shopify:${order.name}`;
+    const customerId = orderId;
+    const processor = GATEWAY_LABEL[order.gateways[0]] ?? order.gateways[0];
+    transactions.push({
+      customerId,
+      date: order.createdAt,
+      amount: order.total,
+      type: "Direct",
+      leg: "Direct Sale",
+      code: "100",
+      message: "SUCCESS",
+      orderId,
+      domain: feed.domain,
+      processor,
+      processorId: "",
+      merchant: "",
+      source: "shopify",
+    });
+    for (const refund of order.refunds) {
+      transactions.push({ customerId, date: refund.createdAt, amount: refund.amount, type: "", leg: "Refund", code: "100", message: "Refunded", orderId, domain: feed.domain, processor, processorId: "", merchant: "", source: "shopify" });
+    }
+    summaries.push({
+      id: orderId,
+      customerId,
+      cycle: 0,
+      billing: "Direct Sale",
+      upsell: false,
+      recurringCanceledAt: null,
+      createdAt: order.createdAt,
+      shopifyName: order.name,
+      lines: order.lines.map((line) => ({ productId: null, name: line.title, quantity: line.quantity })),
+    });
+  }
+  return { transactions, summaries };
 }
 
 /** Lit une à une les commandes qui n'ont toujours pas leurs articles (au plus 60 par synchro). */
@@ -532,6 +602,7 @@ export function startSync(options?: { focus?: { start: string; end: string }; fo
       await persist(current);
       await syncWindows(current, options?.focus, options?.force);
       await syncMissingLines(current);
+      await syncShopify(current, options?.focus, options?.force);
       current.updatedAt = new Date().toISOString();
       await persist(current);
       setProgress({ running: false, phase: "done", etaMs: 0 });
@@ -548,7 +619,12 @@ function toSnapshot(current: ReignStoreFile): PhoenixSnapshot {
   const config = getReignConfig();
   const expected = config ? windowsFor(config.historyFrom) : [];
   const windows = Object.values(current.windows).sort((a, b) => a.from.localeCompare(b.from));
-  const transactions = windows.flatMap((window) => window.transactions).map((tx) => ({ ...tx, date: nyLocal(tx.date) ?? tx.date }));
+  const shopifyOnly = shopifyOnlySales(current, allOrders(current));
+  const transactions = [...windows.flatMap((window) => window.transactions), ...shopifyOnly.transactions].map((tx) => ({
+    ...tx,
+    date: nyLocal(tx.date) ?? tx.date,
+    processor: tx.processor || "Reign",
+  }));
   const covered = expected.filter((window) => current.windows[`${window.from}_${window.to}`]).length;
   const firstApproved = new Map<string, string>();
   for (const tx of transactions) {
@@ -582,7 +658,17 @@ export type ReignOrderSummary = OrderSummary;
 
 /** Toutes les commandes connues (avec leurs articles quand on les a), par identifiant, sans appeler Reign. */
 export async function peekOrders(): Promise<Map<string, OrderSummary>> {
-  return allOrders(await loadStore());
+  const current = await loadStore();
+  const orders = allOrders(current);
+  for (const summary of shopifyOnlySales(current, orders).summaries) orders.set(summary.id, summary);
+  return orders;
+}
+
+/** L'état du flux Shopify, pour l'afficher (boutique, fraîcheur, erreur). */
+export async function peekShopifyFeed() {
+  const current = await loadStore();
+  if (!current.shopify) return null;
+  return { domain: current.shopify.domain, fetchedAt: current.shopify.fetchedAt, orders: current.shopify.orders.length, error: current.shopify.error };
 }
 
 /** Ce que le cache contient (mémoire puis disque), sans appeler Reign. */

@@ -13,7 +13,7 @@ import path from "path";
 export type ProductCosts = {
   /** Coût d'une unité quand le produit n'a pas de coût propre, en USD. */
   defaultUnitCost: number;
-  /** Coût d'une unité par produit (id `prd_…` ou nom), en USD. */
+  /** Coût d'une unité par nom de produit (anciennement aussi par id `prd_…`), en USD. */
   products: Record<string, number>;
   updatedAt: string;
 };

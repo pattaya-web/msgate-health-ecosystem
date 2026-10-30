@@ -1,5 +1,6 @@
 "use client";
 
+import { reportToday } from "@/lib/report-tz";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AlertTriangle, Eye, Loader2, RefreshCw } from "lucide-react";
@@ -26,8 +27,8 @@ function monthRange(date = new Date()): DateRange {
 }
 
 const shortDay = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
-const nyToday = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+// Les journées se comptent à Paris, comme Shopify et Meta (src/lib/report-tz.ts).
+const nyToday = reportToday;
 
 
 const axisProps = { tick: { fontSize: 9, fill: "#94a3b8" }, axisLine: false, tickLine: false } as const;

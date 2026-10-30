@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
+import { reportToday } from "@/lib/report-tz";
 import { getCustomers, getTransactionHistory } from "@/lib/phoenix/client";
 import type {
   PhoenixCustomer,
@@ -35,19 +36,12 @@ const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const MINUTE = 60 * 1000;
 
-function todayNy() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
 
 /** True when the focused window includes the current US calendar day. */
 export function focusIncludesToday(focus?: { start: string; end: string }) {
   if (!focus?.start || !focus?.end) return false;
-  const today = todayNy();
+  // Les écrans comptent leurs journées à Paris (src/lib/report-tz.ts).
+  const today = reportToday();
   return focus.start <= today && focus.end >= today;
 }
 

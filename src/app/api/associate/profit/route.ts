@@ -1,3 +1,4 @@
+import { reportToday } from "@/lib/report-tz";
 import { NextResponse } from "next/server";
 import { buildAssociateProfitInputs } from "@/lib/associate/scope";
 
@@ -8,9 +9,9 @@ const isDate = (value: string | null): value is string => Boolean(value?.match(/
 
 /** Les mêmes préréglages que le calculateur. */
 function presetRange(days: number) {
-  // Les N derniers jours, aujourd'hui compris, en jours calendaires New York (ceux de Reign) :
+  // Les N derniers jours, aujourd'hui compris, en jours de Paris (ceux de Shopify et Meta) :
   // une boutique qui démarre vend surtout aujourd'hui, l'exclure affichait 0 $.
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const today = reportToday();
   const end = new Date(`${today}T00:00:00.000Z`);
   const start = new Date(end);
   start.setUTCDate(start.getUTCDate() - (days - 1));

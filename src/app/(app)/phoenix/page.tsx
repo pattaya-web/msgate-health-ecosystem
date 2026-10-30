@@ -1,5 +1,6 @@
 "use client";
 
+import { reportToday } from "@/lib/report-tz";
 import {
   useCallback,
   useEffect,
@@ -52,8 +53,8 @@ type TabId = "overview" | "breakeven" | "checkout" | "refunds";
 type SourceId = "phoenix" | "reign";
 type SourceInfo = { id: SourceId; label: string; configured: boolean };
 const SOURCE_KEY = "msgate-stats-source";
-const nyToday = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+// Les journées se comptent à Paris, comme Shopify et Meta (src/lib/report-tz.ts).
+const nyToday = reportToday;
 
 
 function loadSource(): SourceId {
