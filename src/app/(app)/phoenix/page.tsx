@@ -428,7 +428,7 @@ export default function PhoenixPage() {
             STATS
           </h1>
           <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
-            {overview?.client || "SkinRenew"}
+            {overview?.client || "Stats"}
             {overview
               ? ` · ${formatNumber(overview.meta.transactions)} transactions · couverture ${coveragePct} %`
               : ""}

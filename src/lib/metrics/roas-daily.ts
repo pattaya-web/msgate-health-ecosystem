@@ -1,6 +1,5 @@
 import { buildOverview } from "@/lib/phoenix/analytics";
-import { getPhoenixConfig } from "@/lib/phoenix/client";
-import { peekSnapshot } from "@/lib/phoenix/snapshot";
+import { resolveSource } from "@/lib/phoenix/sources";
 import { getShopifyDaily, isShopifyConfigured } from "@/lib/shopify/client";
 import { getMetaDailySpend, isMetaConfigured } from "@/lib/meta/client";
 import type { CampaignBucket } from "@/lib/meta/buckets";
@@ -148,17 +147,18 @@ export async function buildRoasDaily(params: {
 
   // --- Phoenix: subscription legs --------------------------------------
   const phoenixByDate = new Map<string, { initial: number; recurring: number; salvage: number }>();
-  const phoenixConfig = getPhoenixConfig();
+  // La source active de l'écran Stats (Reign aujourd'hui, Phoenix avant) : même instantané.
+  const billing = resolveSource(null);
 
-  if (phoenixConfig) {
-    const snapshot = await peekSnapshot();
+  if (billing.configured) {
+    const snapshot = await billing.peekSnapshot();
     if (snapshot) {
       const overview = buildOverview(snapshot, {
         start,
         end,
         stores: [],
         processors: [],
-        client: phoenixConfig.clientLabel,
+        client: billing.label,
         targetCac: null,
       });
       for (const point of overview.revenue.series) {

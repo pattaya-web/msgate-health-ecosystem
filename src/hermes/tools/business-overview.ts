@@ -6,8 +6,7 @@ import { checklistScore, evaluateSite } from "@/lib/ecom-sites/checklist";
 import { listEcomSites } from "@/lib/ecom-sites/store";
 import { buildProfitInputs } from "@/lib/metrics/profit-inputs";
 import { buildOverview } from "@/lib/phoenix/analytics";
-import { getPhoenixConfig } from "@/lib/phoenix/client";
-import { peekSnapshot } from "@/lib/phoenix/snapshot";
+import { resolveSource } from "@/lib/phoenix/sources";
 import type { ReadonlyTool } from "@/hermes/types";
 
 /**
@@ -126,9 +125,9 @@ export const businessOverviewTool: ReadonlyTool<BusinessOverviewInput, BusinessO
     warnings.push(...profit.warnings);
 
     /* 2. Abonnements et processeurs : la vue Phoenix, sur le même cache. */
-    const config = getPhoenixConfig();
-    const snapshot = config ? await peekSnapshot() : null;
-    const overview = snapshot && config ? buildOverview(snapshot, { start: range.start, end: range.end, stores: [], processors: [], client: config.clientLabel, targetCac: null }) : null;
+    const billing = resolveSource(null);
+    const snapshot = billing.configured ? await billing.peekSnapshot() : null;
+    const overview = snapshot ? buildOverview(snapshot, { start: range.start, end: range.end, stores: [], processors: [], client: billing.label, targetCac: null }) : null;
 
     /* 3. Litiges. */
     const risk = input.includeRisk ? await riskSummary(range) : { status: "skipped" as const, alerts: null, warnings: [] };

@@ -1,6 +1,5 @@
 import { buildOverview } from "@/lib/phoenix/analytics";
-import { getPhoenixConfig } from "@/lib/phoenix/client";
-import { peekSnapshot } from "@/lib/phoenix/snapshot";
+import { resolveSource } from "@/lib/phoenix/sources";
 import { buildRetention } from "@/lib/phoenix/retention";
 import { buildRoasDaily } from "@/lib/metrics/roas-daily";
 
@@ -102,16 +101,16 @@ export async function buildProfitInputs(params: {
   let medianLifetimeDays = 0;
   let churned = 0;
 
-  const config = getPhoenixConfig();
-  const snapshot = config ? await peekSnapshot() : null;
+  const billing = resolveSource(null);
+  const snapshot = billing.configured ? await billing.peekSnapshot() : null;
 
-  if (snapshot && config) {
+  if (snapshot) {
     const overview = buildOverview(snapshot, {
       start,
       end,
       stores: [],
       processors: [],
-      client: config.clientLabel,
+      client: billing.label,
       targetCac: null,
     });
 

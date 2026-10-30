@@ -4,8 +4,9 @@ import { getKnownAccounts } from "@/lib/meta/registry";
 import { buildAdsTree } from "@/lib/meta/tree";
 import { getMetaConfig } from "@/lib/meta/client";
 import { buildOverview } from "@/lib/phoenix/analytics";
-import { isPhoenixConfigured } from "@/lib/phoenix/client";
-import { focusIncludesToday, getProgress, isStale, peekSnapshot, startSync } from "@/lib/phoenix/snapshot";
+import { focusIncludesToday, isStale } from "@/lib/phoenix/snapshot";
+import { resolveSource } from "@/lib/phoenix/sources";
+import type { SnapshotProgress } from "@/lib/phoenix/types";
 import type { AccountNode } from "@/lib/meta/types";
 
 /**
@@ -46,7 +47,8 @@ export type AssociateOverview = {
   };
   roas: number | null;
   cpa: number | null;
-  phoenix: { configured: boolean; building: boolean; stale: boolean; progress: ReturnType<typeof getProgress> | null };
+  /** L'état de la source des ventes (Reign aujourd'hui) ; le nom du champ date de Phoenix. */
+  phoenix: { configured: boolean; building: boolean; stale: boolean; progress: SnapshotProgress | null };
   scope: Pick<AssociateScope, "stores" | "metaAccountIds" | "campaignKeyword">;
 };
 
@@ -92,7 +94,8 @@ export async function saveAssociateScope(patch: Partial<Pick<AssociateScope, "st
 
 /** Les choix offerts à l'admin : les boutiques vues dans Phoenix et les comptes Meta déjà rencontrés. */
 export async function getAssociateScopeOptions() {
-  const snapshot = await peekSnapshot();
+  const billing = resolveSource(null);
+  const snapshot = billing.configured ? await billing.peekSnapshot() : null;
   const stores = new Set<string>();
   for (const tx of snapshot?.transactions ?? []) if (tx.domain) stores.add(tx.domain);
   const accounts = (await getKnownAccounts()).map((account) => ({ id: account.accountId, name: account.name, business: account.business }));
@@ -122,7 +125,9 @@ function spendInScope(account: AccountNode, scope: AssociateScope) {
 export async function buildAssociateOverview(start: string, end: string): Promise<AssociateOverview> {
   const scope = await getAssociateScope();
 
-  const phoenixConfigured = isPhoenixConfigured();
+  const billing = resolveSource(null);
+  const { peekSnapshot, startSync, getProgress } = billing;
+  const phoenixConfigured = billing.configured;
   let straightSale: AssociateOverview["straightSale"] = { attempts: 0, approved: 0, approvalRate: 0, revenue: 0, series: [] };
   let phoenix: AssociateOverview["phoenix"] = { configured: phoenixConfigured, building: false, stale: false, progress: null };
   if (phoenixConfigured) {
