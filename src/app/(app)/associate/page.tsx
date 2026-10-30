@@ -26,6 +26,9 @@ function monthRange(date = new Date()): DateRange {
 }
 
 const shortDay = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
+const nyToday = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
 
 const axisProps = { tick: { fontSize: 9, fill: "#94a3b8" }, axisLine: false, tickLine: false } as const;
 
@@ -74,6 +77,14 @@ export default function AssociatePage() {
     const timer = window.setInterval(() => void load(range), 15_000);
     return () => window.clearInterval(timer);
   }, [building, range, load]);
+
+  // Période qui contient aujourd'hui : relue toutes les minutes, pour coller à Reign.
+  useEffect(() => {
+    const today = nyToday();
+    if (range.start > today || range.end < today) return;
+    const timer = window.setInterval(() => void load(range), 60_000);
+    return () => window.clearInterval(timer);
+  }, [range, load]);
 
   const chartData = useMemo(
     () => (overview?.straightSale.series ?? []).map((point) => ({ label: shortDay(point.date), revenue: point.revenue })),

@@ -39,7 +39,7 @@ export async function GET(request: Request) {
       !snapshot ||
       !snapshot.complete ||
       isStale(snapshot) ||
-      (focusIncludesToday({ start, end }) && isStale(snapshot, 20 * 60 * 1000));
+      (focusIncludesToday({ start, end }) && isStale(snapshot, source.todayMaxAgeMs));
 
     if (needsSync) {
       void startSync({ focus: { start, end }, force: refresh });

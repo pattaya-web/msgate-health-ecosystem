@@ -61,6 +61,8 @@ export type SnapshotCustomer = {
   cancelledReason: string | null;
   nextBillingAt: string | null;
   firstTxAt: string | null;
+  /** La boutique de l'abonnement, quand la source la donne (Reign) : elle filtre les abonnés par boutique. */
+  domain?: string;
 };
 
 export type SnapshotTransaction = {

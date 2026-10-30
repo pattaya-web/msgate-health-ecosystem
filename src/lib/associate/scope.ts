@@ -159,7 +159,7 @@ export async function buildAssociateOverview(start: string, end: string): Promis
   let phoenix: AssociateOverview["phoenix"] = { configured: phoenixConfigured, building: false, stale: false, progress: null };
   if (phoenixConfigured) {
     const snapshot = await peekSnapshot();
-    const needsSync = !snapshot || !snapshot.complete || isStale(snapshot) || (focusIncludesToday({ start, end }) && isStale(snapshot, 20 * 60 * 1000));
+    const needsSync = !snapshot || !snapshot.complete || isStale(snapshot) || (focusIncludesToday({ start, end }) && isStale(snapshot, billing.todayMaxAgeMs));
     if (needsSync) void startSync({ focus: { start, end } });
     if (snapshot) {
       const overview = buildOverview(snapshot, { start, end, stores: scope.stores });

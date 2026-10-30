@@ -362,6 +362,8 @@ export function buildOverview(
   let neverApproved = 0;
 
   for (const customer of snapshot.customers) {
+    // Filtre boutique : seulement quand la source donne la boutique de l'abonné (Reign) ; Phoenix ne la donne pas.
+    if (storeSet.size && customer.domain && !storeSet.has(customer.domain)) continue;
     const status = (customer.status || "").toLowerCase();
     if (status === "active") activeSubscriptions += 1;
     else if (status === "canceled" || status === "cancelled") cancelledSubscriptions += 1;

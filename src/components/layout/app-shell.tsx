@@ -49,7 +49,7 @@ function initials(name: string | undefined) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAssociate } = useAuth();
+  const { user, loading, isAssociate, previewAssociate, setPreviewAssociate } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   // Un associé n'a qu'une page : ailleurs, on le ramène dessus sans rien monter (les autres écrans lui répondraient 403).
@@ -214,6 +214,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <NavProgress />
           </header>
         </div>
+
+        {previewAssociate ? (
+          <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-2xl bg-indigo-600 px-3 py-2 text-[12px] text-white shadow-sm sm:mx-4" data-preview-banner>
+            <span className="font-semibold">Vue Alison</span>
+            <span className="text-indigo-100">Tu vois l&apos;application exactement comme elle : Straight sale Venom et dépense Meta associée.</span>
+            <button
+              type="button"
+              onClick={() => {
+                setPreviewAssociate(false);
+                router.push("/phoenix");
+              }}
+              className="ml-auto rounded-full bg-white/15 px-3 py-1 text-[11px] font-medium hover:bg-white/25"
+            >
+              Revenir à la vue admin
+            </button>
+          </div>
+        ) : null}
 
         <main className="flex-1 px-3 pb-24 pt-5 sm:px-4 sm:pt-6 lg:pb-10">
           <ViewTransition default="page-fade">

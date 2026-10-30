@@ -25,6 +25,8 @@ export type SourceApi = {
   startSync: (options?: { focus?: { start: string; end: string }; force?: boolean }) => Promise<void>;
   getProgress: () => SnapshotProgress;
   rate: () => { used: number; max: number; windowMs: number; throttled: number };
+  /** Âge maximal de l'instantané quand l'écran regarde aujourd'hui. */
+  todayMaxAgeMs: number;
 };
 
 function number(value: string | undefined) {
@@ -45,6 +47,8 @@ export function getSourceApi(source: StatsSource): SourceApi {
       startSync: reignSnapshot.startSync,
       getProgress: reignSnapshot.getProgress,
       rate: getReignRateBudget,
+      // Reign se lit vite (listes par plage de dates) : on colle au temps réel, à 2 minutes près.
+      todayMaxAgeMs: 2 * 60 * 1000,
     };
   }
   const config = getPhoenixConfig();
@@ -58,6 +62,7 @@ export function getSourceApi(source: StatsSource): SourceApi {
     startSync: phoenixSnapshot.startSync,
     getProgress: phoenixSnapshot.getProgress,
     rate: getRateBudget,
+    todayMaxAgeMs: 20 * 60 * 1000,
   };
 }
 

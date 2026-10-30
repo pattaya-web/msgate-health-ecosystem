@@ -297,11 +297,14 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, isAssociate, isAdmin } = useAuth();
-  const [sections, setSections] = useState<NavSection[]>(() => (isAssociate ? ASSOCIATE_SECTIONS : applyOrder(loadOrder())));
+  const { user, logout, isAssociate, isAdmin, previewAssociate, setPreviewAssociate } = useAuth();
+  const realAssociate = user?.role === "associate";
+  const [sections, setSections] = useState<NavSection[]>(() => (realAssociate ? ASSOCIATE_SECTIONS : applyOrder(loadOrder())));
   // La « Vue Associé » n'est qu'à l'admin ; les autres rôles ne voient pas le lien (l'API, elle, leur répond déjà).
-  const visible = isAdmin || isAssociate ? sections : sections.map((section) => ({ ...section, items: section.items.filter((item) => item.href !== "/associate") }));
-  const [custom, setCustom] = useState<boolean>(() => !isAssociate && loadOrder() !== null);
+  const adminMenu = isAdmin ? sections : sections.map((section) => ({ ...section, items: section.items.filter((item) => item.href !== "/associate") }));
+  // Associé, ou admin en « Vue Alison » : le menu de l'associé, rien d'autre.
+  const visible = isAssociate ? ASSOCIATE_SECTIONS : adminMenu;
+  const [custom, setCustom] = useState<boolean>(() => !realAssociate && loadOrder() !== null);
   const [open, setOpen] = useState<string[]>(() => initialOpen(sections, pathname));
   const [drag, setDrag] = useState<NavDrag | null>(null);
   // La source du glisser vit aussi dans une ref : dragover/drop peuvent arriver avant que React ait rendu l'état.
@@ -409,7 +412,7 @@ export function Sidebar({
 
       <nav className="flex-1 space-y-2 px-3 py-2" data-nav>
         {visible.map((section) => {
-          const expanded = open.includes(section.id);
+          const expanded = open.includes(section.id) || section.id === "straight-sale";
           const holdsActive = section.items.some((item) => isActive(item.href, pathname));
           const dragging = drag?.kind === "section" && drag.id === section.id;
 
@@ -507,6 +510,37 @@ export function Sidebar({
       <div className="border-t border-slate-200/70 p-3 dark:border-slate-800">
         {isAssociate ? null : <KieCredit />}
 
+        {isAdmin ? (
+          <div className="mb-2 rounded-2xl border border-slate-200/70 bg-white/70 p-1 dark:border-slate-800 dark:bg-slate-900/50" data-view-switch>
+            <p className="eyebrow px-2 pb-1 pt-1">Vue</p>
+            <div className="grid grid-cols-2 gap-1">
+              {[
+                { on: false, label: "Admin" },
+                { on: true, label: "Alison" },
+              ].map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => {
+                    setPreviewAssociate(option.on);
+                    router.push(option.on ? "/associate" : "/phoenix");
+                    onNavigate?.();
+                  }}
+                  className={cn(
+                    "rounded-xl px-2 py-1.5 text-[11.5px] font-medium transition-colors",
+                    previewAssociate === option.on
+                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                      : "text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100"
+                  )}
+                  title={option.on ? "Voir l'application exactement comme Alison la voit" : "Revenir à ta vue complète"}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-800 dark:bg-slate-900/50">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
@@ -525,7 +559,7 @@ export function Sidebar({
             </div>
           </div>
           <div className="mt-2.5 flex items-center justify-between gap-2">
-            <span className="eyebrow">{user?.role === "associate" ? "associé" : (user?.role ?? "viewer")}</span>
+            <span className="eyebrow">{realAssociate ? "associé" : previewAssociate ? "admin · vue Alison" : (user?.role ?? "viewer")}</span>
             <button
               onClick={() => {
                 logout();

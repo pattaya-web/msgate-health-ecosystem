@@ -286,7 +286,8 @@ function translateDisputes(rows: ReignDispute[], stores: Record<string, string>)
     }));
 }
 
-function buildCustomers(customers: ReignCustomer[], subscriptions: ReignSubscription[], cancelledAt: Map<string, string>): SnapshotCustomer[] {
+function buildCustomers(customers: ReignCustomer[], subscriptions: ReignSubscription[], cancelledAt: Map<string, string>, stores: Record<string, string> = {}): SnapshotCustomer[] {
+  const domainOf = (sub?: ReignSubscription) => (sub?.storeId ? stores[sub.storeId] || sub.storeId : undefined);
   const byCustomer = new Map<string, ReignSubscription>();
   for (const sub of subscriptions) {
     if (!sub.customerId) continue;
@@ -295,7 +296,7 @@ function buildCustomers(customers: ReignCustomer[], subscriptions: ReignSubscrip
     const rank = (status: string | null) => (status === "active" || status === "salvage" ? 0 : status === "paused" ? 1 : 2);
     if (!known || rank(sub.status) < rank(known.status)) byCustomer.set(sub.customerId, sub);
   }
-  return customers.map((customer) => {
+  const result: SnapshotCustomer[] = customers.map((customer) => {
     const sub = byCustomer.get(customer.id);
     const status = sub?.status ?? customer.subscriptionStatus ?? null;
     return {
@@ -307,8 +308,48 @@ function buildCustomers(customers: ReignCustomer[], subscriptions: ReignSubscrip
       cancelledReason: customer.canceledReason,
       nextBillingAt: sub?.nextBillingAt ?? null,
       firstTxAt: customer.firstTransactionAt,
+      domain: domainOf(sub),
     };
   });
+  // Un abonné tout neuf apparaît d'abord dans /v1/subscriptions, sa fiche client arrive plus tard :
+  // sans lui, l'outil affichait 2 abonnés quand Reign en comptait 4. Sa date d'entrée vient de ses
+  // transactions (toSnapshot).
+  const known = new Set(customers.map((customer) => customer.id));
+  for (const [customerId, sub] of byCustomer) {
+    if (known.has(customerId)) continue;
+    result.push({
+      id: customerId,
+      status: (sub.status && STATUS_LABEL[sub.status]) || "Unknown",
+      price: sub.price ? moneyToNumber(sub.price) : null,
+      enrolledAt: null,
+      cancelledAt: cancelledAt.get(customerId) ?? null,
+      cancelledReason: null,
+      nextBillingAt: sub.nextBillingAt ?? null,
+      firstTxAt: null,
+      domain: domainOf(sub),
+    });
+  }
+  return result;
+}
+
+/** Une date Reign (UTC) en heure locale de New York, « YYYY-MM-DDTHH:mm:ss » : les jours de Reign sont ceux de New York. */
+const NY_PARTS = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function nyLocal(value: string | null): string | null {
+  if (!value || !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = Object.fromEntries(NY_PARTS.formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 /* ---------------------------------------------------------------- *
@@ -318,7 +359,8 @@ function buildCustomers(customers: ReignCustomer[], subscriptions: ReignSubscrip
 function windowTtl(window: { to: string }, focus?: { start: string; end: string }) {
   const today = todayNy();
   if (window.to < addDays(today, -7)) return 7 * DAY;
-  return focusIncludesToday(focus) ? 20 * MINUTE : 2 * HOUR;
+  // La fenêtre du jour est relue toutes les 2 minutes quand l'écran regarde aujourd'hui.
+  return focusIncludesToday(focus) ? 2 * MINUTE : 30 * MINUTE;
 }
 
 function windowNeedsFetch(current: ReignStoreFile, window: { from: string; to: string }, focus?: { start: string; end: string }, force?: boolean) {
@@ -338,7 +380,7 @@ async function syncStoresAndCustomers(current: ReignStoreFile) {
   current.billingTypes = Object.fromEntries(billingTypes.map((type) => [type.name, (type.reportingType || type.type || type.name).trim()]));
   const customers = await listCustomers((rows) => setProgress({ done: state.progress.done + rows.length }));
   const subscriptions = await listSubscriptions();
-  current.customers = buildCustomers(customers, subscriptions, cancellationDates(current));
+  current.customers = buildCustomers(customers, subscriptions, cancellationDates(current), current.stores);
   current.customersFetchedAt = new Date().toISOString();
 }
 
@@ -384,7 +426,7 @@ function cancellationDates(current: ReignStoreFile) {
 /** Combien de temps les commandes d'un abonné restent valables : un actif bouge chaque jour, un annulé plus guère. */
 function customerOrdersTtl(customer: SnapshotCustomer, focus?: { start: string; end: string }) {
   const status = customer.status.toLowerCase();
-  if (status === "active" || status === "paused") return focusIncludesToday(focus) ? 20 * MINUTE : 6 * HOUR;
+  if (status === "active" || status === "paused") return focusIncludesToday(focus) ? HOUR : 6 * HOUR;
   if (status === "canceled") return 3 * DAY;
   return 7 * DAY;
 }
@@ -410,7 +452,9 @@ async function syncCustomerOrders(current: ReignStoreFile, focus?: { start: stri
         orders: orders.map((order) => summarizeOrder(order, current.billingTypes ?? {})).filter((order): order is OrderSummary => order !== null),
       };
     } catch {
-      // On garde la copie précédente et on réessaiera à la prochaine synchro.
+      // Fiche client pas encore créée chez Reign (404) : on note la tentative pour ne pas la rejouer à
+      // chaque synchro ; ses articles viennent de la lecture commande par commande.
+      current.customerOrders[String(customer.id)] ??= { fetchedAt: new Date().toISOString(), orders: [] };
     }
     done += 1;
     setProgress({ done, fetched: done, etaMs: Math.round(((Date.now() - startedAt) / done) * (queue.length - done)) });
@@ -478,7 +522,9 @@ export function startSync(options?: { focus?: { start: string; end: string }; fo
     try {
       const current = await loadStore();
       const customersAge = current.customersFetchedAt ? Date.now() - Date.parse(current.customersFetchedAt) : Infinity;
-      if (options?.force || customersAge > HOUR || current.customers.length === 0) {
+      // Abonnés et statuts : relus toutes les 2 minutes quand l'écran regarde aujourd'hui, 30 sinon.
+      const customersTtl = focusIncludesToday(options?.focus) ? 2 * MINUTE : 30 * MINUTE;
+      if (options?.force || customersAge > customersTtl || current.customers.length === 0) {
         await syncStoresAndCustomers(current);
         await persist(current);
       }
@@ -502,12 +548,30 @@ function toSnapshot(current: ReignStoreFile): PhoenixSnapshot {
   const config = getReignConfig();
   const expected = config ? windowsFor(config.historyFrom) : [];
   const windows = Object.values(current.windows).sort((a, b) => a.from.localeCompare(b.from));
-  const transactions = windows.flatMap((window) => window.transactions);
+  const transactions = windows.flatMap((window) => window.transactions).map((tx) => ({ ...tx, date: nyLocal(tx.date) ?? tx.date }));
   const covered = expected.filter((window) => current.windows[`${window.from}_${window.to}`]).length;
+  const firstApproved = new Map<string, string>();
+  for (const tx of transactions) {
+    if (tx.code !== "100" || !tx.type) continue;
+    const key = String(tx.customerId);
+    const known = firstApproved.get(key);
+    if (!known || tx.date < known) firstApproved.set(key, tx.date);
+  }
+  const customers = current.customers.map((customer) => {
+    const subscribed = !/^never/i.test(customer.status) && customer.status !== "Unknown";
+    const first = firstApproved.get(String(customer.id)) ?? null;
+    return {
+      ...customer,
+      enrolledAt: nyLocal(customer.enrolledAt) ?? (subscribed ? first : null),
+      firstTxAt: nyLocal(customer.firstTxAt) ?? first,
+      cancelledAt: nyLocal(customer.cancelledAt),
+      nextBillingAt: nyLocal(customer.nextBillingAt),
+    };
+  });
   return {
     builtAt: current.updatedAt,
     durationMs: 0,
-    customers: current.customers,
+    customers,
     transactions,
     coverage: expected.length ? covered / expected.length : 0,
     complete: expected.length > 0 && covered === expected.length && current.customers.length > 0,

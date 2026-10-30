@@ -52,6 +52,9 @@ type TabId = "overview" | "breakeven" | "checkout" | "refunds";
 type SourceId = "phoenix" | "reign";
 type SourceInfo = { id: SourceId; label: string; configured: boolean };
 const SOURCE_KEY = "msgate-stats-source";
+const nyToday = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
 
 function loadSource(): SourceId {
   if (typeof window === "undefined") return "phoenix";
@@ -342,15 +345,29 @@ export default function PhoenixPage() {
     }
   }, [start, end]);
 
+  // Période qui contient aujourd'hui : on relit toutes les minutes, le serveur resynchronise Reign toutes les 2.
+  useEffect(() => {
+    const today = nyToday();
+    if (start > today || end < today) return;
+    const timer = window.setInterval(() => {
+      void load();
+      void loadRoas();
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [start, end, load, loadRoas]);
+
   // Filters are applied through the Search button, so the initial fetch runs
   // once. `load` only writes state after awaiting the response, but the linter
   // cannot see through the try/finally, hence the second suppression.
+  // On attend de connaître les sources : interroger une source arrêtée (SkinRenew) donnait des 503 au premier affichage.
+  const sourceReady = sources.some((entry) => entry.id === source && entry.configured);
   useEffect(() => {
+    if (!sourceReady) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     void loadRoas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source]);
+  }, [source, sourceReady]);
 
   // A full sync is rate-limited and can run for tens of minutes: poll its
   // progress and fold in partial results as they land.

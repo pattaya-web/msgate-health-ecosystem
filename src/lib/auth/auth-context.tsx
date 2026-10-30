@@ -10,12 +10,16 @@ interface AuthContextValue {
   logout: () => void;
   canWrite: boolean;
   isAdmin: boolean;
-  /** Accès Associé : ne voit que la page Straight Sale. */
+  /** Accès Associé : ne voit que la page Straight Sale (vrai associé, ou admin en « Vue Alison »). */
   isAssociate: boolean;
+  /** L'admin regarde l'application comme l'associé la voit. */
+  previewAssociate: boolean;
+  setPreviewAssociate: (on: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const STORAGE_KEY = "msgate_auth_user";
+const PREVIEW_KEY = "msgate-preview-associate";
 
 /**
  * L'état de connexion côté interface.
@@ -29,6 +33,15 @@ const STORAGE_KEY = "msgate_auth_user";
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  // L'interface n'est rendue qu'une fois la session relue côté client : lire le stockage ici ne décale pas l'hydratation.
+  const [preview, setPreview] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(PREVIEW_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     let alive = true;
@@ -77,7 +90,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       canWrite: user?.role === "admin" || user?.role === "operator",
       isAdmin: user?.role === "admin",
-      isAssociate: user?.role === "associate",
+      isAssociate: user?.role === "associate" || (user?.role === "admin" && preview),
+      previewAssociate: user?.role === "admin" && preview,
+      setPreviewAssociate(on) {
+        setPreview(on);
+        try {
+          if (on) localStorage.setItem(PREVIEW_KEY, "1");
+          else localStorage.removeItem(PREVIEW_KEY);
+        } catch {
+          // la vue tient pour la session
+        }
+      },
       async login(email, password) {
         try {
           const res = await fetch("/api/auth/login", {
@@ -108,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         void fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
       },
     }),
-    [user, loading]
+    [user, loading, preview]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
