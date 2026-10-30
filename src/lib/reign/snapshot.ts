@@ -2,6 +2,8 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import {
   getReignConfig,
+  listBillingTypes,
+  listCustomerOrders,
   listCustomers,
   listDisputes,
   listOrders,
@@ -33,12 +35,24 @@ import type { SnapshotProgress } from "@/lib/phoenix/types";
  * synchronisation découpe l'historique en fenêtres : les fenêtres closes
  * depuis longtemps sont gardées 7 jours, la fenêtre courante est relue toutes
  * les 20 minutes quand l'écran regarde aujourd'hui, 2 heures sinon.
+ *
+ * La liste globale des commandes omet celles datées dans le futur — la
+ * commande « VIP Initial » d'un abonnement est datée de son premier
+ * prélèvement (J+14), et c'est elle qui porte la date d'annulation. On lit
+ * donc en plus les commandes de chaque abonné (une liste par client, avec la
+ * même durée de validité que Phoenix donnait à ses historiques).
  */
 
 const CACHE_DIR = path.join(process.cwd(), ".phoenix-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "reign-snapshot.json");
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const WINDOW_DAYS = 92;
+/**
+ * Reign date la première commande d'abonnement au jour où elle sera facturée
+ * (14 jours après la vente, par exemple) : on lit donc les commandes un peu
+ * au-delà d'aujourd'hui pour les connaître avant leur transaction.
+ */
+const LOOKAHEAD_DAYS = 45;
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -57,7 +71,8 @@ type OrderSummary = {
   id: string;
   customerId: string;
   cycle: number;
-  subscription: boolean;
+  /** Le reportingType du gabarit de facturation (Direct Sale, VIP Initial, Monthly Rebill…), ou le nom du gabarit. */
+  billing: string;
   upsell: boolean;
   recurringCanceledAt: string | null;
   createdAt: string;
@@ -68,7 +83,11 @@ type ReignStoreFile = {
   updatedAt: string;
   customersFetchedAt: string | null;
   stores: Record<string, string>;
+  /** Nom de gabarit de facturation → reportingType. */
+  billingTypes: Record<string, string>;
   customers: SnapshotCustomer[];
+  /** Les commandes de chaque abonné, lues par client. */
+  customerOrders: Record<string, { fetchedAt: string; orders: OrderSummary[] }>;
   windows: Record<string, Window>;
 };
 
@@ -98,13 +117,13 @@ function addDays(day: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-/** Les fenêtres de 92 jours qui couvrent l'historique, de REIGN_HISTORY_FROM à aujourd'hui (New York). */
+/** Les fenêtres de 92 jours qui couvrent l'historique, de REIGN_HISTORY_FROM à aujourd'hui (New York) plus l'avance. */
 function windowsFor(historyFrom: string) {
-  const today = todayNy();
+  const last = addDays(todayNy(), LOOKAHEAD_DAYS);
   const result: Array<{ from: string; to: string }> = [];
   let from = historyFrom;
-  while (from <= today) {
-    const to = addDays(from, WINDOW_DAYS - 1) < today ? addDays(from, WINDOW_DAYS - 1) : today;
+  while (from <= last) {
+    const to = addDays(from, WINDOW_DAYS - 1) < last ? addDays(from, WINDOW_DAYS - 1) : last;
     result.push({ from, to });
     from = addDays(to, 1);
   }
@@ -112,10 +131,12 @@ function windowsFor(historyFrom: string) {
 }
 
 function emptyStore(): ReignStoreFile {
-  return { version: STORE_VERSION, updatedAt: new Date().toISOString(), customersFetchedAt: null, stores: {}, customers: [], windows: {} };
+  return { version: STORE_VERSION, updatedAt: new Date().toISOString(), customersFetchedAt: null, stores: {}, billingTypes: {}, customers: [], customerOrders: {}, windows: {} };
 }
 
 async function persist(next: ReignStoreFile) {
+  next.version = STORE_VERSION;
+  next.customerOrders ??= {};
   try {
     await mkdir(CACHE_DIR, { recursive: true });
     const tmp = `${CACHE_FILE}.tmp`;
@@ -163,13 +184,14 @@ const LEG_LABEL: Record<string, string> = {
 
 const ATTEMPT_TYPES = new Set(["direct_sale", "direct_sale_no_vault", "manual_decline", "pre_auth"]);
 
-function summarizeOrder(order: ReignOrder): OrderSummary | null {
+function summarizeOrder(order: ReignOrder, billingTypes: Record<string, string>): OrderSummary | null {
   if (!order.id || !order.customerId) return null;
+  const name = order.billingType ?? "";
   return {
     id: order.id,
     customerId: order.customerId,
     cycle: order.billingCycle ?? 0,
-    subscription: Boolean(order.billingType),
+    billing: (name && billingTypes[name]) || name,
     upsell: order.isUpsell === true,
     recurringCanceledAt: order.recurringCanceledAt,
     createdAt: order.createdAt ?? "",
@@ -179,14 +201,23 @@ function summarizeOrder(order: ReignOrder): OrderSummary | null {
 /**
  * Le « Type » Phoenix d'une tentative : Direct, Vip Initial, Month N, Month N
  * Salvage, Upsell. Reign ne le dit pas sur la transaction mais sur la
- * commande (cycle de facturation, upsell, type de facturation). Une relance
- * après un refus sur la même commande de renouvellement est un salvage.
+ * commande : son gabarit de facturation (reportingType « Direct Sale »,
+ * « VIP Initial », « Monthly Rebill »), son cycle et son drapeau upsell. Chez
+ * Reign une vente d'abonnement fait deux commandes : la vente directe du
+ * jour, puis une commande « VIP Initial » datée du premier prélèvement. Une
+ * relance après un refus sur la même commande de renouvellement est un salvage.
  */
 function phoenixType(tx: ReignTransaction, order: OrderSummary | undefined, retried: boolean) {
   if (!order) return tx.type.startsWith("direct_sale") ? "Direct" : "Month ?";
   if (order.upsell) return "Upsell";
-  if (order.cycle >= 1) return retried ? `Month ${order.cycle + 1} Salvage` : `Month ${order.cycle + 1}`;
-  return order.subscription ? "Vip Initial" : "Direct";
+  const billing = order.billing.toLowerCase();
+  const rebill = order.cycle >= 1 || /rebill|recurring/.test(billing);
+  if (rebill) {
+    const cycle = Math.max(order.cycle, 1) + 1;
+    return retried ? `Month ${cycle} Salvage` : `Month ${cycle}`;
+  }
+  if (/initial|vip/.test(billing)) return "Vip Initial";
+  return "Direct";
 }
 
 function translateTransactions(rows: ReignTransaction[], orders: Map<string, OrderSummary>, stores: Record<string, string>) {
@@ -290,28 +321,83 @@ async function syncStoresAndCustomers(current: ReignStoreFile) {
   setProgress({ phase: "customers", done: 0, total: 0 });
   const stores = await listStores();
   current.stores = Object.fromEntries(stores.map((store: ReignStore) => [store.id, store.domain || store.name || store.id]));
+  const billingTypes = await listBillingTypes();
+  current.billingTypes = Object.fromEntries(billingTypes.map((type) => [type.name, (type.reportingType || type.type || type.name).trim()]));
   const customers = await listCustomers((rows) => setProgress({ done: state.progress.done + rows.length }));
   const subscriptions = await listSubscriptions();
   current.customers = buildCustomers(customers, subscriptions, cancellationDates(current));
   current.customersFetchedAt = new Date().toISOString();
 }
 
+/** Toutes les commandes connues, des fenêtres et des abonnés, par identifiant. */
+function allOrders(current: ReignStoreFile) {
+  const map = new Map<string, OrderSummary>();
+  for (const window of Object.values(current.windows)) for (const order of window.orders) map.set(order.id, order);
+  for (const entry of Object.values(current.customerOrders ?? {})) for (const order of entry.orders) map.set(order.id, order);
+  return map;
+}
+
 /** La date d'annulation d'un abonné : celle de la commande initiale dont le renouvellement a été arrêté. */
 function cancellationDates(current: ReignStoreFile) {
   const result = new Map<string, string>();
-  for (const window of Object.values(current.windows)) {
-    for (const order of window.orders) {
-      if (!order.recurringCanceledAt) continue;
-      const known = result.get(order.customerId);
-      if (!known || order.recurringCanceledAt > known) result.set(order.customerId, order.recurringCanceledAt);
-    }
+  for (const order of allOrders(current).values()) {
+    if (!order.recurringCanceledAt) continue;
+    const known = result.get(order.customerId);
+    if (!known || order.recurringCanceledAt > known) result.set(order.customerId, order.recurringCanceledAt);
   }
   return result;
+}
+
+/** Combien de temps les commandes d'un abonné restent valables : un actif bouge chaque jour, un annulé plus guère. */
+function customerOrdersTtl(customer: SnapshotCustomer, focus?: { start: string; end: string }) {
+  const status = customer.status.toLowerCase();
+  if (status === "active" || status === "paused") return focusIncludesToday(focus) ? 20 * MINUTE : 6 * HOUR;
+  if (status === "canceled") return 3 * DAY;
+  return 7 * DAY;
+}
+
+/** Lit les commandes des abonnés dont la copie a expiré (une liste par client, 30 par minute au plus). */
+async function syncCustomerOrders(current: ReignStoreFile, focus?: { start: string; end: string }, force?: boolean) {
+  current.customerOrders ??= {};
+  const now = Date.now();
+  const queue = current.customers.filter((customer) => {
+    if (!customer.enrolledAt && !customer.firstTxAt) return false;
+    const entry = current.customerOrders[String(customer.id)];
+    if (force || !entry) return true;
+    return now - Date.parse(entry.fetchedAt) > customerOrdersTtl(customer, focus);
+  });
+  setProgress({ phase: "customers", done: 0, total: queue.length, cached: current.customers.length - queue.length });
+  const startedAt = Date.now();
+  let done = 0;
+  for (const customer of queue) {
+    try {
+      const orders = await listCustomerOrders(String(customer.id));
+      current.customerOrders[String(customer.id)] = {
+        fetchedAt: new Date().toISOString(),
+        orders: orders.map((order) => summarizeOrder(order, current.billingTypes ?? {})).filter((order): order is OrderSummary => order !== null),
+      };
+    } catch {
+      // On garde la copie précédente et on réessaiera à la prochaine synchro.
+    }
+    done += 1;
+    setProgress({ done, fetched: done, etaMs: Math.round(((Date.now() - startedAt) / done) * (queue.length - done)) });
+    if (done % 20 === 0) await persist(current);
+  }
+  for (const key of Object.keys(current.customerOrders)) {
+    if (!current.customers.some((customer) => String(customer.id) === key)) delete current.customerOrders[key];
+  }
 }
 
 async function syncWindows(current: ReignStoreFile, focus?: { start: string; end: string }, force?: boolean) {
   const config = getReignConfig()!;
   const all = windowsFor(config.historyFrom);
+  // Les fenêtres qui ne font plus partie de l'historique attendu (REIGN_HISTORY_FROM a changé) sont oubliées.
+  const expectedKeys = new Set(all.map((window) => `${window.from}_${window.to}`));
+  for (const key of Object.keys(current.windows)) {
+    const known = current.windows[key];
+    const stillExpected = expectedKeys.has(key) || all.some((window) => window.from === known.from);
+    if (!stillExpected) delete current.windows[key];
+  }
   // La fenêtre regardée d'abord, puis la plus récente, puis le reste.
   const queue = all
     .filter((window) => windowNeedsFetch(current, window, focus, force))
@@ -325,10 +411,9 @@ async function syncWindows(current: ReignStoreFile, focus?: { start: string; end
   let done = 0;
   for (const window of queue) {
     const [orders, transactions, disputes] = await Promise.all([listOrders(window.from, window.to), listTransactions(window.from, window.to), listDisputes(window.from, window.to)]);
-    const summaries = orders.map(summarizeOrder).filter((order): order is OrderSummary => order !== null);
-    const orderMap = new Map<string, OrderSummary>();
-    // Les commandes d'autres fenêtres aussi : un renouvellement peut payer une commande plus ancienne.
-    for (const other of Object.values(current.windows)) for (const order of other.orders) orderMap.set(order.id, order);
+    const summaries = orders.map((order) => summarizeOrder(order, current.billingTypes ?? {})).filter((order): order is OrderSummary => order !== null);
+    // Les commandes d'autres fenêtres et celles lues par abonné aussi : un renouvellement peut payer une commande plus ancienne.
+    const orderMap = allOrders(current);
     for (const order of summaries) orderMap.set(order.id, order);
     current.windows[`${window.from}_${window.to}`] = {
       from: window.from,
@@ -364,6 +449,8 @@ export function startSync(options?: { focus?: { start: string; end: string }; fo
         await syncStoresAndCustomers(current);
         await persist(current);
       }
+      await syncCustomerOrders(current, options?.focus, options?.force);
+      await persist(current);
       await syncWindows(current, options?.focus, options?.force);
       current.updatedAt = new Date().toISOString();
       await persist(current);

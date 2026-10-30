@@ -107,6 +107,17 @@ export type ReignDispute = {
   cardBrand: string | null;
 };
 
+/** Un gabarit de facturation : son reportingType dit comment Reign classe la vente (Direct Sale, VIP Initial, Monthly Rebill…). */
+export type ReignBillingType = {
+  object: "billing_type";
+  id: string;
+  storeId: string | null;
+  name: string;
+  type: string | null;
+  reportingType: string | null;
+  frequency: string | null;
+};
+
 export type ReignDashboardSales = {
   from: string;
   to: string;
@@ -254,6 +265,11 @@ export function listStores() {
   return listAll<ReignStore>("/v1/stores", {}, 500);
 }
 
+export function listBillingTypes() {
+  const config = getReignConfig()!;
+  return listAll<ReignBillingType>("/v1/billing-types", { storeIds: storeIdsParam(config) }, 500);
+}
+
 export function listCustomers(onPage?: (rows: ReignCustomer[]) => void) {
   const config = getReignConfig()!;
   return listAll<ReignCustomer>("/v1/customers", { storeIds: storeIdsParam(config) }, 500, onPage);
@@ -268,6 +284,11 @@ export function listSubscriptions(onPage?: (rows: ReignSubscription[]) => void) 
 export function listOrders(from: string, to: string) {
   const config = getReignConfig()!;
   return listAll<ReignOrder>("/v1/orders", { from, to, storeIds: storeIdsParam(config) }, 500);
+}
+
+/** Les commandes d'un client, y compris celles datées dans le futur (premier prélèvement différé) que la liste globale omet. */
+export function listCustomerOrders(customerId: string) {
+  return listAll<ReignOrder>(`/v1/customers/${encodeURIComponent(customerId)}/orders`, {}, 100);
 }
 
 export function listTransactions(from: string, to: string) {
