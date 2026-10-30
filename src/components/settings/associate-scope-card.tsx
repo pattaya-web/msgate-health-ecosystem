@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Lock, Save } from "lucide-react";
+import Link from "next/link";
+import { Eye, Lock, Save } from "lucide-react";
 import { toast } from "sonner";
 import type { AssociateScope } from "@/lib/associate/scope";
 import { Badge } from "@/components/ui/badge";
@@ -104,10 +105,18 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
             </CardDescription>
           </div>
           {isAdmin ? (
-            <Button size="sm" onClick={() => void save()} disabled={saving || !dirty}>
-              <Save className="mr-1.5 h-3.5 w-3.5" />
-              Enregistrer
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/associate">
+                  <Eye className="mr-1.5 h-3.5 w-3.5" />
+                  Voir comme l&apos;associé
+                </Link>
+              </Button>
+              <Button size="sm" onClick={() => void save()} disabled={saving || !dirty}>
+                <Save className="mr-1.5 h-3.5 w-3.5" />
+                Enregistrer
+              </Button>
+            </div>
           ) : null}
         </div>
       </CardHeader>

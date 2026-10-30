@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Eye, Loader2, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { useAuth } from "@/lib/auth/auth-context";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import type { AssociateOverview } from "@/lib/associate/scope";
 import { DateRangePicker, type DateRange } from "@/components/phoenix/date-range-picker";
@@ -38,6 +40,7 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 }
 
 export default function AssociatePage() {
+  const { isAssociate, isAdmin } = useAuth();
   const [range, setRange] = useState<DateRange>(() => monthRange());
   const [overview, setOverview] = useState<AssociateOverview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,6 +105,18 @@ export default function AssociatePage() {
           </div>
         </div>
       </div>
+
+      {!isAssociate ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-[12px] text-indigo-800 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-300">
+          <Eye className="h-3.5 w-3.5 shrink-0" />
+          Vue Associé : cette page est exactement ce que voit un compte associé, avec le périmètre réglé par l&apos;admin.
+          {isAdmin ? (
+            <Link href="/settings" className="ml-auto font-medium underline underline-offset-2">
+              Régler le périmètre
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
 
       {error ? (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-2 text-[12px] text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">

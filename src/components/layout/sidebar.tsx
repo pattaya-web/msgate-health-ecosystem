@@ -57,6 +57,8 @@ export const SECTIONS: NavSection[] = [
       { href: "/phoenix", label: "Stats", icon: BarChart3 },
       { href: "/profit", label: "Profit calculator", icon: Calculator },
       { href: "/invoices", label: "Facturation", icon: ReceiptText },
+      // Admin seulement : la page telle qu'un associé la voit (filtrée au rendu, voir Sidebar).
+      { href: "/associate", label: "Vue Associé", icon: Handshake },
     ],
   },
   {
@@ -284,8 +286,10 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, isAssociate } = useAuth();
+  const { user, logout, isAssociate, isAdmin } = useAuth();
   const [sections, setSections] = useState<NavSection[]>(() => (isAssociate ? ASSOCIATE_SECTIONS : applyOrder(loadOrder())));
+  // La « Vue Associé » n'est qu'à l'admin ; les autres rôles ne voient pas le lien (l'API, elle, leur répond déjà).
+  const visible = isAdmin || isAssociate ? sections : sections.map((section) => ({ ...section, items: section.items.filter((item) => item.href !== "/associate") }));
   const [custom, setCustom] = useState<boolean>(() => !isAssociate && loadOrder() !== null);
   const [open, setOpen] = useState<string[]>(() => initialOpen(sections, pathname));
   const [drag, setDrag] = useState<NavDrag | null>(null);
@@ -393,7 +397,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-2 px-3 py-2" data-nav>
-        {sections.map((section) => {
+        {visible.map((section) => {
           const expanded = open.includes(section.id);
           const holdsActive = section.items.some((item) => isActive(item.href, pathname));
           const dragging = drag?.kind === "section" && drag.id === section.id;
