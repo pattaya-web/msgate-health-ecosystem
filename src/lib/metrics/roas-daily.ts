@@ -1,4 +1,4 @@
-import { buildOverview } from "@/lib/phoenix/analytics";
+import { buildOverview, classifyCategory, isApproved, isAttempt } from "@/lib/phoenix/analytics";
 import { resolveSource } from "@/lib/phoenix/sources";
 import { getShopifyDaily, isShopifyConfigured } from "@/lib/shopify/client";
 import { getMetaDailySpend, isMetaConfigured } from "@/lib/meta/client";
@@ -13,6 +13,10 @@ import type { RefundAttribution } from "@/lib/shopify/types";
  * source of truth for one-time purchases. Phoenix contributes only the
  * subscription legs — initial, recurring and salvage. Upsells are deliberately
  * left out so the ratio stays comparable week over week.
+ *
+ * Avec Reign c'est différent : les boutiques Reign n'ont pas de Shopify branché
+ * ici, et Reign compte lui-même les ventes directes (« Straight sale »). Le
+ * chiffre direct vient alors de Reign, comme les abonnements.
  */
 
 export type RoasDailyPoint = {
@@ -57,6 +61,8 @@ export type RoasDaily = {
     roasRebill: number | null;
     roasGlobal: number | null;
   };
+  /** D'où viennent les ventes directes : la boutique Shopify, ou Reign (Straight sale). */
+  directSource: "shopify" | "reign";
   sources: {
     shopify: "live" | "unavailable";
     phoenix: "live" | "building" | "unavailable";
@@ -119,11 +125,17 @@ export async function buildRoasDaily(params: {
     spend: "missing",
   };
 
+  // La source active de l'écran Stats (Reign aujourd'hui, Phoenix avant) : même instantané.
+  const billing = resolveSource(null);
+  const directFromReign = billing.configured && billing.id === "reign";
+
   // --- Shopify: direct sales -------------------------------------------
   const shopifyByDate = new Map<string, { net: number; returns: number; orders: number }>();
   let currency = "USD";
 
-  if (isShopifyConfigured()) {
+  if (directFromReign) {
+    // Les ventes directes viennent de Reign (plus bas) : le Shopify branché ici est celui de l'ancienne boutique.
+  } else if (isShopifyConfigured()) {
     try {
       const shopify = await getShopifyDaily({ start, end, attribution });
       currency = shopify.currency;
@@ -147,9 +159,6 @@ export async function buildRoasDaily(params: {
 
   // --- Phoenix: subscription legs --------------------------------------
   const phoenixByDate = new Map<string, { initial: number; recurring: number; salvage: number }>();
-  // La source active de l'écran Stats (Reign aujourd'hui, Phoenix avant) : même instantané.
-  const billing = resolveSource(null);
-
   if (billing.configured) {
     const snapshot = await billing.peekSnapshot();
     if (snapshot) {
@@ -167,6 +176,15 @@ export async function buildRoasDaily(params: {
           recurring: point.recurring,
           salvage: point.salvage,
         });
+        if (directFromReign) shopifyByDate.set(point.date, { net: point.direct, returns: 0, orders: 0 });
+      }
+      if (directFromReign) {
+        // Le nombre de ventes directes approuvées par jour, pour l'affichage « N commandes ».
+        for (const tx of snapshot.transactions) {
+          if (!isAttempt(tx) || !isApproved(tx) || classifyCategory(tx) !== "direct") continue;
+          const entry = shopifyByDate.get(tx.date.slice(0, 10));
+          if (entry) entry.orders += 1;
+        }
       }
       sources.phoenix = "live";
       if (!overview.meta.complete) {
@@ -302,6 +320,7 @@ export async function buildRoasDaily(params: {
       roasRebill: ratio(rebillRevenue, spend),
       roasGlobal: ratio(totalRevenue, spend),
     },
+    directSource: directFromReign ? "reign" : "shopify",
     sources,
     meta: metaInfo,
     missingSpendDates,

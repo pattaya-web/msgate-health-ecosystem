@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Handshake, Mail, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, Calculator, Handshake, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -13,7 +13,10 @@ const items = [
   { href: "/process", label: "Process", icon: Workflow },
 ];
 
-const associateItems = [{ href: "/associate", label: "Straight Sale", icon: Handshake }];
+const associateItems = [
+  { href: "/associate", label: "Straight Sale", icon: Handshake },
+  { href: "/associate/profit", label: "Profit", icon: Calculator },
+];
 
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
@@ -29,7 +32,9 @@ export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
                 pathname.startsWith("/process/") ||
                 pathname === "/sop" ||
                 pathname.startsWith("/sop/")
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+              : item.href === "/associate"
+                ? pathname === "/associate"
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
             <Link

@@ -119,7 +119,16 @@ export const SECTIONS: NavSection[] = [
 ];
 
 /** La barre d'un associé : une seule section, une seule page, pas de réglage d'ordre. */
-const ASSOCIATE_SECTIONS: NavSection[] = [{ id: "straight-sale", label: "Straight Sale", items: [{ href: "/associate", label: "Ventes & Meta Ads", icon: Handshake }] }];
+const ASSOCIATE_SECTIONS: NavSection[] = [
+  {
+    id: "straight-sale",
+    label: "Straight Sale",
+    items: [
+      { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
+      { href: "/associate/profit", label: "Profit", icon: Calculator },
+    ],
+  },
+];
 
 const SECTIONS_KEY = "msgate-nav-sections";
 export const ORDER_KEY = "msgate-nav-order";
@@ -182,6 +191,8 @@ function toOrder(sections: NavSection[]): NavOrder {
 
 /** Seule route dont l'URL ne préfixe pas ses pages : les SOP vivent sous Process. */
 export function isActive(href: string, pathname: string) {
+  // La Vue Associé a deux pages ; « Ventes » ne doit pas rester allumé sur « Profit ».
+  if (href === "/associate") return pathname === "/associate";
   if (href === "/process") {
     return (
       pathname === "/process" ||

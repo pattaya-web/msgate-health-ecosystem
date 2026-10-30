@@ -318,6 +318,14 @@ export default function PhoenixPage() {
     }
   }, []);
 
+  // Un navigateur qui avait mémorisé une source arrêtée (SkinRenew) bascule sur celle qui marche.
+  useEffect(() => {
+    if (!sources.length || sources.find((entry) => entry.id === source)?.configured) return;
+    const first = sources.find((entry) => entry.configured);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (first) switchSource(first.id);
+  }, [sources, source, switchSource]);
+
   // Meta and Shopify are slower than Phoenix and independent of its filters, so
   // that block loads on its own rather than holding the page back.
   const loadRoas = useCallback(async () => {
@@ -558,7 +566,7 @@ export default function PhoenixPage() {
             <>
               <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
               <p className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
-                Première synchronisation Phoenix
+                Première synchronisation des ventes
               </p>
               <div className="h-1 w-48 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                 <div
@@ -579,7 +587,7 @@ export default function PhoenixPage() {
       {overview && tab === "overview" ? (
         <div className="space-y-3">
           {/* Key figures */}
-          <Section title="Chiffres clés" source="phoenix" hint="tout Phoenix, journée américaine">
+          <Section title="Chiffres clés" source="phoenix" hint="facturation, journée américaine">
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
             <Stat
               label="Approbation Direct Sale"
@@ -1059,7 +1067,7 @@ function RoasBlock({ data, loading }: { data: RoasDaily | null; loading: boolean
     <Section
       title="Performance globale"
       source="mixed"
-      hint="Meta paie · Shopify direct · Phoenix abonnements"
+      hint={data.directSource === "reign" ? "Meta paie · straight sale et abonnements Reign" : "Meta paie · Shopify direct · Phoenix abonnements"}
       right={
         loading ? <Loader2 className="h-3 w-3 animate-spin text-emerald-500" /> : undefined
       }
@@ -1081,9 +1089,13 @@ function RoasBlock({ data, loading }: { data: RoasDaily | null; loading: boolean
           <KpiCard
             accent="sky"
             source="shopify"
-            label="Ventes Shopify"
+            label={data.directSource === "reign" ? "Straight sale" : "Ventes Shopify"}
             value={formatCurrency(totals.directRevenue)}
-            sub={`${formatNumber(totals.shopifyOrders)} commandes · ${formatCurrency(totals.shopifyReturns)} de retours déduits`}
+            sub={
+              data.directSource === "reign"
+                ? `${formatNumber(totals.shopifyOrders)} ventes directes`
+                : `${formatNumber(totals.shopifyOrders)} commandes · ${formatCurrency(totals.shopifyReturns)} de retours déduits`
+            }
           />
         </div>
 
@@ -1093,7 +1105,7 @@ function RoasBlock({ data, loading }: { data: RoasDaily | null; loading: boolean
           <KpiCard
             accent="emerald"
             source="shopify"
-            label="ROAS OTP"
+            label={data.directSource === "reign" ? "ROAS straight sale" : "ROAS OTP"}
             value={ratio(totals.roasDirect)}
             sub={`${formatCurrency(totals.directRevenue)} de ventes uniques`}
           />

@@ -2,6 +2,7 @@ import { buildOverview } from "@/lib/phoenix/analytics";
 import { resolveSource } from "@/lib/phoenix/sources";
 import { buildRetention } from "@/lib/phoenix/retention";
 import { buildRoasDaily } from "@/lib/metrics/roas-daily";
+import { buildSalesBreakdown, type SalesBreakdown } from "@/lib/metrics/sales-breakdown";
 
 /**
  * Feeds the profit calculator with the figures we already collect, so only the
@@ -19,7 +20,18 @@ import { buildRoasDaily } from "@/lib/metrics/roas-daily";
 
 export type ProfitInputs = {
   range: { start: string; end: string; days: number };
+  /** « all » : tout le compte (admin) ; « straight » : le Straight sale seul (accès Associé). */
+  scope: "all" | "straight";
+  /** Le nom affiché du compte de facturation. */
+  label: string;
   currency: string;
+  /** COGS calculé (unités vendues × coût de base) ; null quand la source ne donne pas les articles. */
+  cogs: number | null;
+  cogsDetail: SalesBreakdown["cogs"];
+  /** Chiffre d'affaires par catégorie, pour le bandeau du calculateur. */
+  categories: { direct: number; initial: number; recurring: number; salvage: number; upsell: number; directSales: number };
+  /** (Straight sale + abonnements) / dépense, le même ratio que l'écran Stats. */
+  roasCombined: number | null;
   /** Pre-filled fields, all editable client-side. */
   revenue: number;
   refunds: number;
@@ -85,6 +97,8 @@ export async function buildProfitInputs(params: {
   const warnings: string[] = [];
 
   const roas = await buildRoasDaily({ start, end });
+  const sales = await buildSalesBreakdown({ start, end });
+  const fromReign = roas.directSource === "reign";
 
   // Refunds, chargebacks and payment counts only exist on the Phoenix side.
   let phoenixRefunds = 0;
@@ -151,12 +165,37 @@ export async function buildProfitInputs(params: {
       (new Date(`${end}T00:00:00Z`).getTime() - new Date(`${start}T00:00:00Z`).getTime()) / 86_400_000
     ) + 1;
 
+  // Avec Reign, les upsells sont des ventes à part entière (Shopify les comptait dans ses commandes).
+  const upsell = fromReign ? (sales?.revenue.upsell ?? 0) : 0;
+  const upsellSales = fromReign ? (sales?.approved.upsell ?? 0) : 0;
+  if (fromReign && sales?.cogs) {
+    if (sales.cogs.unitsAtDefault > 0 && sales.cogs.defaultUnitCost === 0) {
+      warnings.push(`${sales.cogs.unitsAtDefault} unité(s) vendue(s) sans coût de revient : renseigne les COGS produits plus bas.`);
+    }
+    if (sales.cogs.ordersWithoutLines > 0) {
+      warnings.push(`${sales.cogs.ordersWithoutLines} commande(s) dont les articles ne sont pas encore synchronisés : COGS incomplet.`);
+    }
+  }
+
   return {
     range: { start, end, days },
+    scope: "all",
+    label: resolveSource(null).label,
     currency: roas.currency,
-    revenue: round(shopifyProcessed + totals.rebillRevenue),
+    cogs: sales?.cogs ? sales.cogs.total : null,
+    cogsDetail: sales?.cogs ?? null,
+    categories: {
+      direct: round(totals.directRevenue),
+      initial: round(totals.initialRevenue),
+      recurring: round(totals.recurringRevenue),
+      salvage: round(totals.salvageRevenue),
+      upsell: round(upsell),
+      directSales: totals.shopifyOrders,
+    },
+    roasCombined: totals.roasGlobal,
+    revenue: round(shopifyProcessed + totals.rebillRevenue + upsell),
     refunds: round(totals.shopifyReturns + phoenixRefunds),
-    transactions: totals.shopifyOrders + subscriptionPayments,
+    transactions: totals.shopifyOrders + upsellSales + subscriptionPayments,
     chargebacks,
     chargebackValue: round(chargebackValue),
     ads: round(totals.spend),

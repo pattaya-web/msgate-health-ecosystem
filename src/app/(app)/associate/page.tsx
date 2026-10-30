@@ -86,7 +86,7 @@ export default function AssociatePage() {
   const scopeEmpty = Boolean(overview && !overview.scope.metaAccountIds.length && !overview.scope.campaignKeyword);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">STRAIGHT SALE</h1>
@@ -191,7 +191,7 @@ export default function AssociatePage() {
                 </defs>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={20} />
-                <YAxis {...axisProps} width={48} tickFormatter={(v: number) => `$${Math.round(v / 1000)}k`} />
+                <YAxis {...axisProps} width={48} tickFormatter={(v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `$${Math.round(v)}`)} />
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="revenue" name="Straight Sale" stroke="#6366f1" strokeWidth={1.5} fill="url(#assoc-rev)" />
               </AreaChart>

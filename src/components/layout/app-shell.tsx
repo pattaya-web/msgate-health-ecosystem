@@ -4,7 +4,6 @@ import * as React from "react";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
-import { AskHermes } from "@/components/ask-hermes/ask-hermes";
 import { GenerationWatcher } from "@/components/layout/generation-watcher";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { NavProgress } from "@/components/layout/nav-progress";
@@ -226,12 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <MobileNav onOpenMenu={() => setMobileOpen(true)} />
-      {isAssociate ? null : (
-        <>
-          <AskHermes />
-          <GenerationWatcher />
-        </>
-      )}
+      {isAssociate ? null : <GenerationWatcher />}
     </div>
   );
 }

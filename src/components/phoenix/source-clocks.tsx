@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
  * boundary from the wrong clock.
  */
 const SOURCES = [
-  { name: "Phoenix", country: "us", timeZone: "America/New_York", city: "New York" },
+  { name: "Reign", country: "us", timeZone: "America/New_York", city: "New York" },
   { name: "Meta", country: "fr", timeZone: "Europe/Paris", city: "Paris" },
   { name: "Shopify", country: "fr", timeZone: "Europe/Paris", city: "Paris" },
 ] as const;
@@ -45,13 +45,13 @@ function clock(timeZone: string) {
 export type TzSource = "phoenix" | "meta" | "shopify" | "mixed";
 
 const BADGES: Record<TzSource, { countries: Country[]; code: string; title: string }> = {
-  phoenix: { countries: ["us"], code: "US", title: "Phoenix — heure de New York" },
+  phoenix: { countries: ["us"], code: "US", title: "Reign — heure de New York" },
   meta: { countries: ["fr"], code: "FR", title: "Meta — heure de Paris" },
   shopify: { countries: ["fr"], code: "FR", title: "Shopify — heure de Paris" },
   mixed: {
     countries: ["us", "fr"],
     code: "US + FR",
-    title: "Phoenix en heure de New York, Meta et Shopify en heure de Paris",
+    title: "Reign en heure de New York, Meta et Shopify en heure de Paris",
   },
 };
 

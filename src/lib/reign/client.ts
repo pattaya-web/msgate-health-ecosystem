@@ -61,6 +61,19 @@ export type ReignOrder = {
   total: ReignMoney | null;
   refundedAmount: ReignMoney | null;
   voidedAmount: ReignMoney | null;
+  /** Présentes quand on lit les commandes d'un client, absentes de la liste globale. */
+  lineItems?: Array<{ productId: string | null; name: string | null; quantity: number; unitPrice: ReignMoney | null }>;
+};
+
+export type ReignProduct = {
+  object: "product";
+  id: string;
+  storeId: string;
+  title: string;
+  status: string | null;
+  isSubscriptionProduct: boolean;
+  imageUrl: string | null;
+  variants: Array<{ title: string | null; sku: string | null; price: ReignMoney | null }>;
 };
 
 export type ReignTransactionType =
@@ -265,6 +278,10 @@ export function listStores() {
   return listAll<ReignStore>("/v1/stores", {}, 500);
 }
 
+export function listStoreProducts(storeId: string) {
+  return listAll<ReignProduct>(`/v1/stores/${encodeURIComponent(storeId)}/products`, {}, 500);
+}
+
 export function listBillingTypes() {
   const config = getReignConfig()!;
   return listAll<ReignBillingType>("/v1/billing-types", { storeIds: storeIdsParam(config) }, 500);
@@ -284,6 +301,11 @@ export function listSubscriptions(onPage?: (rows: ReignSubscription[]) => void) 
 export function listOrders(from: string, to: string) {
   const config = getReignConfig()!;
   return listAll<ReignOrder>("/v1/orders", { from, to, storeIds: storeIdsParam(config) }, 500);
+}
+
+/** Une commande, avec ses articles (absents de la liste globale). */
+export function getOrder(orderId: string) {
+  return reignFetch<ReignOrder>(`/v1/orders/${encodeURIComponent(orderId)}`);
 }
 
 /** Les commandes d'un client, y compris celles datées dans le futur (premier prélèvement différé) que la liste globale omet. */

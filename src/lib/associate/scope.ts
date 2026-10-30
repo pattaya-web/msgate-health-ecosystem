@@ -8,6 +8,8 @@ import { focusIncludesToday, isStale } from "@/lib/phoenix/snapshot";
 import { resolveSource } from "@/lib/phoenix/sources";
 import type { SnapshotProgress } from "@/lib/phoenix/types";
 import type { AccountNode } from "@/lib/meta/types";
+import { buildSalesBreakdown } from "@/lib/metrics/sales-breakdown";
+import type { ProfitInputs } from "@/lib/metrics/profit-inputs";
 
 /**
  * Le périmètre « Straight Sale » de l'accès Associé.
@@ -114,6 +116,31 @@ function spendInScope(account: AccountNode, scope: AssociateScope) {
   return { spend: picked.reduce((sum, campaign) => sum + campaign.metrics.spend, 0), campaigns: picked.length };
 }
 
+/** La dépense Meta du périmètre : comptes retenus en entier, plus les campagnes au mot-clé des autres comptes. */
+async function scopedMetaSpend(start: string, end: string, scope: AssociateScope): Promise<AssociateOverview["meta"]> {
+  let meta: AssociateOverview["meta"] = { spend: 0, currency: null, accounts: [], configured: Boolean(getMetaConfig()), error: null };
+  const hasScope = scope.metaAccountIds.length > 0 || Boolean(scope.campaignKeyword);
+  if (meta.configured && hasScope) {
+    try {
+      const tree = await buildAdsTree({ preset: "custom", start, end });
+      const rows = tree.accounts
+        .map((account) => ({ account, ...spendInScope(account, scope) }))
+        .filter((row) => row.campaigns > 0 || scope.metaAccountIds.includes(row.account.accountId));
+      const currencies = new Set(rows.map((row) => row.account.currency).filter(Boolean));
+      meta = {
+        spend: rows.reduce((sum, row) => sum + row.spend, 0),
+        currency: currencies.size === 1 ? [...currencies][0] : null,
+        accounts: rows.map((row) => ({ id: row.account.accountId, name: row.account.name, spend: row.spend, campaigns: row.campaigns })).sort((a, b) => b.spend - a.spend),
+        configured: true,
+        error: null,
+      };
+    } catch (error) {
+      meta = { ...meta, error: error instanceof Error ? error.message : "Meta indisponible" };
+    }
+  }
+  return meta;
+}
+
 /**
  * Le tableau de bord de l'associé, calculé ici et nulle part ailleurs.
  *
@@ -150,26 +177,7 @@ export async function buildAssociateOverview(start: string, end: string): Promis
     }
   }
 
-  let meta: AssociateOverview["meta"] = { spend: 0, currency: null, accounts: [], configured: Boolean(getMetaConfig()), error: null };
-  const hasScope = scope.metaAccountIds.length > 0 || Boolean(scope.campaignKeyword);
-  if (meta.configured && hasScope) {
-    try {
-      const tree = await buildAdsTree({ preset: "custom", start, end });
-      const rows = tree.accounts
-        .map((account) => ({ account, ...spendInScope(account, scope) }))
-        .filter((row) => row.campaigns > 0 || scope.metaAccountIds.includes(row.account.accountId));
-      const currencies = new Set(rows.map((row) => row.account.currency).filter(Boolean));
-      meta = {
-        spend: rows.reduce((sum, row) => sum + row.spend, 0),
-        currency: currencies.size === 1 ? [...currencies][0] : null,
-        accounts: rows.map((row) => ({ id: row.account.accountId, name: row.account.name, spend: row.spend, campaigns: row.campaigns })).sort((a, b) => b.spend - a.spend),
-        configured: true,
-        error: null,
-      };
-    } catch (error) {
-      meta = { ...meta, error: error instanceof Error ? error.message : "Meta indisponible" };
-    }
-  }
+  const meta = await scopedMetaSpend(start, end, scope);
 
   return {
     range: { start, end },
@@ -179,5 +187,77 @@ export async function buildAssociateOverview(start: string, end: string): Promis
     cpa: meta.spend > 0 && straightSale.approved > 0 ? meta.spend / straightSale.approved : null,
     phoenix,
     scope: { stores: scope.stores, metaAccountIds: scope.metaAccountIds, campaignKeyword: scope.campaignKeyword },
+  };
+}
+
+/**
+ * Le calculateur de profit de l'associé : le Straight sale du périmètre seul.
+ *
+ * Revenu, remboursements et chargebacks des seules ventes directes des
+ * boutiques retenues ; COGS de leurs articles au coût de base ; dépense Meta
+ * du périmètre. Rien des abonnements (VIP Initial, Recurring, Salvage) ni des
+ * autres boutiques ne sort d'ici.
+ */
+export async function buildAssociateProfitInputs(start: string, end: string): Promise<ProfitInputs> {
+  const scope = await getAssociateScope();
+  const [sales, meta] = await Promise.all([
+    buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }),
+    scopedMetaSpend(start, end, scope),
+  ]);
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const revenue = sales?.revenue.direct ?? 0;
+  const approved = sales?.approved.direct ?? 0;
+  const warnings: string[] = [];
+  if (!sales) warnings.push("Ventes en cours de synchronisation : les chiffres vont se compléter.");
+  if (meta.error) warnings.push(`Meta indisponible : ${meta.error}`);
+  else if (!meta.configured) warnings.push("Meta n'est pas branché : dépense publicitaire à zéro.");
+  if (sales?.cogs && sales.cogs.unitsAtDefault > 0 && sales.cogs.defaultUnitCost === 0) {
+    warnings.push(`${sales.cogs.unitsAtDefault} unité(s) vendue(s) sans coût de revient renseigné.`);
+  }
+  if (sales?.cogs && sales.cogs.ordersWithoutLines > 0) {
+    warnings.push(`${sales.cogs.ordersWithoutLines} commande(s) dont les articles ne sont pas encore synchronisés : COGS incomplet.`);
+  }
+  const days = Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) + 1;
+  return {
+    range: { start, end, days },
+    scope: "straight",
+    label: "Straight Sale",
+    currency: meta.currency ?? "USD",
+    cogs: sales?.cogs ? sales.cogs.total : null,
+    cogsDetail: sales?.cogs ?? null,
+    categories: { direct: round(revenue), initial: 0, recurring: 0, salvage: 0, upsell: 0, directSales: approved },
+    roasCombined: meta.spend > 0 ? round(revenue / meta.spend) : null,
+    revenue: round(revenue),
+    refunds: sales?.refunds.amount ?? 0,
+    transactions: approved,
+    chargebacks: sales?.chargebacks.count ?? 0,
+    chargebackValue: sales?.chargebacks.amount ?? 0,
+    ads: round(meta.spend),
+    breakdown: {
+      shopifyProcessed: round(revenue),
+      shopifyReturns: 0,
+      shopifyOrders: approved,
+      phoenixInitial: 0,
+      phoenixRecurring: 0,
+      phoenixSalvage: 0,
+      phoenixRebill: 0,
+      phoenixRefunds: sales?.refunds.amount ?? 0,
+      phoenixSubscriptionPayments: 0,
+      metaSpend: round(meta.spend),
+    },
+    breakEven: {
+      adSpend: round(meta.spend),
+      frontRevenueVip: 0,
+      frontRevenueAll: round(revenue),
+      salesVip: 0,
+      salesAll: approved,
+      membershipPrice: 0,
+      observedApprovalRate: 0,
+      recurringApproved: 0,
+      recurringAttempts: 0,
+    },
+    retention: { avgLifetimeDays: 0, medianLifetimeDays: 0, churned: 0, windowDays: 0 },
+    sources: { shopify: "unavailable", phoenix: sales ? "live" : "building", spend: meta.spend > 0 ? "meta" : "missing" },
+    warnings,
   };
 }

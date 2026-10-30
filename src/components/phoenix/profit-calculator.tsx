@@ -61,7 +61,6 @@ const MANUAL_FIELDS: FieldId[] = [
   "rdrFee",
   "ethocaFee",
   "cdrnFee",
-  "cogs",
   "otherCosts",
   "reserveRate",
   "reserveReleased",
@@ -166,7 +165,55 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: stri
 
 /* ------------------------------------------------------------------ */
 
-export function ProfitCalculator() {
+/** La ligne de chiffres en tête : tout le compte pour l'admin, le Straight sale seul pour l'associé. */
+function SalesStrip({ inputs, money }: { inputs: ProfitInputs; money: (value: number) => string }) {
+  const c = inputs.categories;
+  const roas = inputs.roasCombined != null ? `${inputs.roasCombined.toFixed(2)}×` : "—";
+  const items: Array<[string, string, string?]> =
+    inputs.scope === "straight"
+      ? [
+          ["Straight sale", money(c.direct), `${c.directSales} vente(s)`],
+          ["Dépense Meta", money(inputs.ads)],
+          ["ROAS straight sale", roas],
+          ["COGS", inputs.cogs != null ? money(inputs.cogs) : "—", inputs.cogsDetail ? `${inputs.cogsDetail.units} unité(s)` : undefined],
+        ]
+      : [
+          ["Straight sale", money(c.direct), `${c.directSales} vente(s)`],
+          ["VIP Initial", money(c.initial)],
+          ["Recurring", money(c.recurring)],
+          ["Salvage", money(c.salvage)],
+          ["Upsell", money(c.upsell)],
+          ["Dépense Meta", money(inputs.ads)],
+          ["ROAS combiné", roas, "straight sale + abonnements"],
+        ];
+  return (
+    <div className={cn("grid gap-2", inputs.scope === "straight" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2 sm:grid-cols-4 lg:grid-cols-7")}>
+      {items.map(([label, value, sub]) => (
+        <div key={label} className="rounded-xl bg-white px-2.5 py-2 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-white/[0.06]">
+          <p className="truncate text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
+          <p className="mt-0.5 text-[15px] font-semibold tabular-nums text-slate-900 dark:text-slate-50">{value}</p>
+          {sub ? <p className="truncate text-[10px] text-slate-400">{sub}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function ProfitCalculator({
+  endpoint = "/api/profit/inputs",
+  alerts = true,
+  storageKey = STORAGE_KEY,
+  refreshKey = 0,
+}: {
+  /** D'où viennent les chiffres : /api/profit/inputs (tout le compte) ou /api/associate/profit (Straight sale). */
+  endpoint?: string;
+  /** Les alertes Disputifier (RDR, Ethoca, CDRN) : seulement pour l'admin. */
+  alerts?: boolean;
+  /** Clé de mémorisation des taux, distincte par vue. */
+  storageKey?: string;
+  /** Change pour forcer un rechargement (après une modification des COGS). */
+  refreshKey?: number;
+} = {}) {
   const [fields, setFields] = useState<Fields>(EMPTY);
   const [currency, setCurrency] = useState<Currency>("USD");
   const [days, setDays] = useState<number | "custom">(7);
@@ -182,7 +229,7 @@ export function ProfitCalculator() {
   // after mount — the one case the set-state-in-effect rule cannot express.
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") as Partial<Fields> & {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "{}") as Partial<Fields> & {
         currency?: Currency;
       };
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -196,14 +243,14 @@ export function ProfitCalculator() {
       // first visit, nothing stored
     }
     setRestored(true);
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
     if (!restored) return;
     const payload: Record<string, string> = { currency };
     for (const id of MANUAL_FIELDS) payload[id] = fields[id];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [fields, currency, restored]);
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+  }, [fields, currency, restored, storageKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,13 +261,15 @@ export function ProfitCalculator() {
 
         // Disputifier is a separate source: its outage must not blank the rest.
         const [inputsRes, alertsRes] = await Promise.allSettled([
-          fetch(`/api/profit/inputs?${params}`, { cache: "no-store" }).then(async (res) =>
+          fetch(`${endpoint}?${params}`, { cache: "no-store" }).then(async (res) =>
             res.ok ? ((await res.json()) as ProfitInputs) : null
           ),
-          fetch(
-            `/api/disputifier/alerts?start=${range.start}&end=${range.end}&merchant=all&mid=all&type=all&infer=0`,
-            { cache: "no-store" }
-          ).then(async (res) => (res.ok ? await res.json() : null)),
+          alerts
+            ? fetch(
+                `/api/disputifier/alerts?start=${range.start}&end=${range.end}&merchant=all&mid=all&type=all&infer=0`,
+                { cache: "no-store" }
+              ).then(async (res) => (res.ok ? await res.json() : null))
+            : Promise.resolve(null),
         ]);
 
         if (cancelled) return;
@@ -241,6 +290,8 @@ export function ProfitCalculator() {
                 chargebacks: String(data.chargebacks),
                 chargebackValue: String(data.chargebackValue),
                 ads: String(data.ads),
+                // Le COGS calculé remplace la saisie quand la source donne les articles vendus.
+                ...(data.cogs != null ? { cogs: String(data.cogs) } : {}),
               }
             : {}),
           ...(byType
@@ -261,7 +312,7 @@ export function ProfitCalculator() {
     return () => {
       cancelled = true;
     };
-  }, [range.start, range.end]);
+  }, [range.start, range.end, endpoint, alerts, refreshKey]);
 
   const set = useCallback(
     (id: FieldId) => (value: string) => setFields((current) => ({ ...current, [id]: value })),
@@ -354,7 +405,7 @@ export function ProfitCalculator() {
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="shrink-0 text-[13px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-          Calculateur de profit
+          {inputs?.scope === "straight" ? "Profit Straight sale" : "Calculateur de profit"}
         </h2>
         <TzBadge source="mixed" />
 
@@ -445,6 +496,8 @@ export function ProfitCalculator() {
         </ul>
       ) : null}
 
+      {inputs ? <SalesStrip inputs={inputs} money={money} /> : null}
+
       <div className="grid gap-2 lg:grid-cols-[1fr_320px]">
         {/* Inputs */}
         <div className="min-w-0 space-y-2">
@@ -458,7 +511,9 @@ export function ProfitCalculator() {
                 auto
                 hint={
                   inputs
-                    ? `Shopify ${Math.round(inputs.breakdown.shopifyProcessed)} + abonnements ${Math.round(inputs.breakdown.phoenixRebill)}`
+                    ? inputs.scope === "straight"
+                      ? `straight sale uniquement · ${inputs.categories.directSales} vente(s)`
+                      : `straight sale ${Math.round(inputs.categories.direct)} + upsell ${Math.round(inputs.categories.upsell)} + abonnements ${Math.round(inputs.breakdown.phoenixRebill)}`
                     : undefined
                 }
               />
@@ -470,7 +525,9 @@ export function ProfitCalculator() {
                 auto
                 hint={
                   inputs
-                    ? `Phoenix ${Math.round(inputs.breakdown.phoenixRefunds)} + retours Shopify ${Math.round(inputs.breakdown.shopifyReturns)}`
+                    ? inputs.breakdown.shopifyReturns > 0
+                      ? `facturation ${Math.round(inputs.breakdown.phoenixRefunds)} + retours Shopify ${Math.round(inputs.breakdown.shopifyReturns)}`
+                      : "remboursements de la facturation"
                     : undefined
                 }
               />
@@ -498,7 +555,9 @@ export function ProfitCalculator() {
                 auto
                 hint={
                   inputs
-                    ? `${inputs.breakdown.shopifyOrders} commandes + ${inputs.breakdown.phoenixSubscriptionPayments} abonnements`
+                    ? inputs.scope === "straight"
+                      ? "ventes straight sale approuvées"
+                      : `${inputs.breakdown.shopifyOrders} ventes + ${inputs.breakdown.phoenixSubscriptionPayments} prélèvements`
                     : undefined
                 }
               />
@@ -530,6 +589,7 @@ export function ProfitCalculator() {
             </div>
           </Group>
 
+          {alerts ? (
           <Group title="Alertes" accent="amber">
             <div className="space-y-1.5">
               {(
@@ -562,6 +622,7 @@ export function ProfitCalculator() {
               </p>
             </div>
           </Group>
+          ) : null}
 
           <Group title="Coûts opérationnels" accent="indigo">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -570,7 +631,12 @@ export function ProfitCalculator() {
                 value={fields.cogs}
                 onChange={set("cogs")}
                 prefix={symbol}
-                hint="vide pour du digital"
+                auto={inputs?.cogs != null}
+                hint={
+                  inputs?.cogsDetail
+                    ? `${inputs.cogsDetail.units} unité(s) × coût de base`
+                    : "vide pour du digital"
+                }
               />
               <Field
                 label="Dépense publicitaire"
@@ -733,6 +799,24 @@ export function ProfitCalculator() {
               </>
             )}
           </Surface>
+
+          {inputs?.cogsDetail?.products.length ? (
+            <Surface plain className="p-3">
+              <PanelTitle className="mb-2">Marge par produit vendu</PanelTitle>
+              {inputs.cogsDetail.products.map((row) => (
+                <Row
+                  key={row.key}
+                  label={`${row.name} · ${row.units} u. × ${money(row.unitCost)}${row.fallback ? " (défaut)" : ""}`}
+                  value={`− ${money(row.cogs)}`}
+                />
+              ))}
+              <Row
+                label="Marge brute (revenu − remboursements − COGS)"
+                value={money(result.revenue - result.refunds - result.cogs)}
+                tone="font-semibold text-emerald-700 dark:text-emerald-300"
+              />
+            </Surface>
+          ) : null}
 
           <p className="flex items-start gap-1.5 px-1 text-[10px] leading-snug text-slate-400">
             <RefreshCw className="mt-0.5 h-3 w-3 shrink-0" />

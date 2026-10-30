@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import {
+  getOrder,
   getReignConfig,
   listBillingTypes,
   listCustomerOrders,
@@ -45,7 +46,7 @@ import type { SnapshotProgress } from "@/lib/phoenix/types";
 
 const CACHE_DIR = path.join(process.cwd(), ".phoenix-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "reign-snapshot.json");
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 const WINDOW_DAYS = 92;
 /**
  * Reign date la première commande d'abonnement au jour où elle sera facturée
@@ -76,6 +77,8 @@ type OrderSummary = {
   upsell: boolean;
   recurringCanceledAt: string | null;
   createdAt: string;
+  /** Les articles de la commande (connus seulement par la lecture par client) : ils font le COGS. */
+  lines?: Array<{ productId: string | null; name: string; quantity: number }>;
 };
 
 type ReignStoreFile = {
@@ -88,6 +91,12 @@ type ReignStoreFile = {
   customers: SnapshotCustomer[];
   /** Les commandes de chaque abonné, lues par client. */
   customerOrders: Record<string, { fetchedAt: string; orders: OrderSummary[] }>;
+  /**
+   * Les articles des commandes lues une à une : celles d'un client que Reign ne
+   * renvoie pas encore (fiche client en cours de création). Une commande passée
+   * ne change plus d'articles, on ne la relit donc jamais.
+   */
+  orderLines?: Record<string, NonNullable<OrderSummary["lines"]>>;
   windows: Record<string, Window>;
 };
 
@@ -137,6 +146,7 @@ function emptyStore(): ReignStoreFile {
 async function persist(next: ReignStoreFile) {
   next.version = STORE_VERSION;
   next.customerOrders ??= {};
+  next.orderLines ??= {};
   try {
     await mkdir(CACHE_DIR, { recursive: true });
     const tmp = `${CACHE_FILE}.tmp`;
@@ -195,6 +205,9 @@ function summarizeOrder(order: ReignOrder, billingTypes: Record<string, string>)
     upsell: order.isUpsell === true,
     recurringCanceledAt: order.recurringCanceledAt,
     createdAt: order.createdAt ?? "",
+    ...(order.lineItems
+      ? { lines: order.lineItems.map((line) => ({ productId: line.productId, name: line.name ?? "", quantity: line.quantity || 0 })) }
+      : {}),
   };
 }
 
@@ -334,7 +347,27 @@ function allOrders(current: ReignStoreFile) {
   const map = new Map<string, OrderSummary>();
   for (const window of Object.values(current.windows)) for (const order of window.orders) map.set(order.id, order);
   for (const entry of Object.values(current.customerOrders ?? {})) for (const order of entry.orders) map.set(order.id, order);
+  for (const [orderId, lines] of Object.entries(current.orderLines ?? {})) {
+    const order = map.get(orderId);
+    if (order && !order.lines?.length) map.set(orderId, { ...order, lines });
+  }
   return map;
+}
+
+/** Lit une à une les commandes qui n'ont toujours pas leurs articles (au plus 60 par synchro). */
+async function syncMissingLines(current: ReignStoreFile) {
+  current.orderLines ??= {};
+  const missing = [...allOrders(current).values()].filter((order) => !order.lines?.length).slice(0, 60);
+  for (const order of missing) {
+    try {
+      const full = await getOrder(order.id);
+      const lines = (full.lineItems ?? []).map((line) => ({ productId: line.productId, name: line.name ?? "", quantity: line.quantity || 0 }));
+      // Même vide, on la note : une commande sans article (frais d'abonnement) n'a pas à être relue.
+      current.orderLines[order.id] = lines;
+    } catch {
+      // On réessaiera à la prochaine synchro.
+    }
+  }
 }
 
 /** La date d'annulation d'un abonné : celle de la commande initiale dont le renouvellement a été arrêté. */
@@ -452,6 +485,7 @@ export function startSync(options?: { focus?: { start: string; end: string }; fo
       await syncCustomerOrders(current, options?.focus, options?.force);
       await persist(current);
       await syncWindows(current, options?.focus, options?.force);
+      await syncMissingLines(current);
       current.updatedAt = new Date().toISOString();
       await persist(current);
       setProgress({ running: false, phase: "done", etaMs: 0 });
@@ -478,6 +512,13 @@ function toSnapshot(current: ReignStoreFile): PhoenixSnapshot {
     coverage: expected.length ? covered / expected.length : 0,
     complete: expected.length > 0 && covered === expected.length && current.customers.length > 0,
   };
+}
+
+export type ReignOrderSummary = OrderSummary;
+
+/** Toutes les commandes connues (avec leurs articles quand on les a), par identifiant, sans appeler Reign. */
+export async function peekOrders(): Promise<Map<string, OrderSummary>> {
+  return allOrders(await loadStore());
 }
 
 /** Ce que le cache contient (mémoire puis disque), sans appeler Reign. */

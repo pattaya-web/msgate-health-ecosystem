@@ -13,7 +13,7 @@ import { verifySession, type SessionUser } from "@/lib/auth/session";
  *   - POST messages/orders : le formulaire de contact et la commande des
  *                            boutiques publiques.
  * Tout le reste exige une session. Un « viewer » lit seulement. Un « associate »
- * ne lit que son tableau de bord (/api/associate/overview) : le périmètre
+ * ne lit que son tableau de bord et son profit (/api/associate/*) : le périmètre
  * Straight Sale est tenu côté serveur, aucune autre route ne lui répond. Une
  * mutation venue d'une autre origine est refusée, en plus du cookie SameSite.
  */
@@ -41,9 +41,11 @@ export function isPublicApi(method: string, pathname: string) {
   return method === "POST" && PUBLIC_POSTS.has(pathname);
 }
 
-/** Ce qu'un associé peut appeler, en lecture : son tableau de bord et rien d'autre. */
+/** Ce qu'un associé peut appeler, en lecture : son tableau de bord, son calcul de profit, rien d'autre. */
+const ASSOCIATE_APIS = new Set(["/api/associate/overview", "/api/associate/profit"]);
+
 export function isAssociateApi(method: string, pathname: string) {
-  return SAFE_METHODS.has(method.toUpperCase()) && pathname === "/api/associate/overview";
+  return SAFE_METHODS.has(method.toUpperCase()) && ASSOCIATE_APIS.has(pathname);
 }
 
 /** L'origine que doit annoncer une requête légitime : schéma, hôte et port tels que le navigateur les voit. */
