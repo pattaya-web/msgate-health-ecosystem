@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTask, KieError } from "@/lib/kie";
 import { readDB, writeDB } from "@/lib/db";
 import { warmThumb } from "@/lib/thumbs";
+import { autosaveGeneration } from "@/lib/drive/autosave";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,8 @@ export async function GET(req: NextRequest) {
     gen.state = rec.state;
     gen.resultUrls = rec.resultUrls;
     for (const u of rec.resultUrls ?? []) warmThumb(u);
+    // Génération réussie : copie automatique dans le Drive (une seule fois, avant que le lien Kie n'expire).
+    if (rec.state === "success") autosaveGeneration(gen);
     gen.creditsConsumed = rec.creditsConsumed;
     gen.failMsg = rec.failMsg;
     gen.progress = rec.progress;

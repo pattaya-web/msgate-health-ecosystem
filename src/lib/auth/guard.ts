@@ -73,7 +73,7 @@ const ASSOCIATE_WRITE = new Set([
  * refuse toute autre collection, réglages et clés compris).
  */
 const ASSOCIATE_STUDIO_PREFIXES = ["/api/studio-ia/", "/api/kie/", "/api/media/", "/api/data/"];
-const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit"]);
+const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit", "/api/drive", "/api/drive/file"]);
 
 export function isAssociateApi(method: string, pathname: string) {
   if (ASSOCIATE_STUDIO_PATHS.has(pathname) || ASSOCIATE_STUDIO_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;

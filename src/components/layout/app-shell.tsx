@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 const SIDEBAR_KEY = "msgate-sidebar-open";
 const ASSOCIATE_HOME = "/associate";
 /** Les autres pages ouvertes à l'associé : le Meta Ads Manager et l'uploader, filtrés sur ses comptes côté serveur. */
-const ASSOCIATE_EXTRA = ["/ads", "/ads-uploader", "/studio-ia"];
+const ASSOCIATE_EXTRA = ["/ads", "/ads-uploader", "/studio-ia", "/drive"];
 
 type ViewTransitionProps = {
   children: React.ReactNode;

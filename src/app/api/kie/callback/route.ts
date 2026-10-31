@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readDB, writeDB } from "@/lib/db";
 import { onProviderCallback } from "@/lib/studio-ia/jobs";
 import { warmThumb } from "@/lib/thumbs";
+import { autosaveGeneration } from "@/lib/drive/autosave";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
   gen.creditsConsumed = Number(data.creditsConsumed ?? gen.creditsConsumed);
   gen.updatedAt = new Date().toISOString();
   writeDB(db);
+  if (gen.state === "success") autosaveGeneration(gen);
 
   return NextResponse.json({ ok: true });
 }

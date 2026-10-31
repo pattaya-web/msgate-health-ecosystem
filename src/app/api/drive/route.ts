@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { sessionFromRequest } from "@/lib/auth/request";
 import {
+  SHARED_ROOT,
   cleanName,
   cleanPath,
   copyEntry,
   createFolder,
+  ensureSharedFolders,
   extensionFor,
   listAllFolders,
   listFolder,
@@ -12,19 +15,49 @@ import {
   renameEntry,
   saveFile,
   searchFiles,
+  type DriveFile,
+  type DriveListing,
 } from "@/lib/drive/store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
+/**
+ * Le Drive vu par la personne connectée.
+ *
+ * L'admin voit tout l'arbre. L'associé voit le dossier « Commun » comme sa
+ * racine : chaque chemin qu'il envoie est rangé dessous, chaque chemin rendu
+ * en est retiré. Il ne peut ni lire ni écrire ailleurs, quoi qu'il envoie
+ * (cleanPath retire déjà les « .. »).
+ */
+function scopeFor(request: Request) {
+  const base = sessionFromRequest(request)?.role === "associate" ? SHARED_ROOT : "";
+  const inside = (rel: string) => (base ? (rel ? `${base}/${rel}` : base) : rel);
+  const outside = (rel: string) => (base ? (rel === base ? "" : rel.startsWith(`${base}/`) ? rel.slice(base.length + 1) : rel) : rel);
+  return { base, inside, outside };
+}
+
 /** Lister un dossier, ou chercher dans tout le Drive. */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const query = params.get("q")?.trim();
+  const { base, inside, outside } = scopeFor(request);
   try {
-    if (query) return NextResponse.json({ results: await searchFiles(query) });
-    if (params.get("tree")) return NextResponse.json({ folders: await listAllFolders() });
-    return NextResponse.json(await listFolder(cleanPath(params.get("path"))));
+    await ensureSharedFolders();
+    if (query) {
+      const results = await searchFiles(query, 200, base);
+      return NextResponse.json({ results: results.map((file: DriveFile) => ({ ...file, path: outside(file.path) })) });
+    }
+    if (params.get("tree")) {
+      const folders = await listAllFolders(500, base);
+      return NextResponse.json({ folders: folders.map(outside) });
+    }
+    const listing: DriveListing = await listFolder(inside(cleanPath(params.get("path"))));
+    return NextResponse.json({
+      path: outside(listing.path),
+      folders: listing.folders.map((folder) => ({ ...folder, path: outside(folder.path) })),
+      files: listing.files.map((file) => ({ ...file, path: outside(file.path) })),
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Drive illisible" }, { status: 500 });
   }
@@ -47,7 +80,9 @@ type Body = {
 async function importFromUrl(request: Request, rawUrl: string, into: string, wanted?: string) {
   const resolved = new URL(rawUrl, request.url);
   if (!/^https?:$/.test(resolved.protocol)) throw new Error("URL refusée");
-  const res = await fetch(resolved.toString(), { cache: "no-store", headers: { cookie: request.headers.get("cookie") ?? "" } });
+  // Le cookie de session ne part que vers l'outil lui-même, jamais vers un site extérieur.
+  const sameOrigin = resolved.origin === new URL(request.url).origin;
+  const res = await fetch(resolved.toString(), { cache: "no-store", headers: sameOrigin ? { cookie: request.headers.get("cookie") ?? "" } : {} });
   if (!res.ok) throw new Error(`Source injoignable (${res.status})`);
   const data = Buffer.from(await res.arrayBuffer());
   if (!data.length) throw new Error("Fichier vide");
@@ -66,38 +101,44 @@ async function importFromUrl(request: Request, rawUrl: string, into: string, wan
  */
 export async function POST(request: Request) {
   const type = request.headers.get("content-type") ?? "";
+  const { base, inside, outside } = scopeFor(request);
   try {
     if (type.includes("multipart/form-data")) {
       const form = await request.formData();
-      const rel = cleanPath(String(form.get("path") ?? ""));
+      const rel = inside(cleanPath(String(form.get("path") ?? "")));
       const saved: string[] = [];
       for (const entry of form.getAll("files")) {
         if (!(entry instanceof File) || !entry.size) continue;
-        saved.push(await saveFile(rel, entry.name, Buffer.from(await entry.arrayBuffer())));
+        saved.push(outside(await saveFile(rel, entry.name, Buffer.from(await entry.arrayBuffer()))));
       }
       if (!saved.length) return NextResponse.json({ error: "Aucun fichier reçu" }, { status: 400 });
       return NextResponse.json({ saved });
     }
 
     const body = (await request.json()) as Body;
-    const rel = cleanPath(body.path);
+    const rel = inside(cleanPath(body.path));
+    // La racine de l'associé (« Commun ») ne se supprime, ne se renomme ni ne se déplace.
+    const touchesRoot = base && rel === base;
     switch (body.action) {
       case "mkdir":
         if (!body.name?.trim()) return NextResponse.json({ error: "Nom du dossier manquant" }, { status: 400 });
-        return NextResponse.json({ path: await createFolder(rel, body.name) });
+        return NextResponse.json({ path: outside(await createFolder(rel, body.name)) });
       case "delete":
+        if (touchesRoot) return NextResponse.json({ error: "La racine ne se supprime pas" }, { status: 400 });
         await removeEntry(rel);
         return NextResponse.json({ ok: true });
       case "rename":
+        if (touchesRoot) return NextResponse.json({ error: "La racine ne se renomme pas" }, { status: 400 });
         if (!body.name?.trim()) return NextResponse.json({ error: "Nouveau nom manquant" }, { status: 400 });
-        return NextResponse.json({ path: await renameEntry(rel, body.name) });
+        return NextResponse.json({ path: outside(await renameEntry(rel, body.name)) });
       case "move":
-        return NextResponse.json({ path: await moveEntry(rel, cleanPath(body.into)) });
+        if (touchesRoot) return NextResponse.json({ error: "La racine ne se déplace pas" }, { status: 400 });
+        return NextResponse.json({ path: outside(await moveEntry(rel, inside(cleanPath(body.into)))) });
       case "copy":
-        return NextResponse.json({ path: await copyEntry(rel, cleanPath(body.into)) });
+        return NextResponse.json({ path: outside(await copyEntry(rel, inside(cleanPath(body.into)))) });
       case "import":
         if (!body.url?.trim()) return NextResponse.json({ error: "URL manquante" }, { status: 400 });
-        return NextResponse.json({ path: await importFromUrl(request, body.url, cleanPath(body.into), body.name) });
+        return NextResponse.json({ path: outside(await importFromUrl(request, body.url, inside(cleanPath(body.into)), body.name)) });
       default:
         return NextResponse.json({ error: "Action inconnue" }, { status: 400 });
     }

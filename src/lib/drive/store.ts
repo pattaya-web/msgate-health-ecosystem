@@ -111,7 +111,7 @@ export async function listFolder(rel: string): Promise<DriveListing> {
 }
 
 /** Recherche par nom dans tout l'arbre : c'est « je sais où c'est » quand on ne sait plus. */
-export async function searchFiles(query: string, limit = 200): Promise<DriveFile[]> {
+export async function searchFiles(query: string, limit = 200, under = ""): Promise<DriveFile[]> {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
   const found: DriveFile[] = [];
@@ -132,8 +132,8 @@ export async function searchFiles(query: string, limit = 200): Promise<DriveFile
       }
     }
   };
-  await mkdir(ROOT, { recursive: true });
-  await walk("");
+  await mkdir(abs(under), { recursive: true });
+  await walk(under);
   return found.sort((a, b) => b.mtime.localeCompare(a.mtime));
 }
 
@@ -244,7 +244,7 @@ export async function copyEntry(rel: string, intoRel: string) {
 }
 
 /** Tous les dossiers, à plat, pour un sélecteur : « Boutique / Campagne / Ads ». */
-export async function listAllFolders(limit = 500): Promise<string[]> {
+export async function listAllFolders(limit = 500, under = ""): Promise<string[]> {
   const out: string[] = [];
   const walk = async (rel: string) => {
     if (out.length >= limit) return;
@@ -256,9 +256,21 @@ export async function listAllFolders(limit = 500): Promise<string[]> {
       await walk(childRel);
     }
   };
-  await mkdir(ROOT, { recursive: true });
-  await walk("");
+  await mkdir(abs(under), { recursive: true });
+  await walk(under);
   return out.sort((a, b) => a.localeCompare(b, "fr"));
+}
+
+/**
+ * Le Drive commun : un dossier partagé entre l'admin et l'associé, rangé par
+ * boutique, plus les sauvegardes automatiques du Studio IA. L'associé ne voit
+ * que lui (sa racine) ; l'admin le voit comme un dossier parmi les autres.
+ */
+export const SHARED_ROOT = "Commun";
+const SHARED_DEFAULTS = ["Venom/Créatifs", "Venom/Images", "Venom/Vidéos", "Sauvegardes auto/Studio IA"];
+
+export async function ensureSharedFolders() {
+  for (const folder of SHARED_DEFAULTS) await mkdir(abs(`${SHARED_ROOT}/${folder}`), { recursive: true });
 }
 
 /** Extension déduite du type MIME quand l'URL n'en donne pas (fichiers Kie sans nom). */

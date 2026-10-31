@@ -129,6 +129,7 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
       { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
       { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
       { href: "/studio-ia", label: "Studio IA", icon: Clapperboard },
+      { href: "/drive", label: "Drive commun", icon: HardDrive },
     ],
   },
 ];

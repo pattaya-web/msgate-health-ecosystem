@@ -240,6 +240,8 @@ export async function saveStaticCreative(input: {
   }
   store.items.unshift(item);
   await persist();
+  // Pas de recopie dans le Drive : la bibliothèque est déjà la sauvegarde des Creatives,
+  // et la copie de secours (src/lib/backup.ts) l'envoie telle quelle vers OneDrive.
   return item;
 }
 
