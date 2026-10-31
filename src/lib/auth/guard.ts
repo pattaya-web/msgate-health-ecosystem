@@ -67,7 +67,16 @@ const ASSOCIATE_WRITE = new Set([
   "/api/meta/upload/copy",
 ]);
 
+/**
+ * Le Studio IA, en entier : générations Kie, voix, montage, uploads, médias et
+ * ses trois collections (générations, personnages, tâches — la route data
+ * refuse toute autre collection, réglages et clés compris).
+ */
+const ASSOCIATE_STUDIO_PREFIXES = ["/api/studio-ia/", "/api/kie/", "/api/media/", "/api/data/"];
+const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit"]);
+
 export function isAssociateApi(method: string, pathname: string) {
+  if (ASSOCIATE_STUDIO_PATHS.has(pathname) || ASSOCIATE_STUDIO_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
   const verb = method.toUpperCase();
   if (SAFE_METHODS.has(verb)) return ASSOCIATE_READ.has(pathname);
   return verb === "POST" && ASSOCIATE_WRITE.has(pathname);

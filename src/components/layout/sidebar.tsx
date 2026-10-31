@@ -122,12 +122,13 @@ export const SECTIONS: NavSection[] = [
 const ASSOCIATE_SECTIONS: NavSection[] = [
   {
     id: "straight-sale",
-    label: "Straight Sale",
+    label: "Venom",
     items: [
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
       { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
       { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
+      { href: "/studio-ia", label: "Studio IA", icon: Clapperboard },
     ],
   },
 ];

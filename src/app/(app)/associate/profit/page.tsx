@@ -5,7 +5,7 @@ import { AssociateHeader, Kpi, pct, ratio, usd, useNow } from "@/components/asso
 import { useAssociateOverview } from "@/components/associate/use-associate-overview";
 
 /**
- * Le profit de l'accès Associé, en cascade : chiffre d'affaires Straight sale,
+ * Le profit de l'accès Associé, en cascade : chiffre d'affaires de la boutique,
  * moins remboursements, coût des articles, frais de paiement et pub Meta.
  * Les taux (frais, marge visée) sont réglés par l'admin dans Settings ; rien
  * d'autre à saisir.
@@ -56,12 +56,11 @@ export default function AssociateProfitPage() {
           icon={<PiggyBank className="h-4 w-4" />}
         />
         <Kpi label="Chiffre d'affaires" value={profit ? usd(profit.revenue) : "—"} sub={overview ? `${overview.sales.orders} vente(s)` : ""} icon={<Coins className="h-4 w-4" />} delay={60} />
-        <Kpi label="ROAS actuel" value={ratio(roas)} sub={`minimum ${ratio(profit?.breakEvenRoas)}`} icon={<TrendingUp className="h-4 w-4" />} delay={120} />
+        <Kpi label="ROAS réel" value={ratio(roas)} sub="ventes ÷ dépense Meta" icon={<TrendingUp className="h-4 w-4" />} delay={120} />
         <Kpi
-          label="ROAS cible"
-          value={ratio(profit?.targetRoas)}
-          tone="good"
-          sub={profit ? `pour ${pct(profit.targetMargin, 0)} de marge nette` : ""}
+          label="ROAS Meta"
+          value={ratio(overview?.meta.metaRoas)}
+          sub={overview ? `${overview.meta.purchases} achat(s) attribués par Meta` : ""}
           icon={<Target className="h-4 w-4" />}
           delay={180}
         />
@@ -106,7 +105,7 @@ export default function AssociateProfitPage() {
       </div>
 
       <p className="r-sub px-1">
-        Le ROAS minimum est celui où la pub rapporte juste ce qu&apos;elle coûte, une fois articles, frais et remboursements payés. Au-dessus de la cible, la marge visée est atteinte.
+        ROAS réel : les ventes de la boutique divisées par la dépense Meta. ROAS Meta : la valeur des achats que Meta attribue à ses campagnes, divisée par la même dépense.
       </p>
     </div>
   );

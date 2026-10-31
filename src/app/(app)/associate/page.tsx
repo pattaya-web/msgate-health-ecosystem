@@ -10,8 +10,8 @@ import { AssociateHeader, Kpi, ago, pct, ratio, usd, usdShort, useNow } from "@/
 import { useAssociateOverview } from "@/components/associate/use-associate-overview";
 
 /**
- * Le tableau de bord de l'accès Associé : ventes Straight sale de la boutique,
- * dépense Meta, ROAS face à la cible, conversion et ventes en temps réel.
+ * Le tableau de bord de l'accès Associé : ventes de la boutique, dépense Meta,
+ * ROAS réel et ROAS Meta des campagnes, conversion et ventes en temps réel.
  * Une seule source, /api/associate/overview : le serveur ne lui sert rien
  * d'autre (src/lib/auth/guard.ts), ni processeur, ni abonnement.
  */
@@ -43,10 +43,10 @@ export default function AssociatePage() {
   const chartData = useMemo(() => (overview?.sales.series ?? []).map((point) => ({ ...point, label: shortDay(point.date) })), [overview]);
 
   const sales = overview?.sales;
-  const profit = overview?.profit;
   const roas = overview?.roas ?? null;
-  const roasTone = roas == null ? undefined : profit?.targetRoas != null && roas >= profit.targetRoas ? "good" : profit?.breakEvenRoas != null && roas >= profit.breakEvenRoas ? "warn" : "bad";
-  const roasMax = Math.max(roas ?? 0, profit?.targetRoas ?? 0, profit?.breakEvenRoas ?? 0, 1) * 1.15;
+  const metaRoas = overview?.meta.metaRoas ?? null;
+  const campaigns = overview?.meta.campaigns ?? [];
+  const bestRoas = Math.max(1, ...campaigns.map((campaign) => campaign.roas ?? 0));
 
   const accent = dark ? "#ff7aa8" : "#e85a8b";
   const bar = dark ? "rgba(255,176,203,0.28)" : "rgba(232,90,139,0.18)";
@@ -67,9 +67,9 @@ export default function AssociatePage() {
       ) : null}
 
       <AssociateHeader
-        title="Straight sale"
-        subtitle="Ventes directes de la boutique et publicité Meta associée"
-        shop={overview?.shop.name ?? null}
+        title={overview?.shop.name ?? "Venom"}
+        subtitle={sales ? `${usd(sales.revenue)} de chiffre d'affaires sur la période` : "Chargement…"}
+        shop={null}
         range={range}
         onRange={setRange}
         loading={loading}
@@ -114,10 +114,9 @@ export default function AssociatePage() {
           delay={60}
         />
         <Kpi
-          label="ROAS"
+          label="ROAS réel"
           value={ratio(roas)}
-          tone={roasTone}
-          sub={profit?.targetRoas != null ? `cible ${ratio(profit.targetRoas)} · minimum ${ratio(profit.breakEvenRoas)}` : "cible calculée dès les premières ventes"}
+          sub={`ventes ÷ dépense Meta · ROAS Meta ${ratio(metaRoas)}`}
           icon={<Target className="h-4 w-4" />}
           delay={120}
         />
@@ -180,40 +179,40 @@ export default function AssociatePage() {
 
           <div className="r-card r-rise p-4" style={{ animationDelay: "300ms" }}>
             <div className="mb-2 flex items-center justify-between">
-              <p className="r-label">Rentabilité</p>
+              <div>
+                <p className="r-label">ROAS des campagnes</p>
+                <p className="r-sub mt-0.5">attribué par Meta, sur la période</p>
+              </div>
               <span className="r-icon">
                 <Sparkles className="h-4 w-4" />
               </span>
             </div>
-            <div className="relative mt-3 h-2.5 rounded-full" style={{ background: "var(--r-accent-soft)" }}>
-              {profit?.breakEvenRoas != null ? (
-                <span className="absolute -top-1 h-4.5 w-0.5 rounded-full" style={{ left: `${(profit.breakEvenRoas / roasMax) * 100}%`, background: "var(--r-warn)" }} title="ROAS minimum" />
-              ) : null}
-              {profit?.targetRoas != null ? (
-                <span className="absolute -top-1 h-4.5 w-0.5 rounded-full" style={{ left: `${(profit.targetRoas / roasMax) * 100}%`, background: "var(--r-good)" }} title="ROAS cible" />
-              ) : null}
-              <span
-                className="block h-full rounded-full"
-                style={{ width: `${Math.min(100, ((roas ?? 0) / roasMax) * 100)}%`, background: "linear-gradient(90deg, var(--r-accent-2), var(--r-accent))", transition: "width .8s var(--ease-out-expo)" }}
-              />
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              {[
-                ["Actuel", ratio(roas), "var(--ink)"],
-                ["Minimum", ratio(profit?.breakEvenRoas), "var(--r-warn)"],
-                ["Cible", ratio(profit?.targetRoas), "var(--r-good)"],
-              ].map(([label, value, color]) => (
-                <div key={label}>
-                  <p className="r-label">{label}</p>
-                  <p className="mt-0.5 text-[15px] font-semibold tabular-nums" style={{ color }}>
-                    {value}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <p className="r-sub mt-2.5">
-              Sous le minimum, la pub coûte plus qu&apos;elle ne rapporte. La cible donne {profit ? pct(profit.targetMargin, 0) : "—"} de marge nette.
-            </p>
+            {campaigns.length ? (
+              <ul className="mt-2 space-y-2.5">
+                {campaigns.slice(0, 6).map((campaign, index) => (
+                  <li key={campaign.id} className="r-row-in" style={{ animationDelay: `${340 + index * 50}ms` }}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 truncate text-[12px] font-medium" style={{ color: campaign.status === "ACTIVE" ? "var(--ink)" : "var(--ink-3)" }} title={campaign.name}>
+                        {campaign.name}
+                      </span>
+                      <span className="shrink-0 text-[13px] font-semibold tabular-nums" style={{ color: "var(--r-accent-ink)" }}>
+                        {ratio(campaign.roas)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="r-bar flex-1" style={{ height: 5 }}>
+                        <span style={{ width: `${Math.min(100, ((campaign.roas ?? 0) / bestRoas) * 100)}%` }} />
+                      </div>
+                      <span className="r-sub shrink-0">
+                        {usd(campaign.spend, 0)} · {campaign.purchases} achat(s)
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="r-sub py-3">{loading ? "Chargement…" : "Aucune dépense sur la période."}</p>
+            )}
           </div>
         </div>
       </div>

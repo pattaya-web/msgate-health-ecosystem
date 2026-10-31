@@ -62,6 +62,11 @@ export type AssociateOverview = {
     error: string | null;
     /** La conversion appliquée (comptes en euros, ventes en dollars), ou null. */
     conversion: string | null;
+    /** Achats et ROAS attribués par Meta (valeur des achats ÷ dépense, sur la période). */
+    purchases: number;
+    metaRoas: number | null;
+    /** Les campagnes de la période, avec leur ROAS Meta. */
+    campaigns: Array<{ id: string; name: string; status: string; spend: number; purchases: number; roas: number | null }>;
   };
   roas: number | null;
   cpa: number | null;
@@ -160,14 +165,27 @@ function matches(keyword: string, name: string) {
 /** La part des dépenses d'un compte qui relève du périmètre : tout le compte s'il est retenu, sinon ses campagnes au mot-clé. */
 function spendInScope(account: AccountNode, scope: AssociateScope) {
   const whole = scope.metaAccountIds.includes(account.accountId) || matches(scope.campaignKeyword, account.name);
-  if (whole) return { spend: account.metrics.spend, campaigns: account.campaigns.length };
-  const picked = account.campaigns.filter((campaign) => matches(scope.campaignKeyword, campaign.name));
-  return { spend: picked.reduce((sum, campaign) => sum + campaign.metrics.spend, 0), campaigns: picked.length };
+  const picked = whole ? account.campaigns : account.campaigns.filter((campaign) => matches(scope.campaignKeyword, campaign.name));
+  return {
+    spend: whole ? account.metrics.spend : picked.reduce((sum, campaign) => sum + campaign.metrics.spend, 0),
+    campaigns: picked.length,
+    picked,
+  };
 }
 
 /** La dépense Meta du périmètre : comptes retenus en entier, plus les campagnes au mot-clé des autres comptes. */
 async function scopedMetaSpend(start: string, end: string, scope: AssociateScope): Promise<AssociateOverview["meta"]> {
-  let meta: AssociateOverview["meta"] = { spend: 0, currency: null, accounts: [], configured: Boolean(getMetaConfig()), error: null, conversion: null };
+  let meta: AssociateOverview["meta"] = {
+    spend: 0,
+    currency: null,
+    accounts: [],
+    configured: Boolean(getMetaConfig()),
+    error: null,
+    conversion: null,
+    purchases: 0,
+    metaRoas: null,
+    campaigns: [],
+  };
   const hasScope = scope.metaAccountIds.length > 0 || Boolean(scope.campaignKeyword);
   if (meta.configured && hasScope) {
     try {
@@ -178,6 +196,23 @@ async function scopedMetaSpend(start: string, end: string, scope: AssociateScope
       // Tout en dollars, la devise des ventes : les comptes de Badgal Collection sont en euros.
       const rates = await fxRates(rows.map((row) => row.account.currency), REPORT_CURRENCY);
       const inUsd = (row: (typeof rows)[number]) => row.spend * (rates.get((row.account.currency || REPORT_CURRENCY).toUpperCase())?.rate ?? 1);
+      // Le ROAS de Meta se calcule dans la devise du compte (valeur des achats et dépense sont toutes deux en euros) : pas de conversion.
+      const rate = (currency: string) => rates.get((currency || REPORT_CURRENCY).toUpperCase())?.rate ?? 1;
+      const campaigns = rows
+        .flatMap((row) => row.picked.map((campaign) => ({ campaign, currency: row.account.currency })))
+        .filter(({ campaign }) => campaign.metrics.spend > 0)
+        .map(({ campaign, currency }) => ({
+          id: campaign.id,
+          name: campaign.name,
+          status: campaign.status,
+          spend: campaign.metrics.spend * rate(currency),
+          purchases: campaign.metrics.purchases,
+          roas: campaign.metrics.spend > 0 ? campaign.metrics.purchaseValue / campaign.metrics.spend : null,
+          value: campaign.metrics.purchaseValue * rate(currency),
+        }))
+        .sort((a, b) => b.spend - a.spend);
+      const spendUsd = campaigns.reduce((sum, campaign) => sum + campaign.spend, 0);
+      const valueUsd = campaigns.reduce((sum, campaign) => sum + campaign.value, 0);
       meta = {
         spend: rows.reduce((sum, row) => sum + inUsd(row), 0),
         currency: REPORT_CURRENCY,
@@ -185,6 +220,12 @@ async function scopedMetaSpend(start: string, end: string, scope: AssociateScope
         configured: true,
         error: null,
         conversion: describeConversion(rates, REPORT_CURRENCY),
+        purchases: campaigns.reduce((sum, campaign) => sum + campaign.purchases, 0),
+        metaRoas: spendUsd > 0 ? valueUsd / spendUsd : null,
+        campaigns: campaigns.map(({ value: _value, ...rest }) => {
+          void _value;
+          return rest;
+        }),
       };
     } catch (error) {
       meta = { ...meta, error: error instanceof Error ? error.message : "Meta indisponible" };
@@ -196,7 +237,7 @@ async function scopedMetaSpend(start: string, end: string, scope: AssociateScope
 /**
  * Le tableau de bord de l'associé, calculé ici et nulle part ailleurs.
  *
- * Ventes : les ventes directes (Straight sale) des boutiques du périmètre,
+ * Ventes : les ventes directes des boutiques du périmètre,
  * Shopify compris, jour par jour à l'heure de Paris. Meta : la dépense des
  * comptes et campagnes du périmètre. Conversion : les visites Shopify. Profit :
  * remboursements, COGS au coût de base, frais de paiement estimés et pub.

@@ -14,7 +14,7 @@ const items = [
 ];
 
 const associateItems = [
-  { href: "/associate", label: "Straight Sale", icon: Handshake },
+  { href: "/associate", label: "Ventes", icon: Handshake },
   { href: "/associate/profit", label: "Profit", icon: Calculator },
   { href: "/ads", label: "Ads", icon: Megaphone },
 ];
