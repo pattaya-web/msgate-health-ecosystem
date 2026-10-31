@@ -6,14 +6,15 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/associate", label: "Ventes" },
   { href: "/associate/profit", label: "Profit" },
+  { href: "/associate/partage", label: "Partage 50/50" },
 ];
 
-/** Les deux pages de l'accès Associé, en onglets doux (et accessibles depuis la « Vue Alison » de l'admin). */
+/** Les pages de l'accès Associé, en onglets doux (et accessibles depuis la « Vue Alison » de l'admin). */
 export default function AssociateLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4">
-      <nav className="r-tabs mx-auto max-w-xs">
+      <nav className="r-tabs mx-auto max-w-md">
         {TABS.map((tab) => (
           <Link key={tab.href} href={tab.href} className="r-tab" data-active={pathname === tab.href ? "true" : "false"}>
             {tab.label}

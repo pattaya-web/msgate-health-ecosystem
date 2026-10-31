@@ -174,7 +174,7 @@ function spendInScope(account: AccountNode, scope: AssociateScope) {
 }
 
 /** La dépense Meta du périmètre : comptes retenus en entier, plus les campagnes au mot-clé des autres comptes. */
-async function scopedMetaSpend(start: string, end: string, scope: AssociateScope): Promise<AssociateOverview["meta"]> {
+export async function scopedMetaSpend(start: string, end: string, scope: AssociateScope): Promise<AssociateOverview["meta"]> {
   let meta: AssociateOverview["meta"] = {
     spend: 0,
     currency: null,

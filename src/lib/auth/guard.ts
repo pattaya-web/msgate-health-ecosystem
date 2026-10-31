@@ -51,6 +51,7 @@ export function isPublicApi(method: string, pathname: string) {
 const ASSOCIATE_READ = new Set([
   "/api/associate/overview",
   "/api/associate/profit",
+  "/api/associate/partnership",
   "/api/meta/tree",
   "/api/meta/accounts",
   "/api/meta/creatives",
@@ -59,6 +60,7 @@ const ASSOCIATE_READ = new Set([
   "/api/shopify/daily",
 ]);
 const ASSOCIATE_WRITE = new Set([
+  "/api/associate/partnership",
   "/api/meta/entity",
   "/api/meta/creatives",
   "/api/meta/creatives/zip",
@@ -75,8 +77,17 @@ const ASSOCIATE_WRITE = new Set([
 const ASSOCIATE_STUDIO_PREFIXES = ["/api/studio-ia/", "/api/kie/", "/api/media/", "/api/data/"];
 const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit", "/api/drive", "/api/drive/file"]);
 
+/**
+ * Les outils ouverts à l'associé en plus (31/10/2026) : Toutes les créas et
+ * Download TikTok (routes /api/studio/*), Image Product, SpyShop (et sa
+ * recherche Brandsearch) et SAV. Facturation n'appelle aucune API.
+ */
+const ASSOCIATE_TOOL_PREFIXES = ["/api/studio/", "/api/product-images/", "/api/spyshop/", "/api/brandsearch/", "/api/sav/"];
+const ASSOCIATE_TOOL_PATHS = new Set(["/api/studio", "/api/ugc/file", "/api/product-images", "/api/spyshop", "/api/brandsearch"]);
+
 export function isAssociateApi(method: string, pathname: string) {
   if (ASSOCIATE_STUDIO_PATHS.has(pathname) || ASSOCIATE_STUDIO_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
+  if (ASSOCIATE_TOOL_PATHS.has(pathname) || ASSOCIATE_TOOL_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
   const verb = method.toUpperCase();
   if (SAFE_METHODS.has(verb)) return ASSOCIATE_READ.has(pathname);
   return verb === "POST" && ASSOCIATE_WRITE.has(pathname);

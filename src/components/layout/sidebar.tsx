@@ -25,6 +25,7 @@ import {
   Package,
   PanelLeftClose,
   ReceiptText,
+  Scale,
   Settings,
   ShieldAlert,
   ShoppingBag,
@@ -118,7 +119,7 @@ export const SECTIONS: NavSection[] = [
   },
 ];
 
-/** La barre d'un associé : une seule section, une seule page, pas de réglage d'ordre. */
+/** La barre d'un associé : Venom, la création et la boutique, pas de réglage d'ordre. */
 const ASSOCIATE_SECTIONS: NavSection[] = [
   {
     id: "straight-sale",
@@ -126,10 +127,29 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
     items: [
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
+      { href: "/associate/partage", label: "Partage 50/50", icon: Scale },
       { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
       { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
+      { href: "/invoices", label: "Facturation", icon: ReceiptText },
+    ],
+  },
+  {
+    id: "associate-creation",
+    label: "Création",
+    items: [
       { href: "/studio-ia", label: "Studio IA", icon: Clapperboard },
+      { href: "/studio/library", label: "Toutes les créas", icon: FolderOpen },
+      { href: "/product-images", label: "Image Product", icon: ImagePlus },
+      { href: "/download-tiktok", label: "Download Tiktok", icon: Download },
+    ],
+  },
+  {
+    id: "associate-shop",
+    label: "Shop & clients",
+    items: [
       { href: "/drive", label: "Drive commun", icon: HardDrive },
+      { href: "/spyshop", label: "SpyShop", icon: Eye },
+      { href: "/sav", label: "SAV", icon: Mail },
     ],
   },
 ];
