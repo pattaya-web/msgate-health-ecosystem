@@ -262,6 +262,11 @@ type MetaTreeState = {
     errors: string[];
   } | null;
   maps: SyncMaps;
+  /**
+   * Incrémenté à chaque modification (pause, budget, nom) : une lecture Meta
+   * partie avant la modification ne remet pas l'ancien statut en cache.
+   */
+  generation?: number;
 };
 
 const globalRef = globalThis as typeof globalThis & { __msgateMetaTree?: MetaTreeState };
@@ -284,7 +289,8 @@ function todayParis() {
 const ttlFor = (preset: DatePreset, range?: { start: string; end: string }) =>
   preset === "today" || (range && range.end >= todayParis()) ? 60_000 : 20 * 60_000;
 const LIFETIME_TTL_MS = 30 * 60_000;
-const STRUCTURE_TTL_MS = 12 * 60_000;
+/** Les statuts (ON/OFF) vivent dans la structure : relus toutes les 2 min pour voir vite les changements de l'autre. */
+const STRUCTURE_TTL_MS = 2 * 60_000;
 const STRUCTURE_TTL_TODAY_MS = 60_000;
 const OWNED_TTL_MS = 12 * 60_000;
 
@@ -301,6 +307,7 @@ export function getTokenForAccount(accountId: string) {
 }
 
 export function invalidateTreeCache() {
+  state.generation = (state.generation ?? 0) + 1;
   state.cache.clear();
   state.lifetime.clear();
   state.structure.clear();
@@ -315,6 +322,7 @@ export async function buildAdsTree(params: {
 }): Promise<AdsTree> {
   const config = await getMetaConfigWithExtras();
   if (!config) throw new Error("Meta is not configured (missing META_ACCESS_TOKENS)");
+  const generation = state.generation ?? 0;
   const range = resolveRange(params.preset, params.start, params.end);
   const cacheKey = `${params.preset}:${range.start}:${range.end}`;
 
@@ -471,7 +479,7 @@ export async function buildAdsTree(params: {
       for (const account of accounts) {
         const id = account.account_id;
         if (campaignsByAccount.has(id) && adsetsByAccount.has(id) && adsByAccount.has(id)) {
-          state.structure.set(id, {
+          if ((state.generation ?? 0) === generation) state.structure.set(id, {
             at: Date.now(),
             campaigns: campaignsByAccount.get(id) || [],
             adsets: adsetsByAccount.get(id) || [],
@@ -716,7 +724,7 @@ export async function buildAdsTree(params: {
     fetchedAt: new Date().toISOString(),
   };
 
-  state.cache.set(cacheKey, { at: Date.now(), tree });
+  if ((state.generation ?? 0) === generation) state.cache.set(cacheKey, { at: Date.now(), tree });
   return tree;
 }
 

@@ -786,6 +786,36 @@ summary {
   }
 }
 
+/* Couleurs neutres des cartes « r-* » hors peau rose : l'admin voit les pages
+   de l'espace associé (MoneyTalk, Produits à lancer, Factures) sans le thème
+   d'Alison ; la peau rose ci-dessous les redéfinit pour elle. */
+:root {
+  --r-accent: #233137;
+  --r-accent-2: #3a4f57;
+  --r-accent-soft: rgba(35, 49, 55, 0.08);
+  --r-accent-ink: #233137;
+  --r-card: rgba(255, 255, 255, 0.9);
+  --r-card-border: rgba(35, 49, 55, 0.1);
+  --r-shadow: 0 18px 48px -24px rgba(11, 19, 21, 0.25);
+  --r-good: #059669;
+  --r-warn: #d97706;
+  --r-bad: #e11d48;
+  --r-grid: rgba(35, 49, 55, 0.08);
+}
+.dark {
+  --r-accent: #e6ebec;
+  --r-accent-2: #c7d1d5;
+  --r-accent-soft: rgba(230, 235, 236, 0.08);
+  --r-accent-ink: #e6ebec;
+  --r-card: rgba(15, 23, 26, 0.8);
+  --r-card-border: rgba(230, 235, 236, 0.08);
+  --r-shadow: 0 18px 48px -24px rgba(0, 0, 0, 0.6);
+  --r-good: #34d399;
+  --r-warn: #fbbf24;
+  --r-bad: #fb7185;
+  --r-grid: rgba(230, 235, 236, 0.08);
+}
+
 /* ---------------------------------------------------------------------------
    Peau « rosé » de l'accès Associé (data-skin="rose" sur la racine de l'app).
    Les nuances slate et emerald, que tout l'écran utilise, sont re-teintées en

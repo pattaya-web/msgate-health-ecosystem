@@ -572,6 +572,70 @@ function filterGroups(groups: BucketGroup[], filters: Filters): BucketGroup[] {
 }
 
 /** Immutably applies a change to one node, wherever it sits in the tree. */
+/**
+ * Les modifications faites depuis l'outil (pause, activation, budget, nom),
+ * gardées dans le navigateur 20 minutes : tant que Meta ne les renvoie pas
+ * encore (copie du serveur en retard, lecture partie avant le clic), elles
+ * restent appliquées à l'écran. Changer d'onglet ou actualiser ne les efface plus.
+ */
+const PENDING_KEY = "msgate-meta-pending";
+const PENDING_TTL_MS = 20 * 60_000;
+type PendingWrite = { level: EntityLevel; id: string; patch: { status?: EntityStatus; dailyBudget?: number; name?: string }; at: number };
+
+function readPending(): PendingWrite[] {
+  try {
+    const rows = JSON.parse(localStorage.getItem(PENDING_KEY) || "[]") as PendingWrite[];
+    return Array.isArray(rows) ? rows.filter((row) => Date.now() - row.at < PENDING_TTL_MS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePending(rows: PendingWrite[]) {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(rows));
+  } catch {
+    // stockage refusé : la modification reste vraie chez Meta, seul l'affichage peut retarder
+  }
+}
+
+function rememberPending(level: EntityLevel, id: string, patch: PendingWrite["patch"]) {
+  const others = readPending().filter((row) => !(row.id === id && row.level === level && Object.keys(row.patch).join() === Object.keys(patch).join()));
+  writePending([...others, { level, id, patch, at: Date.now() }]);
+}
+
+/** Le nœud (campagne, ad set ou pub) d'un identifiant, dans l'arbre reçu. */
+function findNode(tree: AdsTree, level: EntityLevel, id: string): Record<string, unknown> | null {
+  const accounts = tree.accounts?.length ? tree.accounts : tree.groups.flatMap((group) => group.accounts);
+  for (const account of accounts) {
+    for (const campaign of account.campaigns) {
+      if (level === "campaign" && campaign.id === id) return campaign as unknown as Record<string, unknown>;
+      for (const adset of campaign.adsets) {
+        if (level === "adset" && adset.id === id) return adset as unknown as Record<string, unknown>;
+        if (level === "ad") for (const ad of adset.ads) if (ad.id === id) return ad as unknown as Record<string, unknown>;
+      }
+    }
+  }
+  return null;
+}
+
+/** Réapplique les modifications encore en attente ; celles que Meta renvoie déjà sont oubliées. */
+function applyPending(tree: AdsTree): AdsTree {
+  const pending = readPending();
+  if (!pending.length) return tree;
+  let next = tree;
+  const keep: PendingWrite[] = [];
+  for (const row of pending) {
+    const node = findNode(tree, row.level, row.id);
+    const confirmed = node && Object.entries(row.patch).every(([key, value]) => node[key] === value);
+    if (confirmed) continue;
+    keep.push(row);
+    if (node || (row.level === "ad" && row.patch.status === "ARCHIVED")) next = patchTree(next, row.level, row.id, row.patch);
+  }
+  writePending(keep);
+  return next;
+}
+
 function patchTree(
   tree: AdsTree,
   level: EntityLevel,
@@ -725,7 +789,7 @@ export default function AdsPage() {
         const body = await res.json();
         if (cancelled) return;
         if (!res.ok) throw new Error(body.error || "Synchronisation impossible");
-        setTree(body as AdsTree);
+        setTree(applyPending(body as AdsTree));
         setFx((body as { fx?: Record<string, number> }).fx ?? {});
         setError(null);
 
@@ -865,6 +929,7 @@ export default function AdsPage() {
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || "Meta a refusé la modification");
+        rememberPending(level, id, patch);
         toast.success(label);
       } catch (err) {
         setTree(snapshot);
@@ -951,6 +1016,7 @@ export default function AdsPage() {
             });
             const body = await res.json();
             if (!res.ok) throw new Error(body.error || "Meta a refusé la pause");
+            rememberPending("campaign", id, { status: "PAUSED" });
           })
         );
         void results;

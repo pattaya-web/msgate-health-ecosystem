@@ -1,9 +1,9 @@
 import { TikTok_Sans } from "next/font/google";
 import { StudioTabs } from "@/components/studio/studio-tabs";
 
+// Police variable, sans `weight` : Google sert le même fichier pour 600 et 700 et Turbopack refuse ce doublon (pages en 500).
 const tiktok = TikTok_Sans({
   subsets: ["latin"],
-  weight: ["600", "700"],
   variable: "--font-tiktok",
 });
 
