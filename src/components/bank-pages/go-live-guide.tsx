@@ -15,7 +15,8 @@ import { cn } from "@/lib/utils";
 
 const APEX_IP = "216.198.79.1";
 const WWW_CNAME = "cname.vercel-dns.com";
-const APP_URL = "https://msgate-health-ecosystem.vercel.app";
+/** Adresse de l'outil : son domaine mabillmafia.com (acheté le 31/10/2026) ; l'adresse Vercel reste valable en secours. */
+const APP_URL = "https://mabillmafia.com";
 const VERCEL_DOMAINS = "https://vercel.com/madys-projects-84d03991/msgate-health-ecosystem/settings/domains";
 
 function CopyValue({ value }: { value: string }) {

@@ -12,15 +12,23 @@ import { getEcomSiteByDomain } from "@/lib/ecom-sites/store";
  * requête arrive avec ce nom d'hôte : on la réécrit vers la boutique dont le
  * champ « Domaine » correspond, sans changer l'adresse vue par le visiteur.
  *
- * L'hôte de l'outil lui-même (localhost, *.vercel.app, ou le domaine déclaré
- * dans APP_HOSTS) n'est pas touché. Un domaine inconnu non plus : l'outil
- * répond comme d'habitude, ce qui rend le diagnostic lisible.
+ * L'hôte de l'outil lui-même (localhost, *.vercel.app, son domaine
+ * mabillmafia.com, ou tout autre déclaré dans APP_HOSTS) n'est pas touché. Un
+ * domaine inconnu non plus : l'outil répond comme d'habitude, ce qui rend le
+ * diagnostic lisible.
  */
 
-const APP_HOSTS = (process.env.APP_HOSTS ?? "")
-  .split(",")
-  .map((host) => host.trim().toLowerCase())
-  .filter(Boolean);
+/** Domaine de l'outil, acheté le 31/10/2026 (Namecheap) : reconnu même sans variable d'environnement. */
+export const TOOL_DOMAIN = "mabillmafia.com";
+const TOOL_HOSTS = [TOOL_DOMAIN, `www.${TOOL_DOMAIN}`];
+
+const APP_HOSTS = [
+  ...TOOL_HOSTS,
+  ...(process.env.APP_HOSTS ?? "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean),
+];
 
 function isAppHost(host: string) {
   if (!host || host === "localhost" || host.startsWith("127.") || host.startsWith("192.168.")) return true;
