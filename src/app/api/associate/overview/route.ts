@@ -24,7 +24,8 @@ export async function GET(request: Request) {
   const end = DAY.test(params.get("end") || "") ? (params.get("end") as string) : fallback.end;
   if (start > end) return NextResponse.json({ error: "Période invalide" }, { status: 400 });
   try {
-    return NextResponse.json({ ok: true, overview: await buildAssociateOverview(start, end) });
+    // force=1 : le bouton Synchroniser relit Shopify et Meta tout de suite, sans cache.
+    return NextResponse.json({ ok: true, overview: await buildAssociateOverview(start, end, { force: params.get("force") === "1" }) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Tableau de bord indisponible" }, { status: 502 });
   }

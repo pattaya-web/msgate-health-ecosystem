@@ -206,6 +206,9 @@ export default function AssociatePage() {
                         {ratio(campaign.roas)}
                       </span>
                     </div>
+                    <p className="r-sub truncate" style={{ fontSize: 10.5 }} title={campaign.account}>
+                      {campaign.account}
+                    </p>
                     <div className="mt-1 flex items-center gap-2">
                       <div className="r-bar flex-1" style={{ height: 5 }}>
                         <span style={{ width: `${Math.min(100, ((campaign.roas ?? 0) / bestRoas) * 100)}%` }} />

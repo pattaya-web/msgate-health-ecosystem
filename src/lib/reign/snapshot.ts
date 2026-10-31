@@ -387,10 +387,10 @@ function allOrders(current: ReignStoreFile) {
 }
 
 /**
- * Relit les commandes de la boutique Shopify : toutes les 45 s quand l'écran
+ * Relit les commandes de la boutique Shopify : toutes les 30 s quand l'écran
  * regarde aujourd'hui, 30 min sinon. Une panne Shopify n'arrête pas la synchro Reign.
  */
-const SHOPIFY_TODAY_TTL = 45 * 1000;
+const SHOPIFY_TODAY_TTL = 30 * 1000;
 
 async function syncShopify(current: ReignStoreFile, focus?: { start: string; end: string }, force?: boolean) {
   if (!isShopifySalesConfigured()) {
@@ -593,7 +593,7 @@ async function syncWindows(current: ReignStoreFile, focus?: { start: string; end
  * synchro Reign (clients, abonnements, fenêtres), qui peut prendre plusieurs
  * minutes. Une seule lecture à la fois.
  */
-function refreshShopify(options?: { focus?: { start: string; end: string }; force?: boolean }) {
+export function refreshShopifyNow(options?: { focus?: { start: string; end: string }; force?: boolean }) {
   if (state.shopifyInflight) return state.shopifyInflight;
   state.shopifyInflight = (async () => {
     try {
@@ -611,7 +611,7 @@ function refreshShopify(options?: { focus?: { start: string; end: string }; forc
 }
 
 export function startSync(options?: { focus?: { start: string; end: string }; force?: boolean }) {
-  if (getReignConfig()) void refreshShopify(options);
+  if (getReignConfig()) void refreshShopifyNow(options);
   if (state.inflight) return state.inflight;
   state.progress = { running: true, phase: "customers", done: 0, total: 0, fetched: 0, cached: 0, etaMs: null, startedAt: new Date().toISOString() };
   state.inflight = (async () => {

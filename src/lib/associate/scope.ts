@@ -12,7 +12,7 @@ import { buildSalesBreakdown } from "@/lib/metrics/sales-breakdown";
 import type { ProfitInputs } from "@/lib/metrics/profit-inputs";
 import { reportToday } from "@/lib/report-tz";
 import { REPORT_CURRENCY, describeConversion, fxRates } from "@/lib/fx";
-import { peekOrders, peekShopifyFeed } from "@/lib/reign/snapshot";
+import { peekOrders, peekShopifyFeed, refreshShopifyNow } from "@/lib/reign/snapshot";
 import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
 import { getLiveShopifySales, reportDay, shopifyDirectMode } from "@/lib/shopify/live-sales";
 
@@ -67,7 +67,7 @@ export type AssociateOverview = {
     purchases: number;
     metaRoas: number | null;
     /** Les campagnes de la période, avec leur ROAS Meta. */
-    campaigns: Array<{ id: string; name: string; status: string; spend: number; purchases: number; roas: number | null }>;
+    campaigns: Array<{ id: string; name: string; status: string; spend: number; purchases: number; roas: number | null; account: string }>;
   };
   roas: number | null;
   cpa: number | null;
@@ -181,7 +181,7 @@ function spendInScope(account: AccountNode, scope: AssociateScope) {
 }
 
 /** La dépense Meta du périmètre : comptes retenus en entier, plus les campagnes au mot-clé des autres comptes. */
-export async function scopedMetaSpend(start: string, end: string, scope: AssociateScope): Promise<AssociateOverview["meta"]> {
+export async function scopedMetaSpend(start: string, end: string, scope: AssociateScope, force = false): Promise<AssociateOverview["meta"]> {
   let meta: AssociateOverview["meta"] = {
     spend: 0,
     currency: null,
@@ -196,7 +196,7 @@ export async function scopedMetaSpend(start: string, end: string, scope: Associa
   const hasScope = scope.metaAccountIds.length > 0 || Boolean(scope.campaignKeyword);
   if (meta.configured && hasScope) {
     try {
-      const tree = await buildAdsTree({ preset: "custom", start, end });
+      const tree = await buildAdsTree({ preset: "custom", start, end, force });
       const rows = tree.accounts
         .map((account) => ({ account, ...spendInScope(account, scope) }))
         .filter((row) => row.campaigns > 0 || scope.metaAccountIds.includes(row.account.accountId));
@@ -206,9 +206,9 @@ export async function scopedMetaSpend(start: string, end: string, scope: Associa
       // Le ROAS de Meta se calcule dans la devise du compte (valeur des achats et dépense sont toutes deux en euros) : pas de conversion.
       const rate = (currency: string) => rates.get((currency || REPORT_CURRENCY).toUpperCase())?.rate ?? 1;
       const campaigns = rows
-        .flatMap((row) => row.picked.map((campaign) => ({ campaign, currency: row.account.currency })))
+        .flatMap((row) => row.picked.map((campaign) => ({ campaign, currency: row.account.currency, account: row.account.name })))
         .filter(({ campaign }) => campaign.metrics.spend > 0)
-        .map(({ campaign, currency }) => ({
+        .map(({ campaign, currency, account }) => ({
           id: campaign.id,
           name: campaign.name,
           status: campaign.status,
@@ -216,6 +216,7 @@ export async function scopedMetaSpend(start: string, end: string, scope: Associa
           purchases: campaign.metrics.purchases,
           roas: campaign.metrics.spend > 0 ? campaign.metrics.purchaseValue / campaign.metrics.spend : null,
           value: campaign.metrics.purchaseValue * rate(currency),
+          account,
         }))
         .sort((a, b) => b.spend - a.spend);
       const spendUsd = campaigns.reduce((sum, campaign) => sum + campaign.spend, 0);
@@ -250,7 +251,8 @@ export async function scopedMetaSpend(start: string, end: string, scope: Associa
  * remboursements, COGS au coût de base, frais de paiement estimés et pub.
  * Aucun nom de processeur ni rien des abonnements ne sort d'ici.
  */
-export async function buildAssociateOverview(start: string, end: string): Promise<AssociateOverview> {
+export async function buildAssociateOverview(start: string, end: string, options: { force?: boolean } = {}): Promise<AssociateOverview> {
+  const force = Boolean(options.force);
   const scope = await getAssociateScope();
   const storeSet = new Set(scope.stores);
   const inScope = (domain: string) => !storeSet.size || storeSet.has(domain);
@@ -271,7 +273,7 @@ export async function buildAssociateOverview(start: string, end: string): Promis
   let directFeed: Awaited<ReturnType<typeof getLiveShopifySales>> | null = null;
   if (direct) {
     // Une panne Shopify ne doit pas cacher la dépense Meta : les ventes restent à zéro, l'erreur est signalée.
-    directFeed = await getLiveShopifySales(start < today ? start : today).catch((error) => {
+    directFeed = await getLiveShopifySales(start < today ? start : today, force).catch((error) => {
       shopifyError = error instanceof Error ? error.message : "Shopify indisponible";
       return null;
     });
@@ -294,6 +296,10 @@ export async function buildAssociateOverview(start: string, end: string): Promis
     }
     phoenix = { configured: true, building: false, stale: false, progress: null, ...(shopifyError ? { error: shopifyError } : {}) };
   } else if (billing.configured) {
+    // Le bouton Synchroniser : les ventes Shopify sont relues tout de suite, avant de lire l'instantané.
+    // Sinon, relecture en arrière-plan à chaque appel (au plus toutes les 30 s), même quand Reign est à jour.
+    if (force) await refreshShopifyNow({ focus: { start, end }, force: true });
+    else void refreshShopifyNow({ focus: { start, end } });
     const snapshot = await peekSnapshot();
     const needsSync = !snapshot || !snapshot.complete || isStale(snapshot) || (focusIncludesToday({ start, end }) && isStale(snapshot, billing.todayMaxAgeMs));
     if (needsSync) void startSync({ focus: { start, end } });
@@ -332,7 +338,7 @@ export async function buildAssociateOverview(start: string, end: string): Promis
   const series = days.map((date) => ({ date, revenue: round2(byDay.get(date)?.revenue ?? 0), orders: byDay.get(date)?.orders ?? 0 }));
 
   const [meta, sales, peekedFeed, orderMap] = await Promise.all([
-    scopedMetaSpend(start, end, scope),
+    scopedMetaSpend(start, end, scope, force),
     buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }).catch(() => null),
     direct ? Promise.resolve(null) : peekShopifyFeed(),
     direct ? Promise.resolve(new Map<string, { shopifyName?: string | null }>()) : peekOrders(),

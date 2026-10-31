@@ -24,12 +24,13 @@ function loadRange(): DateRange {
 }
 
 /**
- * Les chiffres de la vue Associé, partagés par ses deux onglets.
+ * Les chiffres de la vue Associé, partagés par ses onglets.
  *
  * La plage de dates est gardée dans le navigateur : passer de « Ventes » à
  * « Profit » garde la même période. Tant que la période contient aujourd'hui,
- * les chiffres se relisent toutes les minutes (le serveur resynchronise Reign,
- * Shopify et Meta toutes les 2) ; pendant une synchro, toutes les 15 s.
+ * les chiffres se relisent toutes les 15 s (le serveur relit Shopify toutes
+ * les 30 s et Meta chaque minute). Le bouton Synchroniser force une relecture
+ * immédiate de Shopify et Meta.
  */
 export function useAssociateOverview() {
   const [range, setRangeState] = useState<DateRange>(() => loadRange());
@@ -37,6 +38,7 @@ export function useAssociateOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const setRange = useCallback((next: DateRange) => {
     setRangeState(next);
@@ -48,9 +50,10 @@ export function useAssociateOverview() {
     }
   }, []);
 
-  const load = useCallback(async (current: DateRange) => {
+  const load = useCallback(async (current: DateRange, force = false) => {
+    if (force) setSyncing(true);
     try {
-      const res = await fetch(`/api/associate/overview?start=${current.start}&end=${current.end}`, { cache: "no-store" });
+      const res = await fetch(`/api/associate/overview?start=${current.start}&end=${current.end}${force ? "&force=1" : ""}`, { cache: "no-store" });
       const body = (await res.json()) as { overview?: AssociateOverview; error?: string };
       if (!res.ok || !body.overview) throw new Error(body.error || `HTTP ${res.status}`);
       setOverview(body.overview);
@@ -60,6 +63,7 @@ export function useAssociateOverview() {
       setError(err instanceof Error ? err.message : "Tableau de bord indisponible");
     } finally {
       setLoading(false);
+      if (force) setSyncing(false);
     }
   }, []);
 
@@ -73,9 +77,9 @@ export function useAssociateOverview() {
     const today = reportToday();
     const live = range.start <= today && range.end >= today;
     if (!live && !building) return;
-    const timer = window.setInterval(() => void load(range), building ? 15_000 : 30_000);
+    const timer = window.setInterval(() => void load(range), 15_000);
     return () => window.clearInterval(timer);
   }, [range, load, building]);
 
-  return { range, setRange, overview, loading, error, loadedAt, building, refresh: () => void load(range) };
+  return { range, setRange, overview, loading: loading || syncing, error, loadedAt, building, syncing, refresh: () => void load(range, true) };
 }

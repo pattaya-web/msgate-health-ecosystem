@@ -8,11 +8,11 @@ import { fetchShopifySales, isShopifySalesConfigured, type ShopifySalesFeed } fr
  * Le site en ligne (Vercel) n'a ni disque ni clé Reign : il ne peut pas tenir
  * le gros instantané que le PC construit. Pour Venom, la boutique Shopify voit
  * toutes les ventes (Shopify Payments comme checkout Reign) : la lire en direct
- * donne les mêmes chiffres, en 3 secondes, à 45 s près. Sur le PC, où Reign est
+ * donne les mêmes chiffres, en 3 secondes, à 30 s près. Sur le PC, où Reign est
  * branché, ce mode reste éteint et rien ne change.
  */
 
-const TTL_MS = 45_000;
+const TTL_MS = 30_000;
 
 const state = ((globalThis as typeof globalThis & {
   __msgateLiveShopify?: { feed: (ShopifySalesFeed & { since: string; fetchedAt: string }) | null; inflight: Promise<unknown> | null };
@@ -23,10 +23,10 @@ export function shopifyDirectMode() {
   return !getReignConfig() && isShopifySalesConfigured();
 }
 
-/** Les commandes depuis `since`, relues au plus toutes les 45 s (une seule lecture à la fois). */
-export async function getLiveShopifySales(since: string) {
+/** Les commandes depuis `since`, relues au plus toutes les 30 s (une seule lecture à la fois) ; `force` relit tout de suite. */
+export async function getLiveShopifySales(since: string, force = false) {
   const cached = state.feed;
-  if (cached && cached.since <= since && Date.now() - Date.parse(cached.fetchedAt) < TTL_MS) return cached;
+  if (!force && cached && cached.since <= since && Date.now() - Date.parse(cached.fetchedAt) < TTL_MS) return cached;
   if (state.inflight) {
     await state.inflight.catch(() => undefined);
     if (state.feed && state.feed.since <= since && Date.now() - Date.parse(state.feed.fetchedAt) < TTL_MS) return state.feed;

@@ -94,7 +94,7 @@ export function AssociateHeader({
               {shop}
             </span>
           ) : null}
-          <span className="r-chip" title="Ventes Shopify relues toutes les 45 s, dépense Meta toutes les minutes">
+          <span className="r-chip" title="Ventes Shopify relues toutes les 30 s, dépense Meta chaque minute, page rafraîchie toutes les 15 s">
             <span className="r-live-dot" />
             Temps réel · {ago(liveAt, now)}
           </span>
@@ -111,8 +111,8 @@ export function AssociateHeader({
           type="button"
           onClick={onRefresh}
           className="r-icon h-10 w-10 rounded-full transition-transform hover:scale-105 active:scale-95"
-          aria-label="Actualiser"
-          title="Actualiser"
+          aria-label="Synchroniser maintenant"
+          title="Synchroniser maintenant : relit Shopify et Meta tout de suite"
         >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </button>
