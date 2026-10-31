@@ -193,8 +193,10 @@ export default function BusinessPage() {
     setLoading(false);
   }, []);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    loadMetrics();
+    const timer = setTimeout(() => void loadMetrics(), 0);
+    return () => clearTimeout(timer);
   }, [loadMetrics]);
 
   const selected = useMemo(

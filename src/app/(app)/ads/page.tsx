@@ -658,7 +658,8 @@ export default function AdsPage() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [panelAd, setPanelAd] = useState<string | null>(null);
-  const hermesAd = useMemo(() => {
+  // Sans useMemo : le contexte Hermes compare une version sérialisée, et le compilateur React mémoïse lui-même.
+  const hermesAd = (() => {
     if (!panelAd || !tree) return null;
     for (const account of tree.accounts ?? []) {
       for (const campaign of account.campaigns ?? []) {
@@ -669,7 +670,7 @@ export default function AdsPage() {
       }
     }
     return null;
-  }, [panelAd, tree]);
+  })();
   usePublishHermesContext("ads", hermesAd);
   const [showOther, setShowOther] = useState(false);
   const [autoDetect, setAutoDetect] = useState(true);
@@ -688,15 +689,19 @@ export default function AdsPage() {
   } | null>(null);
   const [shopifyLoading, setShopifyLoading] = useState(true);
 
+  // Relu au tick suivant : le rendu serveur et l'hydratation partent d'une liste vide.
   useEffect(() => {
-    setHiddenAdIds(loadHiddenAdIds());
+    const timer = setTimeout(() => setHiddenAdIds(loadHiddenAdIds()), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
+    // Lancé au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
+    const timer = setTimeout(() => {
     setRefreshing(true);
 
-    (async () => {
+    void (async () => {
       try {
         const params = new URLSearchParams(
           preset === "custom" ? { start: range.start, end: range.end } : { preset }
@@ -734,8 +739,10 @@ export default function AdsPage() {
       }
     })();
 
+    }, 0);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [preset, range.start, range.end, reloadKey]);
 
@@ -761,9 +768,11 @@ export default function AdsPage() {
   useEffect(() => {
     let cancelled = false;
     const window = frRange(preset, range);
+    // Lancé au tick suivant : pas de setState synchrone dans le corps de l'effet.
+    const timer = setTimeout(() => {
     setShopifyLoading(true);
 
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch(`/api/shopify/daily?start=${window.start}&end=${window.end}`);
         const body = await res.json();
@@ -781,9 +790,11 @@ export default function AdsPage() {
         if (!cancelled) setShopifyLoading(false);
       }
     })();
+    }, 0);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [preset, range.start, range.end]);
 

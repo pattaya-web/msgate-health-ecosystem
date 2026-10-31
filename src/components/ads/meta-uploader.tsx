@@ -106,8 +106,11 @@ export function MetaUploader() {
     }
   }
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    if (accountId) void loadTree(accountId);
+    if (!accountId) return;
+    const timer = setTimeout(() => void loadTree(accountId), 0);
+    return () => clearTimeout(timer);
   }, [accountId]);
 
   const filteredAccounts = useMemo(() => {

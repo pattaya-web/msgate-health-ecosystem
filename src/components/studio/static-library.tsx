@@ -44,8 +44,10 @@ export function StaticLibrary() {
     }
   }
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => void load(), 0);
+    return () => clearTimeout(timer);
   }, []);
 
   async function remove(id: string) {

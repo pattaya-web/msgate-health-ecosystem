@@ -111,13 +111,17 @@ export default function AlertsRdrPage() {
   const [data, setData] = useState<AlertsResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Relu au tick suivant : le rendu serveur et l'hydratation gardent les tarifs vides.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(FEES_KEY);
-      if (raw) setFees({ ...NO_FEES, ...(JSON.parse(raw) as Fees) });
-    } catch {
-      // tarifs illisibles : on repart à zéro plutôt que d'inventer un montant
-    }
+    const timer = setTimeout(() => {
+      try {
+        const raw = localStorage.getItem(FEES_KEY);
+        if (raw) setFees({ ...NO_FEES, ...(JSON.parse(raw) as Fees) });
+      } catch {
+        // tarifs illisibles : on repart à zéro plutôt que d'inventer un montant
+      }
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   function patchFee(key: keyof Fees, value: number) {
@@ -158,8 +162,10 @@ export default function AlertsRdrPage() {
     [start, end, merchant, mid, type, infer]
   );
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => void load(), 0);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const totals = data?.totals ?? emptyTotals();

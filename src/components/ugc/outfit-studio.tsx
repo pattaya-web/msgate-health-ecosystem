@@ -95,9 +95,11 @@ export function OutfitStudio() {
     }
   }, []);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    void loadAvatars();
+    const timer = setTimeout(() => void loadAvatars(), 0);
     return () => {
+      clearTimeout(timer);
       if (polling.current) window.clearInterval(polling.current);
     };
   }, [loadAvatars]);

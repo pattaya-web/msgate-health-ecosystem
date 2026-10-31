@@ -40,8 +40,11 @@ export function VideoStudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [mode, setMode] = useState<Mode>("overlay");
   const [clips, setClips] = useState<File[]>([]);
-  const [clipUrls, setClipUrls] = useState<string[]>([]);
-  const [clipIndex, setClipIndex] = useState(0);
+  // Le clip choisi vaut pour une liste de fichiers : une nouvelle liste repart du premier.
+  const [clipPick, setClipPick] = useState<{ of: File[] | null; index: number }>({ of: null, index: 0 });
+  /** Durées lues sur les éléments audio et vidéo quand leurs métadonnées arrivent (pas de ref lue au rendu). */
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [overlayText, setOverlayText] = useState("");
   const [align, setAlign] = useState<Align>("center");
   const [textSize, setTextSize] = useState(42);
@@ -58,7 +61,7 @@ export function VideoStudio() {
   const [emojis, setEmojis] = useState<string[]>([]);
   const [script, setScript] = useState("");
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
-  const [voiceUrl, setVoiceUrl] = useState("");
+  const voiceUrl = useMemo(() => (voiceFile ? URL.createObjectURL(voiceFile) : ""), [voiceFile]);
   const [captions, setCaptions] = useState(true);
   const [preset, setPreset] = useState<CaptionPreset>("tiktok");
   const [highlight, setHighlight] = useState("#ffe14a");
@@ -82,28 +85,23 @@ export function VideoStudio() {
   const [musicFile, setMusicFile] = useState<File | null>(null);
   const [musicVolume, setMusicVolume] = useState(35);
 
+  // Aperçus des fichiers choisis : créés au rendu, libérés quand la liste change.
+  const clipUrls = useMemo(() => clips.map((file) => URL.createObjectURL(file)), [clips]);
+  const clipIndex = clipPick.of === clips ? clipPick.index : 0;
+  const setClipIndex = (next: number | ((current: number) => number)) =>
+    setClipPick({ of: clips, index: typeof next === "function" ? next(clipIndex) : next });
   const previewSrc = clipUrls[clipIndex] || clipUrls[0] || "";
-  const cap = useMemo(() => {
-    const duration = audioRef.current?.duration || videoRef.current?.duration || 12;
-    return captionWindow(script, playHead, duration, capWords);
-  }, [script, playHead, capWords]);
+  const cap = useMemo(
+    () => captionWindow(script, playHead, audioDuration || videoDuration || 12, capWords),
+    [script, playHead, capWords, audioDuration, videoDuration]
+  );
+
+  useEffect(() => () => clipUrls.forEach((url) => URL.revokeObjectURL(url)), [clipUrls]);
 
   useEffect(() => {
-    const urls = clips.map((file) => URL.createObjectURL(file));
-    setClipUrls(urls);
-    setClipIndex(0);
-    return () => urls.forEach((url) => URL.revokeObjectURL(url));
-  }, [clips]);
-
-  useEffect(() => {
-    if (!voiceFile) {
-      setVoiceUrl("");
-      return;
-    }
-    const url = URL.createObjectURL(voiceFile);
-    setVoiceUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [voiceFile]);
+    if (!voiceUrl) return;
+    return () => URL.revokeObjectURL(voiceUrl);
+  }, [voiceUrl]);
 
   function addFiles(list: FileList | null) {
     if (!list?.length) return;
@@ -495,7 +493,7 @@ export function VideoStudio() {
                 onChange={(e) => setVoiceFile(e.target.files?.[0] || null)}
               />
             </label>
-            {voiceUrl ? <audio ref={audioRef} src={voiceUrl} controls className="w-full" onTimeUpdate={onTime} /> : null}
+            {voiceUrl ? <audio ref={audioRef} src={voiceUrl} controls className="w-full" onTimeUpdate={onTime} onLoadedMetadata={(event) => setAudioDuration(event.currentTarget.duration || 0)} /> : null}
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
@@ -620,6 +618,7 @@ export function VideoStudio() {
             >
               <video
                 ref={videoRef}
+                onLoadedMetadata={(event) => setVideoDuration(event.currentTarget.duration || 0)}
                 src={previewSrc}
                 controls
                 muted={mode === "montage"}

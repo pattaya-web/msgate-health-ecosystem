@@ -114,8 +114,10 @@ export default function SopListPage() {
     }
   }, []);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    loadSops();
+    const timer = setTimeout(() => void loadSops(), 0);
+    return () => clearTimeout(timer);
   }, [loadSops]);
 
   const filtered = useMemo(() => {

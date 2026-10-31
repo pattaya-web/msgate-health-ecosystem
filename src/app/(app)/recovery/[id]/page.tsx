@@ -72,8 +72,10 @@ export default function RecoveryDetailPage() {
     }
   }, [params.id]);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    loadCase();
+    const timer = setTimeout(() => void loadCase(), 0);
+    return () => clearTimeout(timer);
   }, [loadCase]);
 
   const progress = useMemo(

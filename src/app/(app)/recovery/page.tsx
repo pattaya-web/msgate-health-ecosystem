@@ -95,8 +95,10 @@ export default function RecoveryPage() {
     }
   }, []);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    loadData();
+    const timer = setTimeout(() => void loadData(), 0);
+    return () => clearTimeout(timer);
   }, [loadData]);
 
   const filteredCases = useMemo(() => {

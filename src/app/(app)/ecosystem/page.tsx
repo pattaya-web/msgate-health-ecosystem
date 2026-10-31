@@ -124,8 +124,10 @@ export default function EcosystemPage() {
     }
   }, [reload]);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    handleSync();
+    const timer = setTimeout(() => void handleSync(), 0);
+    return () => clearTimeout(timer);
   }, [handleSync]);
 
   useEffect(() => {

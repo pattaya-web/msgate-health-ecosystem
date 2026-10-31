@@ -267,10 +267,14 @@ export function EcomSitesTab() {
     setSelectedId(id);
   }, []);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    void loadList();
-    void loadReferences();
+    const timer = setTimeout(() => {
+      void loadList();
+      void loadReferences();
+    }, 0);
     return () => {
+      clearTimeout(timer);
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
   }, [loadList, loadReferences]);

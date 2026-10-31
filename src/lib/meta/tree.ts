@@ -327,7 +327,7 @@ export async function buildAdsTree(params: {
   const now = Date.now();
 
   // 1. Discover accounts (cached — does not depend on the date window).
-  let owned = new Map<string, RawAccount & { token: string }>();
+  const owned = new Map<string, RawAccount & { token: string }>();
   let tokensWorking = 0;
 
   const ownedHit =

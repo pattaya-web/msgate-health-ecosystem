@@ -58,8 +58,10 @@ export default function ProcessBoardPage() {
     setLoading(false);
   }, [id]);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    reload();
+    const timer = setTimeout(() => void reload(), 0);
+    return () => clearTimeout(timer);
   }, [reload]);
 
   if (loading) return <LoadingState className="min-h-[420px]" />;

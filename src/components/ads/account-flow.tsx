@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useMounted } from "@/lib/use-mounted";
 import { createPortal } from "react-dom";
 import { ChevronRight, Download, Loader2, Pause, X } from "lucide-react";
 import { cn, formatCurrency, formatCreatedFr, formatNumber } from "@/lib/utils";
@@ -163,10 +164,8 @@ function AccountPilotModal({
   onZip: ZipFn;
 }) {
   const { account, lane, reasons, activeCampaigns, paymentCampaigns } = row;
-  const [mounted, setMounted] = useState(false);
+  const mounted = useMounted();
   const [openCampaign, setOpenCampaign] = useState<string | null>(null);
-
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const prev = document.body.style.overflow;

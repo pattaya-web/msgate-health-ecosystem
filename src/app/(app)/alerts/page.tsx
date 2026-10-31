@@ -53,7 +53,8 @@ export default function AlertsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  // La page choisie vaut pour un jeu de filtres : changer un filtre ramène à la page 1 (voir plus bas).
+  const [pageState, setPageState] = useState<{ key: string; page: number }>({ key: "", page: 1 });
   const [viewAlert, setViewAlert] = useState<Alert | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
@@ -64,8 +65,10 @@ export default function AlertsPage() {
     setLoading(false);
   }, []);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    loadAlerts();
+    const timer = setTimeout(() => void loadAlerts(), 0);
+    return () => clearTimeout(timer);
   }, [loadAlerts]);
 
   const categories = useMemo(() => {
@@ -89,15 +92,12 @@ export default function AlertsPage() {
   }, [alerts, levelFilter, categoryFilter, statusFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const filterKey = [levelFilter, categoryFilter, statusFilter, search].join("\u0000");
+  // Calculée au rendu : page 1 après un changement de filtre, jamais au-delà de la dernière page.
+  const page = Math.min(pageState.key === filterKey ? pageState.page : 1, totalPages);
+  const setPage = (next: number | ((current: number) => number)) =>
+    setPageState({ key: filterKey, page: typeof next === "function" ? next(page) : next });
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(1);
-  }, [levelFilter, categoryFilter, statusFilter, search]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   async function handleResolve(alert: Alert) {
     if (!canWrite || alert.status === "resolved") return;

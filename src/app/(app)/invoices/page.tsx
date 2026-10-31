@@ -55,16 +55,20 @@ export default function InvoicesPage() {
   const [hydrated, setHydrated] = useState(false);
 
   // Le brouillon survit à un refresh : une facture se remplit rarement d'un trait.
+  // Relu au tick suivant : le rendu serveur et l'hydratation gardent le modèle par défaut.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (raw) setInvoice({ ...defaultInvoice(), ...(JSON.parse(raw) as Invoice) });
-      const savedZoom = Number(localStorage.getItem(ZOOM_KEY));
-      if (ZOOMS.includes(savedZoom as (typeof ZOOMS)[number])) setZoom(savedZoom);
-    } catch {
-      // brouillon illisible : on garde le modèle par défaut
-    }
-    setHydrated(true);
+    const timer = setTimeout(() => {
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) setInvoice({ ...defaultInvoice(), ...(JSON.parse(raw) as Invoice) });
+        const savedZoom = Number(localStorage.getItem(ZOOM_KEY));
+        if (ZOOMS.includes(savedZoom as (typeof ZOOMS)[number])) setZoom(savedZoom);
+      } catch {
+        // brouillon illisible : on garde le modèle par défaut
+      }
+      setHydrated(true);
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {

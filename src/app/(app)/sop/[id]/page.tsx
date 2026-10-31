@@ -127,8 +127,10 @@ export default function SopDetailPage() {
     }
   }, [id]);
 
+  // Chargement au tick suivant : pas de setState synchrone dans le corps de l'effet (règle du compilateur React).
   useEffect(() => {
-    loadSop();
+    const timer = setTimeout(() => void loadSop(), 0);
+    return () => clearTimeout(timer);
   }, [loadSop]);
 
   const completedCount = useMemo(

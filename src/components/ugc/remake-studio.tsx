@@ -10,7 +10,7 @@
  * avoir vu le résultat de la précédente.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clapperboard,
   Film,
@@ -93,7 +93,8 @@ export function RemakeStudio() {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const [source, setSource] = useState<File | null>(null);
-  const [sourceUrl, setSourceUrl] = useState("");
+  // Aperçu du fichier choisi : créé au rendu, libéré quand le fichier change (voir l'effet plus bas).
+  const sourceUrl = useMemo(() => (source ? URL.createObjectURL(source) : ""), [source]);
   const [productUrl, setProductUrl] = useState("");
   const [resolution, setResolution] = useState<Resolution>("720p");
 
@@ -203,14 +204,9 @@ export function RemakeStudio() {
   }, [loadAvatars]);
 
   useEffect(() => {
-    if (!source) {
-      setSourceUrl("");
-      return;
-    }
-    const url = URL.createObjectURL(source);
-    setSourceUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [source]);
+    if (!sourceUrl) return;
+    return () => URL.revokeObjectURL(sourceUrl);
+  }, [sourceUrl]);
 
   function pickSource(file: File | undefined) {
     if (!file) return;

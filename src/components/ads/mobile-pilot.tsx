@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useMounted } from "@/lib/use-mounted";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Download, EyeOff, Loader2, X } from "lucide-react";
 import { cn, formatCurrency, formatCreatedFr, formatNumber, shortenCreativeName } from "@/lib/utils";
@@ -193,9 +194,7 @@ function Sheet({
   /** Higher for nested sheets (ad set over campaign). */
   layer?: number;
 }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   useEffect(() => {
     if (!open) return;
@@ -273,9 +272,7 @@ function CenterPop({
   children: React.ReactNode;
   layer?: number;
 }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useMounted();
 
   useEffect(() => {
     const prev = document.body.style.overflow;

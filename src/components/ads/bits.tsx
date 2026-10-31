@@ -91,7 +91,8 @@ export function HoverPreview({
 }) {
   const [point, setPoint] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [full, setFull] = useState<CreativeDetail | null>(null);
-  const [srcIndex, setSrcIndex] = useState(0);
+  // L'index vaut pour un jeu de sources : une autre pub, ou d'autres sources, repartent de la première image.
+  const [srcPick, setSrcPick] = useState<{ key: string; index: number }>({ key: "", index: 0 });
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const overCard = useRef(false);
 
@@ -136,9 +137,10 @@ export function HoverPreview({
     return list;
   }, [asset]);
 
-  useEffect(() => {
-    setSrcIndex(0);
-  }, [adId, imageSources]);
+  const srcKey = `${adId}\u0000${imageSources.join("\u0000")}`;
+  const srcIndex = srcPick.key === srcKey ? srcPick.index : 0;
+  const setSrcIndex = (next: number | ((current: number) => number)) =>
+    setSrcPick({ key: srcKey, index: typeof next === "function" ? next(srcIndex) : next });
 
   const image = imageSources[srcIndex] || null;
   const loading = Boolean(point) && !videoSrc && !image && !full;
