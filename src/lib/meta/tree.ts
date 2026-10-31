@@ -719,3 +719,52 @@ export async function buildAdsTree(params: {
   state.cache.set(cacheKey, { at: Date.now(), tree });
   return tree;
 }
+
+/**
+ * L'arbre réduit à quelques comptes (l'accès Associé) : comptes, groupes par
+ * phase et totaux recalculés sur eux seuls, sans rien des autres Business
+ * Managers (ni leurs noms, ni leurs erreurs de jeton).
+ */
+export function restrictTreeToAccounts(tree: AdsTree, accountIds: string[]): AdsTree {
+  const allowed = new Set(accountIds.map((id) => id.replace(/^act_/, "")));
+  // Le badge « nouveau » vient du registre de l'admin : il n'a pas de sens pour l'associé.
+  const accounts = tree.accounts.filter((account) => allowed.has(account.accountId)).map((account) => ({ ...account, isNew: false }));
+  const groups = tree.groups
+    .map((group) => {
+      const groupAccounts = group.accounts.filter((account) => allowed.has(account.accountId)).map((account) => ({ ...account, isNew: false }));
+      const totals = emptyMetrics();
+      for (const account of groupAccounts) accumulate(totals, account.metrics);
+      const campaigns = groupAccounts.flatMap((account) => account.campaigns);
+      const live = campaigns.filter((campaign) => campaign.status === "ACTIVE" && campaign.effectiveStatus === "ACTIVE");
+      return {
+        ...group,
+        accounts: groupAccounts,
+        accountCount: groupAccounts.length,
+        campaignCount: campaigns.length,
+        activeCampaigns: live.length,
+        dailyBudget: live.reduce((sum, campaign) => sum + campaign.dailyBudget, 0),
+        metrics: derive(totals),
+      };
+    })
+    .filter((group) => group.accountCount > 0);
+  const grand = emptyMetrics();
+  for (const account of accounts) accumulate(grand, account.metrics);
+  return {
+    ...tree,
+    accounts,
+    groups,
+    totals: { ...derive(grand), dailyBudget: accounts.reduce((sum, account) => sum + account.dailyBudget, 0) },
+    stats: {
+      accounts: accounts.length,
+      running: accounts.filter((a) => a.campaigns.some((c) => c.status === "ACTIVE")).length,
+      empty: accounts.filter((a) => a.campaigns.length === 0).length,
+      off: accounts.filter((a) => a.campaigns.length > 0 && !a.campaigns.some((c) => c.status === "ACTIVE")).length,
+      unreachable: 0,
+      newAccounts: 0,
+    },
+    currencies: [...new Set(accounts.map((account) => account.currency).filter(Boolean))],
+    tokensTotal: 1,
+    tokensWorking: 1,
+    errors: [],
+  };
+}

@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 const SIDEBAR_KEY = "msgate-sidebar-open";
 const ASSOCIATE_HOME = "/associate";
+/** Les autres pages ouvertes à l'associé : le Meta Ads Manager et l'uploader, filtrés sur ses comptes côté serveur. */
+const ASSOCIATE_EXTRA = ["/ads", "/ads-uploader"];
 
 type ViewTransitionProps = {
   children: React.ReactNode;
@@ -53,7 +55,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   // Un associé n'a qu'une page : ailleurs, on le ramène dessus sans rien monter (les autres écrans lui répondraient 403).
-  const confined = isAssociate && !(pathname === ASSOCIATE_HOME || pathname?.startsWith(`${ASSOCIATE_HOME}/`));
+  const confined =
+    isAssociate &&
+    !(pathname === ASSOCIATE_HOME || pathname?.startsWith(`${ASSOCIATE_HOME}/`) || ASSOCIATE_EXTRA.some((path) => pathname === path || pathname?.startsWith(`${path}/`)));
   const wideContent =
     pathname === "/ads" ||
     pathname?.startsWith("/ads/") ||

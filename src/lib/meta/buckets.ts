@@ -23,7 +23,8 @@ export const BUCKET_LABELS: Record<CampaignBucket, string> = {
 export function classifyCampaign(name: string): CampaignBucket {
   const normalised = name.toUpperCase().replace(/[^A-Z]/g, "").replace(/SCALLING/g, "SCALING");
 
-  if (normalised.includes("HYPERSCALING")) return "hyperscaling";
+  // « ULTRA-SCALING » (comptes Badgal Collection) est le même palier que « HYPER-SCALING ».
+  if (normalised.includes("HYPERSCALING") || normalised.includes("ULTRASCALING")) return "hyperscaling";
   if (normalised.includes("SCALING")) return "scaling";
   if (normalised.includes("TESTING")) return "testing";
   return "other";

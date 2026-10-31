@@ -41,11 +41,36 @@ export function isPublicApi(method: string, pathname: string) {
   return method === "POST" && PUBLIC_POSTS.has(pathname);
 }
 
-/** Ce qu'un associé peut appeler, en lecture : son tableau de bord, son calcul de profit, rien d'autre. */
-const ASSOCIATE_APIS = new Set(["/api/associate/overview", "/api/associate/profit"]);
+/**
+ * Ce qu'un associé peut appeler : son tableau de bord et son profit en
+ * lecture, et le Meta Ads Manager de ses comptes (lecture, édition, upload).
+ * Chaque route Meta filtre et vérifie elle-même le périmètre de l'associé
+ * (src/lib/associate/meta-access.ts) ; le jeton Meta et les autres BM restent
+ * hors d'atteinte (/api/meta/registry n'est pas dans la liste).
+ */
+const ASSOCIATE_READ = new Set([
+  "/api/associate/overview",
+  "/api/associate/profit",
+  "/api/meta/tree",
+  "/api/meta/accounts",
+  "/api/meta/creatives",
+  "/api/meta/asset",
+  "/api/meta/upload",
+  "/api/shopify/daily",
+]);
+const ASSOCIATE_WRITE = new Set([
+  "/api/meta/entity",
+  "/api/meta/creatives",
+  "/api/meta/creatives/zip",
+  "/api/meta/upload",
+  "/api/meta/upload/media",
+  "/api/meta/upload/copy",
+]);
 
 export function isAssociateApi(method: string, pathname: string) {
-  return SAFE_METHODS.has(method.toUpperCase()) && ASSOCIATE_APIS.has(pathname);
+  const verb = method.toUpperCase();
+  if (SAFE_METHODS.has(verb)) return ASSOCIATE_READ.has(pathname);
+  return verb === "POST" && ASSOCIATE_WRITE.has(pathname);
 }
 
 /** L'origine que doit annoncer une requête légitime : schéma, hôte et port tels que le navigateur les voit. */

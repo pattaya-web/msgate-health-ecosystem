@@ -256,11 +256,23 @@ export async function getMetaDailySpend(params: {
   force?: boolean;
   /** Convertit chaque compte dans cette devise (celle des ventes) avant d'additionner. */
   convertTo?: string;
+  /** Ne garder que ces comptes (sans « act_ ») : l'accès Associé. */
+  onlyAccounts?: string[];
 }): Promise<MetaSpendResult> {
   const config = await getMetaConfigWithExtras();
   if (!config) throw new Error("Meta is not configured (missing META_ACCESS_TOKENS)");
 
-  const raw = await fetchRaw(config, params.start, params.end, params.force);
+  const fetched = await fetchRaw(config, params.start, params.end, params.force);
+  const only = params.onlyAccounts ? new Set(params.onlyAccounts) : null;
+  const raw = only
+    ? {
+        ...fetched,
+        rows: fetched.rows.filter((row) => only.has(row.accountId)),
+        accounts: fetched.accounts.filter((account) => only.has(account.accountId)),
+        currencies: [...new Set(fetched.accounts.filter((account) => only.has(account.accountId)).map((account) => account.currency))],
+        errors: [],
+      }
+    : fetched;
   const wanted = params.buckets?.length ? new Set(params.buckets) : null;
   // Un compte en euros et un compte en dollars ne s'additionnent qu'une fois convertis.
   const accountCurrency = new Map(raw.accounts.map((account) => [account.accountId, account.currency]));

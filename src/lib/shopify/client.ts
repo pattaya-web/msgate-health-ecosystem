@@ -1,3 +1,4 @@
+import { toReportLocal } from "@/lib/report-tz";
 import type {
   RefundAttribution,
   ShopifyDaily,
@@ -332,7 +333,8 @@ async function dailyFromOrders(start: string, end: string, attribution: RefundAt
   for (const order of nodes) {
     // Mirror the sales dataset: test and cancelled orders are not sales.
     if (order.test || order.cancelledAt) continue;
-    const day = order.createdAt.slice(0, 10);
+    // Jour de la boutique (Paris), pas le jour UTC : une commande à 1 h du matin reste sur le bon jour.
+    const day = (toReportLocal(order.createdAt) ?? order.createdAt).slice(0, 10);
     const target = bucket(day);
 
     const subtotal = num(order.subtotalPriceSet?.shopMoney.amount);
@@ -348,7 +350,7 @@ async function dailyFromOrders(start: string, end: string, attribution: RefundAt
     for (const refund of order.refunds || []) {
       const amount = num(refund.totalRefundedSet?.shopMoney.amount);
       if (!amount) continue;
-      const refundDay = attribution === "order" ? day : refund.createdAt.slice(0, 10);
+      const refundDay = attribution === "order" ? day : (toReportLocal(refund.createdAt) ?? refund.createdAt).slice(0, 10);
       const refundTarget = bucket(refundDay);
       refundTarget.returns += amount;
       refundTarget.netSales -= amount;

@@ -14,6 +14,9 @@ function defaultRange() {
 
 const isDate = (value: string | null): value is string => Boolean(value?.match(/^\d{4}-\d{2}-\d{2}$/));
 
+import { associateAccountsFor } from "@/lib/associate/meta-access";
+import { REPORT_CURRENCY } from "@/lib/fx";
+
 export async function GET(request: Request) {
   if (!isMetaConfigured()) {
     return NextResponse.json(
@@ -33,6 +36,9 @@ export async function GET(request: Request) {
       end: isDate(end) ? end : fallback.end,
       buckets: parseBucketFilter(searchParams.get("buckets")),
       force: searchParams.get("refresh") === "1",
+      // Associé : ses comptes seulement ; montants convertis en dollars pour les mettre face aux ventes.
+      onlyAccounts: (await associateAccountsFor(request)) ?? undefined,
+      convertTo: searchParams.get("convert") === "0" ? undefined : REPORT_CURRENCY,
     });
 
     return NextResponse.json({
@@ -44,6 +50,7 @@ export async function GET(request: Request) {
       accounts: data.accounts,
       campaigns: data.campaigns,
       currencies: data.currencies,
+      conversion: data.conversion,
       tokensTotal: data.tokensTotal,
       tokensWorking: data.tokensWorking,
       errors: data.errors,

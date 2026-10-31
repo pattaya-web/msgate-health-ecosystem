@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
 import { uploadMediaFile } from "@/lib/meta/uploader";
+import { OutOfScopeError, assertAccountInScope, associateAccountsFor } from "@/lib/associate/meta-access";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -16,9 +17,12 @@ export async function POST(request: Request) {
     if (!accountId || !(file instanceof File)) {
       return NextResponse.json({ error: "accountId + file requis" }, { status: 400 });
     }
+    const scoped = await associateAccountsFor(request);
+    if (scoped) assertAccountInScope(accountId, scoped);
     const media = await uploadMediaFile(accountId, file);
     return NextResponse.json({ ok: true, media });
   } catch (error) {
+    if (error instanceof OutOfScopeError) return NextResponse.json({ error: error.message }, { status: 403 });
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Upload média impossible" },
       { status: 502 }

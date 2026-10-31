@@ -7,6 +7,7 @@ import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Archive,
   ChevronRight,
   Copy,
   Download,
@@ -15,6 +16,7 @@ import {
   Image as ImageIcon,
   Loader2,
   MessageSquare,
+  Pencil,
   RefreshCw,
   Search,
 } from "lucide-react";
@@ -35,6 +37,8 @@ import type {
   Metrics,
 } from "@/lib/meta/types";
 import { DateRangePicker } from "@/components/phoenix/date-range-picker";
+import { DailySpendChart } from "@/components/ads/daily-spend-chart";
+import { useAuth } from "@/lib/auth/auth-context";
 import { TzBadge } from "@/components/phoenix/source-clocks";
 import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
@@ -341,12 +345,16 @@ function CreativeActions({
   onOpen,
   onDownload,
   onHide,
+  onRename,
+  onArchive,
 }: {
   ad: AdNode;
   busy?: boolean;
   onOpen: () => void;
   onDownload: () => void;
   onHide?: () => void;
+  onRename?: () => void;
+  onArchive?: () => void;
 }) {
   const run = async (kind: "post" | "link") => {
     const creative = await loadCreative(ad.id);
@@ -388,6 +396,11 @@ function CreativeActions({
       >
         <Download className="h-2.5 w-2.5" />
       </ActionChip>
+      {onRename ? (
+        <ActionChip label="Renommer" title="Renommer la pub sur Meta" onClick={onRename}>
+          <Pencil className="h-2.5 w-2.5" />
+        </ActionChip>
+      ) : null}
       {onHide ? (
         <ActionChip
           label="Cacher"
@@ -395,6 +408,11 @@ function CreativeActions({
           onClick={onHide}
         >
           <EyeOff className="h-2.5 w-2.5" />
+        </ActionChip>
+      ) : null}
+      {onArchive ? (
+        <ActionChip label="Retirer" title="Archiver la pub sur Meta (elle ne diffuse plus)" onClick={onArchive}>
+          <Archive className="h-2.5 w-2.5" />
         </ActionChip>
       ) : null}
     </span>
@@ -559,8 +577,19 @@ function patchTree(
   tree: AdsTree,
   level: EntityLevel,
   id: string,
-  patch: { status?: EntityStatus; dailyBudget?: number }
+  patch: { status?: EntityStatus; dailyBudget?: number; name?: string }
 ): AdsTree {
+  // Une pub retirée (archivée) disparaît tout de suite de la liste.
+  if (level === "ad" && patch.status === "ARCHIVED") {
+    const dropAd = (account: AccountNode) => ({
+      ...account,
+      campaigns: account.campaigns.map((campaign) => ({
+        ...campaign,
+        adsets: campaign.adsets.map((adset) => ({ ...adset, ads: adset.ads.filter((ad) => ad.id !== id) })),
+      })),
+    });
+    return { ...tree, accounts: (tree.accounts || []).map(dropAd), groups: tree.groups.map((group) => ({ ...group, accounts: group.accounts.map(dropAd) })) };
+  }
   const applyAd = (ad: AdNode) => {
     if (ad.id !== id) return ad;
     const next = { ...ad, ...patch };
@@ -604,6 +633,9 @@ const adIdsOfCampaign = (campaign: CampaignNode) => campaign.adsets.flatMap(adId
  * ------------------------------------------------------------------ */
 
 export default function AdsPage() {
+  // Associé (ou admin en « Vue Alison ») : mêmes outils, sur ses comptes seulement (filtré côté serveur).
+  const { isAssociate } = useAuth();
+  const [fx, setFx] = useState<Record<string, number>>({});
   const [preset, setPreset] = useState<PresetKey>("today");
   const [range, setRange] = useState(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -621,7 +653,8 @@ export default function AdsPage() {
   const [query, setQuery] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
   const [hiddenAdIds, setHiddenAdIds] = useState<Set<string>>(() => new Set());
-  const [phaseTab, setPhaseTab] = useState<PhaseTab>("hyperscaling");
+  // Tant qu'on n'a pas cliqué, l'onglet ouvert est le premier palier qui a des campagnes.
+  const [chosenPhaseTab, setPhaseTab] = useState<PhaseTab | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [panelAd, setPanelAd] = useState<string | null>(null);
@@ -678,6 +711,7 @@ export default function AdsPage() {
         if (cancelled) return;
         if (!res.ok) throw new Error(body.error || "Synchronisation impossible");
         setTree(body as AdsTree);
+        setFx((body as { fx?: Record<string, number> }).fx ?? {});
         setError(null);
 
         // One-shot warm of sibling presets (structure already cached server-side).
@@ -707,6 +741,7 @@ export default function AdsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    if (isAssociate) return;
     (async () => {
       try {
         const res = await fetch("/api/meta/registry");
@@ -721,7 +756,7 @@ export default function AdsPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, isAssociate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -792,7 +827,7 @@ export default function AdsPage() {
     async (
       level: EntityLevel,
       id: string,
-      patch: { status?: EntityStatus; dailyBudget?: number },
+      patch: { status?: EntityStatus; dailyBudget?: number; name?: string },
       label: string
     ) => {
       const snapshot = tree;
@@ -1016,6 +1051,9 @@ export default function AdsPage() {
     [tree, query, activeOnly, showOther, hiddenAdIds]
   );
 
+  const phaseTab: PhaseTab =
+    chosenPhaseTab ?? PHASE_TABS.find((bucket) => groups.some((group) => group.bucket === bucket)) ?? "hyperscaling";
+
   const otherCount = useMemo(
     () => tree?.groups.find((group) => group.bucket === "other")?.campaignCount ?? 0,
     [tree]
@@ -1025,7 +1063,16 @@ export default function AdsPage() {
   const dailyBudget = groups.reduce((acc, group) => acc + group.dailyBudget, 0);
   const shown = frRange(preset, range);
   // Spend Meta suit la vue (Actifs / recherche) — sinon le KPI et « Spend · Actifs » divergent.
-  const metaSpend = totals.spend;
+  // Les comptes peuvent être en euros et Shopify en dollars : le KPI et le ROAS se font en dollars.
+  const metaSpend = useMemo(
+    () =>
+      groups.reduce(
+        (sum, group) => sum + group.accounts.reduce((acc, account) => acc + account.metrics.spend * (fx[(account.currency || "USD").toUpperCase()] ?? 1), 0),
+        0
+      ),
+    [groups, fx]
+  );
+  void totals;
   const shopifyRevenue = shopify?.netSales ?? 0;
   const shopifyRoas = metaSpend > 0 && shopify ? shopifyRevenue / metaSpend : 0;
 
@@ -1258,6 +1305,9 @@ export default function AdsPage() {
           <p className="mt-0.5 truncate text-[15px] font-semibold leading-none tracking-tight tabular-nums text-slate-900 dark:text-slate-50 sm:text-[17px]">
             {shopifyLoading ? "—" : shopify ? formatCurrency(shopify.netSales) : "—"}
           </p>
+          <p className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400">
+            {shopify ? `${formatNumber(shopify.orders)} commande${shopify.orders > 1 ? "s" : ""}` : "\u00a0"}
+          </p>
         </div>
 
         <div className="min-w-0 rounded-xl bg-white px-2 py-1.5 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-white/[0.06]">
@@ -1283,7 +1333,12 @@ export default function AdsPage() {
         </div>
       </div>
 
+      <div className="order-2 lg:order-3">
+        <DailySpendChart start={shown.start} end={shown.end} reloadKey={reloadKey} />
+      </div>
+
       <div className="order-6 grid gap-2 md:grid-cols-2 lg:order-4">
+        {isAssociate ? null : (
         <div className="hidden rounded-xl bg-white ring-1 ring-slate-900/[0.06] md:block dark:bg-slate-900/70 dark:ring-white/[0.06]">
           <button
             type="button"
@@ -1384,6 +1439,7 @@ export default function AdsPage() {
             </div>
           ) : null}
         </div>
+        )}
 
         <AccountFlow
           accounts={flowAccounts}
@@ -1651,7 +1707,7 @@ type RowShared = {
   onWrite: (
     level: EntityLevel,
     id: string,
-    patch: { status?: EntityStatus; dailyBudget?: number },
+    patch: { status?: EntityStatus; dailyBudget?: number; name?: string },
     label: string
   ) => Promise<void>;
   onZip: (ids: string[], label: string, key: string) => Promise<void>;
@@ -1662,6 +1718,21 @@ type RowShared = {
   deadAdIds: Set<string>;
   deadCampaignIds: Set<string>;
 };
+
+/** Renomme une campagne, un ad set ou une pub, après saisie du nouveau nom. */
+function askRename(shared: RowShared, level: EntityLevel, id: string, current: string) {
+  const next = window.prompt("Nouveau nom", current)?.trim();
+  if (!next || next === current) return;
+  void shared.onWrite(level, id, { name: next }, "Renommé");
+}
+
+function RenameChip({ onClick }: { onClick: () => void }) {
+  return (
+    <ActionChip label="Renommer" title="Renommer sur Meta" onClick={onClick}>
+      <Pencil className="h-2.5 w-2.5" />
+    </ActionChip>
+  );
+}
 
 function countAlertsInCampaign(
   campaign: CampaignNode,
@@ -1738,6 +1809,7 @@ function CampaignRow({
               </span>
             ) : null}
           </div>
+          <RenameChip onClick={() => askRename(shared, "campaign", campaign.id, campaign.name)} />
           <ActionChip
             label="Créa"
             tone="solid"
@@ -1811,6 +1883,7 @@ function AdsetRow({
             {adset.name}
           </span>
           <CreatedPill value={adset.createdTime} />
+          <RenameChip onClick={() => askRename(shared, "adset", adset.id, adset.name)} />
           <ActionChip
             label="Créa"
             tone="green"
@@ -1932,6 +2005,11 @@ function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
           onOpen={() => shared.onOpenAd(ad.id)}
           onDownload={() => void shared.onAdDownload(ad)}
           onHide={() => shared.onHideAd(ad.id)}
+          onRename={() => askRename(shared, "ad", ad.id, ad.name)}
+          onArchive={() => {
+            if (!window.confirm(`Retirer « ${ad.name} » ? La pub est archivée sur Meta : elle ne diffuse plus et sort de la liste.`)) return;
+            void shared.onWrite("ad", ad.id, { status: "ARCHIVED" }, "Pub retirée");
+          }}
         />
       </div>
       <MetricsRail metrics={ad.metrics} />

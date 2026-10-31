@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
-import { setEntityBudget, setEntityStatus } from "@/lib/meta/write";
+import { setEntityBudget, setEntityName, setEntityStatus } from "@/lib/meta/write";
+import { OutOfScopeError, assertObjectsInScope, associateAccountsFor } from "@/lib/associate/meta-access";
 import type { EntityLevel } from "@/lib/meta/types";
 
 export const dynamic = "force-dynamic";
@@ -16,20 +17,30 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       id?: string;
       level?: EntityLevel;
-      status?: "ACTIVE" | "PAUSED";
+      status?: "ACTIVE" | "PAUSED" | "ARCHIVED";
       dailyBudget?: number;
+      name?: string;
     };
 
     if (!body.id || !body.level || !LEVELS.includes(body.level)) {
       return NextResponse.json(
-        { error: "Attendu { id, level: 'campaign'|'adset'|'ad', status? , dailyBudget? }" },
+        { error: "Attendu { id, level: 'campaign'|'adset'|'ad', status?, dailyBudget?, name? }" },
         { status: 400 }
       );
     }
 
+    // Associé : l'objet doit appartenir à un de ses comptes pub (vérifié auprès de Meta).
+    const scoped = await associateAccountsFor(request);
+    if (scoped) await assertObjectsInScope([body.id], scoped);
+
+    if (typeof body.name === "string") {
+      const result = await setEntityName({ id: body.id, level: body.level, name: body.name });
+      return NextResponse.json({ ok: true, ...result });
+    }
+
     if (body.status) {
-      if (body.status !== "ACTIVE" && body.status !== "PAUSED") {
-        return NextResponse.json({ error: "status doit être ACTIVE ou PAUSED" }, { status: 400 });
+      if (body.status !== "ACTIVE" && body.status !== "PAUSED" && body.status !== "ARCHIVED") {
+        return NextResponse.json({ error: "status doit être ACTIVE, PAUSED ou ARCHIVED" }, { status: 400 });
       }
       const result = await setEntityStatus({ id: body.id, level: body.level, status: body.status });
       return NextResponse.json({ ok: true, ...result });
@@ -50,8 +61,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ...result });
     }
 
-    return NextResponse.json({ error: "Rien à modifier : fournis status ou dailyBudget." }, { status: 400 });
+    return NextResponse.json({ error: "Rien à modifier : fournis status, dailyBudget ou name." }, { status: 400 });
   } catch (error) {
+    if (error instanceof OutOfScopeError) return NextResponse.json({ error: error.message }, { status: 403 });
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Mise à jour impossible" },
       { status: 502 }

@@ -62,6 +62,8 @@ async function pooled<T>(items: T[], worker: (item: T) => Promise<void>) {
   );
 }
 
+import { associateAccountsFor } from "@/lib/associate/meta-access";
+
 export async function POST(request: Request) {
   if (!isMetaConfigured()) {
     return NextResponse.json({ error: "Meta not configured" }, { status: 503 });
@@ -74,7 +76,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { creatives, errors } = await fetchCreatives(ids);
+    const fetched = await fetchCreatives(ids);
+    // Associé : seulement les créas de ses comptes.
+    const scoped = await associateAccountsFor(request);
+    const creatives = scoped ? fetched.creatives.filter((creative) => scoped.includes(creative.accountId.replace(/^act_/, ""))) : fetched.creatives;
+    const errors = scoped ? [] : fetched.errors;
     if (!creatives.length) {
       return NextResponse.json(
         { error: errors[0] || "Aucun créatif récupérable pour cette sélection." },

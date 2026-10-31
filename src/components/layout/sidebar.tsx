@@ -126,6 +126,8 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
     items: [
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
+      { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
+      { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
     ],
   },
 ];
