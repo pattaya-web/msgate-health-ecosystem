@@ -94,7 +94,7 @@ export function AssociateHeader({
               {shop}
             </span>
           ) : null}
-          <span className="r-chip" title="Ventes Shopify, Reign et dépense Meta relues toutes les 2 minutes">
+          <span className="r-chip" title="Ventes Shopify relues toutes les 45 s, dépense Meta toutes les minutes">
             <span className="r-live-dot" />
             Temps réel · {ago(liveAt, now)}
           </span>

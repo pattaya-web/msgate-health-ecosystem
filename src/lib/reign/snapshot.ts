@@ -106,7 +106,7 @@ type ReignStoreFile = {
   windows: Record<string, Window>;
 };
 
-type SyncState = { store: ReignStoreFile | null; inflight: Promise<void> | null; progress: SnapshotProgress };
+type SyncState = { store: ReignStoreFile | null; inflight: Promise<void> | null; shopifyInflight?: Promise<void> | null; progress: SnapshotProgress };
 
 const state: SyncState = ((globalThis as typeof globalThis & { __msgateReignSync?: SyncState }).__msgateReignSync ??= {
   store: null,
@@ -387,15 +387,17 @@ function allOrders(current: ReignStoreFile) {
 }
 
 /**
- * Relit les commandes de la boutique Shopify : 2 minutes quand l'écran regarde
- * aujourd'hui, 30 sinon. Une panne Shopify n'arrête pas la synchro Reign.
+ * Relit les commandes de la boutique Shopify : toutes les 45 s quand l'écran
+ * regarde aujourd'hui, 30 min sinon. Une panne Shopify n'arrête pas la synchro Reign.
  */
+const SHOPIFY_TODAY_TTL = 45 * 1000;
+
 async function syncShopify(current: ReignStoreFile, focus?: { start: string; end: string }, force?: boolean) {
   if (!isShopifySalesConfigured()) {
     current.shopify = undefined;
     return;
   }
-  const ttl = focusIncludesToday(focus) ? 2 * MINUTE : 30 * MINUTE;
+  const ttl = focusIncludesToday(focus) ? SHOPIFY_TODAY_TTL : 30 * MINUTE;
   const fresh = current.shopify && !current.shopify.error && Date.now() - Date.parse(current.shopify.fetchedAt) < ttl;
   if (fresh && !force) return;
   const config = getReignConfig()!;
@@ -586,7 +588,30 @@ async function syncWindows(current: ReignStoreFile, focus?: { start: string; end
   current.customers = current.customers.map((customer) => ({ ...customer, cancelledAt: cancelled.get(String(customer.id)) ?? customer.cancelledAt }));
 }
 
+/**
+ * Les ventes Shopify, relues à part : elles n'attendent pas la fin de la
+ * synchro Reign (clients, abonnements, fenêtres), qui peut prendre plusieurs
+ * minutes. Une seule lecture à la fois.
+ */
+function refreshShopify(options?: { focus?: { start: string; end: string }; force?: boolean }) {
+  if (state.shopifyInflight) return state.shopifyInflight;
+  state.shopifyInflight = (async () => {
+    try {
+      const current = await loadStore();
+      const before = current.shopify?.fetchedAt;
+      await syncShopify(current, options?.focus, options?.force);
+      if (current.shopify?.fetchedAt !== before) await persist(current);
+    } catch {
+      // La synchro complète réessaiera.
+    } finally {
+      state.shopifyInflight = null;
+    }
+  })();
+  return state.shopifyInflight;
+}
+
 export function startSync(options?: { focus?: { start: string; end: string }; force?: boolean }) {
+  if (getReignConfig()) void refreshShopify(options);
   if (state.inflight) return state.inflight;
   state.progress = { running: true, phase: "customers", done: 0, total: 0, fetched: 0, cached: 0, etaMs: null, startedAt: new Date().toISOString() };
   state.inflight = (async () => {

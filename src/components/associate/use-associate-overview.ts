@@ -73,7 +73,7 @@ export function useAssociateOverview() {
     const today = reportToday();
     const live = range.start <= today && range.end >= today;
     if (!live && !building) return;
-    const timer = window.setInterval(() => void load(range), building ? 15_000 : 60_000);
+    const timer = window.setInterval(() => void load(range), building ? 15_000 : 30_000);
     return () => window.clearInterval(timer);
   }, [range, load, building]);
 

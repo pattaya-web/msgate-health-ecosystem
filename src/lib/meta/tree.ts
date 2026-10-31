@@ -282,7 +282,7 @@ function todayParis() {
 }
 // Une période qui contient aujourd'hui bouge en continu : 2 minutes, pour coller au gestionnaire de pubs.
 const ttlFor = (preset: DatePreset, range?: { start: string; end: string }) =>
-  preset === "today" ? 60_000 : range && range.end >= todayParis() ? 2 * 60_000 : 20 * 60_000;
+  preset === "today" || (range && range.end >= todayParis()) ? 60_000 : 20 * 60_000;
 const LIFETIME_TTL_MS = 30 * 60_000;
 const STRUCTURE_TTL_MS = 12 * 60_000;
 const STRUCTURE_TTL_TODAY_MS = 60_000;
