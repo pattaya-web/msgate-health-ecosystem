@@ -144,7 +144,6 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
     id: "associate-creation",
     label: "Création",
     items: [
-      { href: "/studio-ia", label: "Studio IA", icon: Clapperboard },
       { href: "/studio/video", label: "Texte / Montage", icon: Video },
       { href: "/product-images", label: "Image Product", icon: ImagePlus },
       { href: "/download-tiktok", label: "Download Tiktok", icon: Download },
