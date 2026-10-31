@@ -92,6 +92,13 @@ export default function AssociatePage() {
         </div>
       ) : null}
 
+      {overview?.phoenix.error ? (
+        <div className="r-card r-rise flex items-center gap-2 px-4 py-3 text-[12.5px]" style={{ color: "var(--r-bad)" }}>
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Ventes Shopify indisponibles : {overview.phoenix.error}
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
           label="Chiffre d'affaires"

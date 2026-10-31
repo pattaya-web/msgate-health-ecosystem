@@ -186,7 +186,7 @@ async function computePeriod(start: string, end: string, today: string, settings
   const scope = await getAssociateScope();
   const until = end > today ? today : end;
   const [sales, meta] = await Promise.all([
-    buildSalesBreakdown({ start, end: until, stores: scope.stores, categories: ["direct"] }),
+    buildSalesBreakdown({ start, end: until, stores: scope.stores, categories: ["direct"] }).catch(() => null),
     scopedMetaSpend(start, until, scope),
   ]);
   const revenue = sales?.revenue.direct ?? 0;

@@ -94,7 +94,7 @@ export type AssociateOverview = {
     targetMargin: number;
   };
   /** L'état de la synchro des ventes. */
-  phoenix: { configured: boolean; building: boolean; stale: boolean; progress: SnapshotProgress | null };
+  phoenix: { configured: boolean; building: boolean; stale: boolean; progress: SnapshotProgress | null; error?: string };
   scope: Pick<AssociateScope, "stores" | "metaAccountIds" | "campaignKeyword">;
 };
 
@@ -267,10 +267,15 @@ export async function buildAssociateOverview(start: string, end: string): Promis
 
   // Site en ligne (pas de Reign) : les ventes viennent de Shopify en direct, relues toutes les 45 s.
   const direct = shopifyDirectMode();
+  let shopifyError: string | null = null;
   let directFeed: Awaited<ReturnType<typeof getLiveShopifySales>> | null = null;
   if (direct) {
-    directFeed = await getLiveShopifySales(start < today ? start : today);
-    if (inScope(directFeed.domain)) {
+    // Une panne Shopify ne doit pas cacher la dépense Meta : les ventes restent à zéro, l'erreur est signalée.
+    directFeed = await getLiveShopifySales(start < today ? start : today).catch((error) => {
+      shopifyError = error instanceof Error ? error.message : "Shopify indisponible";
+      return null;
+    });
+    if (directFeed && inScope(directFeed.domain)) {
       for (const order of directFeed.orders) {
         const day = reportDay(order.createdAt);
         latest.push({ at: order.createdAt, amount: order.total, orderId: order.name });
@@ -287,7 +292,7 @@ export async function buildAssociateOverview(start: string, end: string): Promis
         byDay.set(day, point);
       }
     }
-    phoenix = { configured: true, building: false, stale: false, progress: null };
+    phoenix = { configured: true, building: false, stale: false, progress: null, ...(shopifyError ? { error: shopifyError } : {}) };
   } else if (billing.configured) {
     const snapshot = await peekSnapshot();
     const needsSync = !snapshot || !snapshot.complete || isStale(snapshot) || (focusIncludesToday({ start, end }) && isStale(snapshot, billing.todayMaxAgeMs));
@@ -328,7 +333,7 @@ export async function buildAssociateOverview(start: string, end: string): Promis
 
   const [meta, sales, peekedFeed, orderMap] = await Promise.all([
     scopedMetaSpend(start, end, scope),
-    buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }),
+    buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }).catch(() => null),
     direct ? Promise.resolve(null) : peekShopifyFeed(),
     direct ? Promise.resolve(new Map<string, { shopifyName?: string | null }>()) : peekOrders(),
   ]);
@@ -420,7 +425,7 @@ function round2(value: number) {
 export async function buildAssociateProfitInputs(start: string, end: string): Promise<ProfitInputs> {
   const scope = await getAssociateScope();
   const [sales, meta] = await Promise.all([
-    buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }),
+    buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }).catch(() => null),
     scopedMetaSpend(start, end, scope),
   ]);
   const round = (value: number) => Math.round(value * 100) / 100;
