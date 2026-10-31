@@ -26,7 +26,7 @@ import {
   Package,
   PanelLeftClose,
   ReceiptText,
-  Scale,
+  HandCoins,
   Settings,
   ShieldAlert,
   ShoppingBag,
@@ -129,7 +129,7 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
     items: [
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
-      { href: "/associate/partage", label: "Partage 50/50", icon: Scale },
+      { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
       { href: "/associate/produits", label: "Produits à lancer", icon: Lightbulb },
       { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
       { href: "/ads-uploader", label: "Ads uploader", icon: Upload },

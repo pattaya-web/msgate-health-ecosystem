@@ -6,14 +6,15 @@ import { reportToday } from "@/lib/report-tz";
 import { getAssociateScope, scopedMetaSpend } from "@/lib/associate/scope";
 
 /**
- * Le partage 50/50 entre Mady et l'associée (Alison), sur le Straight Sale
- * de Venom.
+ * MoneyTalk : la paie d'Alison sur le Straight Sale de Venom.
  *
  * Bénéfice = ventes − remboursements − coût produit − frais de paiement −
- * toute la pub (celle de Mady et celle d'Alison). Chacun en prend la moitié.
- * Mady encaisse les ventes : il doit à Alison sa moitié du bénéfice plus la
- * pub qu'elle a payée de sa poche. Quand c'est Mady qui avance la pub, la
- * moitié d'Alison en est retirée d'office (elle est déjà dans le bénéfice).
+ * toute la pub. Mady encaisse les ventes et verse à Alison :
+ *   - version 1, tant qu'Alison paie la pub (aujourd'hui) : tout le bénéfice ;
+ *   - version 2, dès que Mady paie la pub (son compte agence Meta) : la moitié
+ *     du bénéfice, c'est-à-dire la moitié de (ventes − coût − frais) moins la
+ *     moitié de la pub que Mady a avancée.
+ * La version 2 démarre à la date réglée par l'admin (`madyPaysFrom`).
  *
  * Le calcul se fait par période (semaine du lundi au dimanche, ou mois), au
  * rythme de paiement choisi par Alison ; l'admin marque une période payée.
@@ -26,6 +27,8 @@ export type PartnershipSettings = {
   /** Premier jour compté dans le partage (jour de Paris). */
   startDate: string;
   frequency: Frequency;
+  /** Premier jour où Mady paie la pub (version 2, 50/50) ; null = Alison paie encore tout (version 1). */
+  madyPaysFrom: string | null;
   /** Qui paie chaque compte publicitaire Meta (account_id → partenaire). */
   payers: Record<string, Partner>;
   /** Les périodes réglées : clé « début_fin » → montant versé et date. */
@@ -49,9 +52,12 @@ export type PartnershipPeriod = {
   adsMady: number;
   adsAlison: number;
   profit: number;
-  /** La moitié du bénéfice, pour chacun. */
-  half: number;
-  /** Ce que Mady doit verser à Alison : sa moitié + la pub qu'elle a avancée. Négatif : c'est elle qui doit. */
+  /** 1 : Alison paie la pub, tout le bénéfice est à elle. 2 : Mady paie la pub, 50/50. */
+  version: 1 | 2;
+  /** La paie d'Alison selon chaque version, pour comparer. */
+  payV1: number;
+  payV2: number;
+  /** Ce que Mady verse à Alison pour la période (selon sa version). Négatif : c'est elle qui doit. */
   owed: number;
   paid: { amount: number; at: string } | null;
   error: string | null;
@@ -73,8 +79,8 @@ const DEFAULT_START = "2026-10-01";
 const FILE = path.join(process.cwd(), ".msgate-cache", "associate-partnership.json");
 
 const state = ((globalThis as typeof globalThis & {
-  __msgatePartnership?: { settings: PartnershipSettings | null; periods: Map<string, { at: number; period: PartnershipPeriod }> };
-}).__msgatePartnership ??= { settings: null, periods: new Map() });
+  __msgatePartnershipV2?: { settings: PartnershipSettings | null; periods: Map<string, { at: number; period: PartnershipPeriod }> };
+}).__msgatePartnershipV2 ??= { settings: null, periods: new Map() });
 
 const isDay = (value: unknown): value is string => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -90,6 +96,7 @@ export async function getPartnershipSettings(): Promise<PartnershipSettings> {
   state.settings = {
     startDate: isDay(parsed.startDate) ? parsed.startDate : DEFAULT_START,
     frequency: parsed.frequency === "monthly" ? "monthly" : "weekly",
+    madyPaysFrom: isDay(parsed.madyPaysFrom) ? parsed.madyPaysFrom : null,
     payers: { ...DEFAULT_PAYERS, ...(parsed.payers ?? {}) },
     paid: parsed.paid ?? {},
     updatedAt: parsed.updatedAt ?? "",
@@ -108,6 +115,8 @@ async function persist(next: PartnershipSettings) {
 export type PartnershipPatch = {
   frequency?: unknown;
   startDate?: unknown;
+  /** Une date (« YYYY-MM-DD ») ou null pour revenir à la version 1. */
+  madyPaysFrom?: unknown;
   payers?: unknown;
   /** Marquer une période payée (avec le montant versé) ou la rouvrir. */
   markPaid?: { key?: unknown; amount?: unknown; paid?: unknown };
@@ -120,6 +129,8 @@ export async function updatePartnership(patch: PartnershipPatch, role: "admin" |
   if (patch.frequency === "weekly" || patch.frequency === "monthly") next.frequency = patch.frequency;
   if (role === "admin") {
     if (isDay(patch.startDate)) next.startDate = patch.startDate;
+    if (patch.madyPaysFrom === null || patch.madyPaysFrom === "") next.madyPaysFrom = null;
+    else if (isDay(patch.madyPaysFrom)) next.madyPaysFrom = patch.madyPaysFrom;
     if (patch.payers && typeof patch.payers === "object") {
       for (const [id, payer] of Object.entries(patch.payers as Record<string, unknown>)) {
         if (/^\d+$/.test(id) && (payer === "mady" || payer === "alison")) next.payers[id] = payer;
@@ -189,7 +200,7 @@ async function computePeriod(start: string, end: string, today: string, settings
     else adsMady += account.spend;
   }
   const profit = revenue - refunds - cogs - fees - adsMady - adsAlison;
-  const half = profit / 2;
+  const version: 1 | 2 = settings.madyPaysFrom && start >= settings.madyPaysFrom ? 2 : 1;
   const period: PartnershipPeriod = {
     key,
     start,
@@ -204,8 +215,10 @@ async function computePeriod(start: string, end: string, today: string, settings
     adsMady: round2(adsMady),
     adsAlison: round2(adsAlison),
     profit: round2(profit),
-    half: round2(half),
-    owed: round2(half + adsAlison),
+    version,
+    payV1: round2(profit),
+    payV2: round2(profit / 2),
+    owed: round2(version === 2 ? profit / 2 : profit),
     paid: settings.paid[key] ?? null,
     error: meta.error ?? (sales ? null : "Ventes en cours de synchronisation : les chiffres vont se compléter."),
   };
