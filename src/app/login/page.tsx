@@ -17,7 +17,7 @@ import { BrandLogo } from "@/components/layout/brand-logo";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 const loginSchema = z.object({
-  // Un identifiant simple (« mady ») ou une adresse e-mail : les deux sont des comptes valides.
+  // Un identifiant simple (« mady », « alison ») : pas d'adresse e-mail.
   email: z.string().trim().min(2, "Identifiant requis"),
   password: z.string().min(1, "Password is required"),
 });
@@ -106,7 +106,7 @@ export default function LoginPage() {
               autoComplete="username"
               autoCapitalize="none"
               spellCheck={false}
-              placeholder="identifiant ou e-mail"
+              placeholder="identifiant"
               className="h-11 rounded-2xl px-4"
               {...register("email")}
             />
