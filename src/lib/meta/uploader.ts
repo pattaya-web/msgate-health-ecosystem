@@ -258,6 +258,19 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
     sourceAd?.creative?.asset_feed_spec?.call_to_action_types?.[0] ||
     "SHOP_NOW";
 
+  /*
+   * Un ad set en créa dynamique (DCO) n'accepte qu'UNE pub chez Meta. On ne le
+   * force plus (avant, l'option « Flexible » le faisait et la 2e créa était
+   * refusée) : la cible est dynamique seulement si l'ad set modèle l'est.
+   */
+  const targetDynamic = Boolean(sourceAdset?.is_dynamic_creative);
+  const perAdset = input.adsetPerUpload ? 1 : input.autoDivide && input.autoDivide > 0 ? input.autoDivide : input.media.length;
+  if (targetDynamic && perAdset > 1) {
+    throw new Error(
+      "L'ad set modèle est en créa dynamique : Meta n'y accepte qu'une seule pub. Choisis un ad set modèle classique, ou active « un ad set par fichier »."
+    );
+  }
+
   let campaignId = sourceAdset?.campaign_id || input.sourceCampaignId;
   let campaignName = sourceCampaign?.name || "Campaign";
   if (input.createNewCampaign) {
@@ -321,7 +334,7 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         ...(sourceAdset.dsa_beneficiary ? { dsa_beneficiary: sourceAdset.dsa_beneficiary } : {}),
         ...(sourceAdset.dsa_payor ? { dsa_payor: sourceAdset.dsa_payor } : {}),
         ...(sourceAdset.instagram_actor_id ? { instagram_actor_id: sourceAdset.instagram_actor_id } : {}),
-        is_dynamic_creative: Boolean(input.flexible || sourceAdset.is_dynamic_creative),
+        is_dynamic_creative: targetDynamic,
       });
       if (created.error || !created.id) throw new Error(created.error?.message || "Création ad set refusée");
       adsetId = created.id;
@@ -351,6 +364,8 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
           descriptions: (descriptions.length ? descriptions : [""]).map((text) => ({ text })),
           call_to_action_types: [cta],
           link_urls: [{ website_url: website, ...(input.displayUrl ? { display_url: input.displayUrl } : {}) }],
+          // Hors créa dynamique, Meta exige ce mode pour plusieurs titres / textes sur une même pub.
+          ...(targetDynamic ? {} : { optimization_type: "DEGREES_OF_FREEDOM" }),
         },
         ...(Object.keys(featureSpec).length
           ? { degrees_of_freedom_spec: { creative_features_spec: featureSpec } }
@@ -383,6 +398,53 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
     ads: createdAds,
     adsetCount: createdAdsets.length || 1,
     campaignId,
+  };
+}
+
+type CreativeCopy = GraphError & {
+  creative?: {
+    title?: string;
+    body?: string;
+    call_to_action_type?: string;
+    object_story_spec?: {
+      link_data?: { name?: string; message?: string; description?: string; link?: string; call_to_action?: { type?: string } };
+      video_data?: { title?: string; message?: string; link_description?: string; call_to_action?: { type?: string; value?: { link?: string } } };
+    };
+    asset_feed_spec?: {
+      titles?: Array<{ text?: string }>;
+      bodies?: Array<{ text?: string }>;
+      descriptions?: Array<{ text?: string }>;
+      call_to_action_types?: string[];
+      link_urls?: Array<{ website_url?: string; display_url?: string }>;
+    };
+  };
+};
+
+/**
+ * Les textes d'une pub existante (titres, textes principaux, descriptions,
+ * lien, bouton) : l'uploader s'en sert pour « se calquer » sur une créa qui
+ * tourne déjà. Lecture seule.
+ */
+export async function readAdCopy(adId: string) {
+  const token = await resolveToken(adId);
+  const body = await graphGet<CreativeCopy>(
+    `${adId}?fields=creative{title,body,call_to_action_type,object_story_spec,asset_feed_spec}`,
+    token
+  );
+  if (body.error) throw new Error(body.error.message);
+  const creative = body.creative ?? {};
+  const feed = creative.asset_feed_spec;
+  const link = creative.object_story_spec?.link_data;
+  const video = creative.object_story_spec?.video_data;
+  const texts = (rows?: Array<{ text?: string }>) => (rows ?? []).map((row) => row.text?.trim() ?? "").filter(Boolean);
+  const unique = (rows: Array<string | undefined>) => [...new Set(rows.map((row) => row?.trim() ?? "").filter(Boolean))];
+  return {
+    headlines: unique([...texts(feed?.titles), link?.name, video?.title, creative.title]),
+    bodies: unique([...texts(feed?.bodies), link?.message, video?.message, creative.body]),
+    descriptions: unique([...texts(feed?.descriptions), link?.description, video?.link_description]),
+    websiteUrl: feed?.link_urls?.[0]?.website_url || link?.link || video?.call_to_action?.value?.link || "",
+    displayUrl: feed?.link_urls?.[0]?.display_url || "",
+    cta: feed?.call_to_action_types?.[0] || link?.call_to_action?.type || video?.call_to_action?.type || creative.call_to_action_type || "",
   };
 }
 

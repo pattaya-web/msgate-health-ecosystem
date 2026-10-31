@@ -1,4 +1,5 @@
-import { graphGet, requireMetaConfig, type GraphError } from "@/lib/meta/graph";
+import { getMetaConfigWithExtras } from "@/lib/meta/client";
+import { graphGet, type GraphError } from "@/lib/meta/graph";
 import { getTokenForAccount, getTokenForObject, rememberObjectToken } from "@/lib/meta/tree";
 
 /**
@@ -15,7 +16,10 @@ export async function resolveToken(objectId: string): Promise<string> {
     if (byAccount) return byAccount;
   }
 
-  for (const token of requireMetaConfig().tokens) {
+  // Tous les jetons, y compris ceux d'agence collés dans l'outil (Badgal Collection…) : sans eux, leurs comptes restaient introuvables.
+  const config = await getMetaConfigWithExtras();
+  if (!config) throw new Error("Meta n'est pas branché (META_ACCESS_TOKENS)");
+  for (const token of config.tokens) {
     const body = await graphGet<GraphError & { id?: string }>(`${objectId}?fields=id`, token);
     if (!body.error && body.id) {
       rememberObjectToken(objectId, token);

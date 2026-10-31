@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
-import { createAdsFromTemplate, listAccountStructure, listUploadAccounts } from "@/lib/meta/uploader";
+import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, readAdCopy } from "@/lib/meta/uploader";
 import { OutOfScopeError, assertAccountInScope, assertObjectsInScope, associateAccountsFor } from "@/lib/associate/meta-access";
 
 export const dynamic = "force-dynamic";
@@ -11,8 +11,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Meta not configured" }, { status: 503 });
   }
   try {
-    const accountId = new URL(request.url).searchParams.get("accountId")?.trim();
+    const params = new URL(request.url).searchParams;
+    const accountId = params.get("accountId")?.trim();
     const scoped = await associateAccountsFor(request);
+    // ?adId= : les textes d'une pub existante, pour s'en servir de modèle.
+    const adId = params.get("adId")?.trim();
+    if (adId) {
+      if (scoped) await assertObjectsInScope([adId], scoped);
+      return NextResponse.json({ copy: await readAdCopy(adId) });
+    }
     if (!accountId) {
       const accounts = await listUploadAccounts();
       return NextResponse.json({ accounts: scoped ? accounts.filter((account) => scoped.includes(account.accountId)) : accounts });

@@ -30,6 +30,19 @@ import {
 
 const META_BLUE = "bg-[#1877F2] hover:bg-[#166fe5] text-white";
 
+/** L'ad copy et les réglages d'envoi, gardés dans le navigateur : on les retrouve à la visite suivante. */
+const SAVED_KEY = "msgate-uploader-copy";
+type SavedCopy = {
+  headlines: string[];
+  bodies: string[];
+  descriptions: string[];
+  cta: string;
+  websiteUrl: string;
+  displayUrl: string;
+  productUrl: string;
+  namePattern: string;
+};
+
 type TextMode = "all" | "adset" | "ad";
 
 export function MetaUploader() {
@@ -72,6 +85,69 @@ export function MetaUploader() {
   const [aiGenerated, setAiGenerated] = useState(false);
   const [paused, setPaused] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [copyLoaded, setCopyLoaded] = useState(false);
+
+  // L'ad copy de la dernière fois, relu au tick suivant (pas de setState synchrone dans l'effet).
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SAVED_KEY) || "null") as Partial<SavedCopy> | null;
+        if (saved) {
+          if (saved.headlines?.length) setHeadlines(saved.headlines);
+          if (saved.bodies?.length) setBodies(saved.bodies);
+          if (saved.descriptions?.length) setDescriptions(saved.descriptions);
+          if (saved.cta) setCta(saved.cta);
+          if (saved.websiteUrl) setWebsiteUrl(saved.websiteUrl);
+          if (saved.displayUrl) setDisplayUrl(saved.displayUrl);
+          if (saved.productUrl) setProductUrl(saved.productUrl);
+          if (saved.namePattern) setNamePattern(saved.namePattern);
+        }
+      } catch {
+        // première visite
+      }
+      setCopyLoaded(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Chaque modification de l'ad copy est sauvegardée aussitôt.
+  useEffect(() => {
+    if (!copyLoaded) return;
+    try {
+      const saved: SavedCopy = { headlines, bodies, descriptions, cta, websiteUrl, displayUrl, productUrl, namePattern };
+      localStorage.setItem(SAVED_KEY, JSON.stringify(saved));
+    } catch {
+      // stockage refusé : sans gravité
+    }
+  }, [copyLoaded, headlines, bodies, descriptions, cta, websiteUrl, displayUrl, productUrl, namePattern]);
+
+  // Aperçus des fichiers glissés (images et vidéos), libérés quand la liste change.
+  const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file), video: /^video\//.test(file.type) })), [files]);
+  useEffect(() => () => previews.forEach((item) => URL.revokeObjectURL(item.url)), [previews]);
+
+  /** Se calquer sur une pub existante : ses textes, son lien et son bouton remplissent le formulaire. */
+  async function pickTemplateAd(id: string) {
+    setAdId(id);
+    if (!id) return;
+    setBusy("template");
+    try {
+      const res = await fetch(`/api/meta/upload?adId=${encodeURIComponent(id)}`);
+      const body = (await res.json()) as { copy?: { headlines: string[]; bodies: string[]; descriptions: string[]; websiteUrl: string; displayUrl: string; cta: string }; error?: string };
+      if (!res.ok || !body.copy) throw new Error(body.error || "Textes de la pub illisibles");
+      const copy = body.copy;
+      if (copy.headlines.length) setHeadlines(copy.headlines);
+      if (copy.bodies.length) setBodies(copy.bodies);
+      if (copy.descriptions.length) setDescriptions(copy.descriptions);
+      if (copy.websiteUrl) setWebsiteUrl(copy.websiteUrl);
+      if (copy.displayUrl) setDisplayUrl(copy.displayUrl);
+      if (copy.cta) setCta(copy.cta);
+      toast.success("Textes, lien et bouton repris de la pub modèle");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Textes de la pub illisibles");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   useEffect(() => {
     void (async () => {
@@ -325,15 +401,28 @@ export function MetaUploader() {
           Browse
           <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={(e) => addFiles(e.target.files)} />
         </label>
-        {files.length ? (
-          <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-            {files.map((file, i) => (
-              <span key={`${file.name}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px]">
-                {file.name}
-                <button type="button" onClick={() => setFiles((cur) => cur.filter((_, idx) => idx !== i))}>
+        {previews.length ? (
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+            {previews.map((item, i) => (
+              <div key={`${item.file.name}-${i}`} className="group relative overflow-hidden rounded-lg bg-slate-100 ring-1 ring-slate-200">
+                {item.video ? (
+                  <video src={item.url} muted playsInline className="aspect-[4/5] w-full object-cover" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.url} alt={item.file.name} className="aspect-[4/5] w-full object-cover" />
+                )}
+                <p className="truncate px-1.5 py-1 text-left text-[10px] text-slate-600" title={item.file.name}>
+                  {item.file.name}
+                </p>
+                <button
+                  type="button"
+                  title="Retirer"
+                  onClick={() => setFiles((cur) => cur.filter((_, idx) => idx !== i))}
+                  className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white"
+                >
                   <X className="h-3 w-3" />
                 </button>
-              </span>
+              </div>
             ))}
           </div>
         ) : null}
@@ -418,7 +507,7 @@ export function MetaUploader() {
               empty={adsetId ? "No ads found" : "Select an ad set"}
               items={filteredAds}
               selected={adId}
-              onSelect={setAdId}
+              onSelect={(id) => void pickTemplateAd(id)}
             />
           </div>
           <div className="flex justify-end border-t border-slate-100 px-3 py-2">
