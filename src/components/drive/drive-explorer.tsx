@@ -202,13 +202,26 @@ export function DriveExplorer() {
     if (!list.length) return;
     setUploading({ count: list.length, into });
     try {
-      const form = new FormData();
-      form.set("path", into);
-      for (const file of list) form.append("files", file);
-      const res = await fetch("/api/drive", { method: "POST", body: form });
-      const body = (await res.json()) as { saved?: string[]; error?: string };
-      if (!res.ok) throw new Error(body.error);
-      toast.success(`${body.saved?.length ?? 0} fichier(s) déposé(s) dans ${into ? `« ${baseName(into)} »` : "le Drive"}`);
+      // Un fichier par envoi : un gros lot dépassait vite la limite d'une requête (4,5 Mo sur le site en ligne).
+      let saved = 0;
+      const failed: string[] = [];
+      for (const file of list) {
+        const form = new FormData();
+        form.set("path", into);
+        form.append("files", file);
+        const res = await fetch("/api/drive", { method: "POST", body: form });
+        // Une réponse d'erreur peut ne pas être du JSON (« Request Entity Too Large ») : on la traduit.
+        const body = (await res.json().catch(() => ({}))) as { saved?: string[]; error?: string };
+        if (res.ok) {
+          saved += body.saved?.length ?? 1;
+        } else if (res.status === 413) {
+          failed.push(`${file.name} : trop lourd pour le site en ligne (${(file.size / 1024 / 1024).toFixed(1)} Mo, 4,5 Mo max)`);
+        } else {
+          failed.push(`${file.name} : ${body.error || `erreur ${res.status}`}`);
+        }
+      }
+      if (saved) toast.success(`${saved} fichier(s) déposé(s) dans ${into ? `« ${baseName(into)} »` : "le Drive"}`);
+      for (const message of failed) toast.error(message);
       await load(path);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Envoi impossible");

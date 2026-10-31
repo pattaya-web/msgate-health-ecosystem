@@ -309,7 +309,7 @@ export function getTokenForAccount(accountId: string) {
 export function invalidateTreeCache() {
   state.generation = (state.generation ?? 0) + 1;
   state.cache.clear();
-  state.lifetime.clear();
+  // La dépense « depuis toujours » ne dépend pas d'une pause ou d'un budget : on la garde.
   state.structure.clear();
   state.owned = null;
 }
@@ -438,8 +438,9 @@ export async function buildAdsTree(params: {
         }
 
         const cachedLife = state.lifetime.get(id);
-        const lifeFresh =
-          !params.force && cachedLife && tick - cachedLife.at < LIFETIME_TTL_MS;
+        // La dépense « depuis toujours » de chaque pub bouge à peine : même le bouton Sync la garde 30 min
+        // (la relire faisait passer une synchro de ~3 s à ~30 s).
+        const lifeFresh = cachedLife && tick - cachedLife.at < LIFETIME_TTL_MS;
 
         if (lifeFresh && cachedLife) {
           lifetimeByAccount.set(id, cachedLife.rows);

@@ -15,6 +15,11 @@ export function liveCreatives(adset: AdsetNode) {
   return adset.ads.filter((ad) => ad.status === "ACTIVE" && !NOT_LIVE.test(ad.effectiveStatus || "")).length;
 }
 
+/** Combien de créas manquent pour arriver à 3 (0 si l'ad set est complet). */
+export function missingCreatives(adset: AdsetNode) {
+  return Math.max(0, REFILL_MIN - liveCreatives(adset));
+}
+
 /** Ad set allumé avec moins de 3 créas actives. */
 export function needsRefill(adset: AdsetNode) {
   return adset.status === "ACTIVE" && liveCreatives(adset) < REFILL_MIN;

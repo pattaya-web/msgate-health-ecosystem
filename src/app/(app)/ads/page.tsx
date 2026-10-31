@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, formatCurrency, formatCreatedFr, formatNumber } from "@/lib/utils";
-import { adsetsToRefill, liveCreatives, needsRefill } from "@/lib/meta/refill";
+import { adsetsToRefill, liveCreatives, missingCreatives, needsRefill } from "@/lib/meta/refill";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, PHASE_TABS, type CampaignBucket, type PhaseTab } from "@/lib/meta/buckets";
 import { isAccountKilled, isCampaignLive } from "@/lib/meta/account-flow";
 import { loadHiddenAdIds, saveHiddenAdIds } from "@/lib/meta/hidden-ads";
@@ -580,6 +580,25 @@ function filterGroups(groups: BucketGroup[], filters: Filters): BucketGroup[] {
  * restent appliquées à l'écran. Changer d'onglet ou actualiser ne les efface plus.
  */
 const PENDING_KEY = "msgate-meta-pending";
+/** La dernière liste reçue, affichée aussitôt à l'ouverture pendant que la synchro tourne. */
+const LAST_TREE_KEY = "msgate-ads-last-tree";
+
+function readLastTree(key: string): { tree: AdsTree; fx: Record<string, number> } | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAST_TREE_KEY) || "null") as { key: string; tree: AdsTree; fx: Record<string, number> } | null;
+    return saved && saved.key === key ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLastTree(key: string, tree: AdsTree, fx: Record<string, number>) {
+  try {
+    localStorage.setItem(LAST_TREE_KEY, JSON.stringify({ key, tree, fx }));
+  } catch {
+    // trop gros ou refusé : on s'en passe, la synchro affichera la liste
+  }
+}
 const PENDING_TTL_MS = 20 * 60_000;
 type PendingWrite = { level: EntityLevel; id: string; patch: { status?: EntityStatus; dailyBudget?: number; name?: string }; at: number };
 
@@ -707,6 +726,7 @@ export default function AdsPage() {
   });
   const [reloadKey, setReloadKey] = useState(0);
   const hardRefresh = useRef(false);
+  const shownOnce = useRef(false);
 
   // Le bouton Actualiser de l'en-tête : ici, il relance une synchro Meta complète au lieu de recharger la page.
   useEffect(() => {
@@ -781,6 +801,17 @@ export default function AdsPage() {
         const params = new URLSearchParams(
           preset === "custom" ? { start: range.start, end: range.end } : { preset }
         );
+        const lastKey = params.toString();
+        // Ouverture : la dernière liste vue s'affiche tout de suite, la synchro la remplace dès qu'elle arrive.
+        if (!shownOnce.current) {
+          const last = readLastTree(lastKey);
+          if (last) {
+            shownOnce.current = true;
+            setTree(applyPending(last.tree));
+            setFx(last.fx ?? {});
+            setLoading(false);
+          }
+        }
         if (hardRefresh.current) {
           params.set("refresh", "1");
           hardRefresh.current = false;
@@ -790,8 +821,10 @@ export default function AdsPage() {
         const body = await res.json();
         if (cancelled) return;
         if (!res.ok) throw new Error(body.error || "Synchronisation impossible");
+        shownOnce.current = true;
         setTree(applyPending(body as AdsTree));
         setFx((body as { fx?: Record<string, number> }).fx ?? {});
+        writeLastTree(lastKey, body as AdsTree, (body as { fx?: Record<string, number> }).fx ?? {});
         setError(null);
 
         // One-shot warm of sibling presets (structure already cached server-side).
@@ -1572,7 +1605,7 @@ export default function AdsPage() {
                 <span className="font-semibold">
                   {refillAdsets.length} ad set{refillAdsets.length > 1 ? "s" : ""} à réalimenter
                 </span>{" "}
-                (moins de 3 créas actives) : {refillAdsets.slice(0, 4).map((adset) => `${adset.name} (${liveCreatives(adset)})`).join(" · ")}
+                (moins de 3 créas actives) : {refillAdsets.slice(0, 4).map((adset) => `${adset.name} (+${missingCreatives(adset)})`).join(" · ")}
                 {refillAdsets.length > 4 ? ` · +${refillAdsets.length - 4}` : ""}
               </span>
             </div>
@@ -1729,8 +1762,9 @@ export default function AdsPage() {
                           </span>
                         </div>
                         <ColumnHeader />
-                        {group.accounts.flatMap((account) =>
-                          account.campaigns.map((campaign) => (
+                        {sortAccounts(group.accounts).flatMap((account) => [
+                          <AccountHeader key={`acc-${account.accountId}`} account={account} />,
+                          ...account.campaigns.map((campaign) => (
                             <CampaignRow
                               key={campaign.id}
                               campaign={campaign}
@@ -1747,8 +1781,8 @@ export default function AdsPage() {
                               deadCampaignIds={deadCampaignIds}
                               onHideAd={hideAd}
                             />
-                          ))
-                        )}
+                          )),
+                        ])}
                       </section>
                     );
                   })()
@@ -1766,8 +1800,9 @@ export default function AdsPage() {
                           {BUCKET_LABELS.other} ({group.campaignCount})
                         </div>
                         <ColumnHeader />
-                        {group.accounts.flatMap((account) =>
-                          account.campaigns.map((campaign) => (
+                        {sortAccounts(group.accounts).flatMap((account) => [
+                          <AccountHeader key={`acc-${account.accountId}`} account={account} />,
+                          ...account.campaigns.map((campaign) => (
                             <CampaignRow
                               key={campaign.id}
                               campaign={campaign}
@@ -1784,8 +1819,8 @@ export default function AdsPage() {
                               deadCampaignIds={deadCampaignIds}
                               onHideAd={hideAd}
                             />
-                          ))
-                        )}
+                          )),
+                        ])}
                       </section>
                     ))
                 : null}
@@ -1963,6 +1998,28 @@ function CampaignRow({
   );
 }
 
+/** Les comptes d'une phase, le plus dépensier d'abord. */
+function sortAccounts(accounts: AccountNode[]) {
+  return [...accounts].filter((account) => account.campaigns.length).sort((a, b) => b.metrics.spend - a.metrics.spend);
+}
+
+/** Le titre d'un compte pub dans une phase : ses campagnes suivent, jusqu'au compte suivant. */
+function AccountHeader({ account }: { account: AccountNode }) {
+  const budget = account.campaigns.filter((campaign) => campaign.status === "ACTIVE").reduce((sum, campaign) => sum + (campaign.dailyBudget || 0), 0);
+  return (
+    <div className="flex items-center gap-2 border-y border-slate-900/[0.06] bg-slate-50/90 px-2.5 py-1.5 dark:border-white/[0.06] dark:bg-slate-800/60">
+      <span className="h-3.5 w-1 shrink-0 rounded-full bg-[#1877F2]" />
+      <p className="min-w-0 flex-1 truncate text-[11px] font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200" title={`Compte pub ${account.accountId}`}>
+        {account.name}
+      </p>
+      <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
+        {account.campaigns.length} campagne{account.campaigns.length > 1 ? "s" : ""}
+        {budget ? ` · ${formatCurrency(budget)}/j` : ""}
+      </span>
+    </div>
+  );
+}
+
 function AdsetRow({
   adset,
   currency,
@@ -2009,11 +2066,11 @@ function AdsetRow({
           </ActionChip>
           {refill ? (
             <span
-            title={`Seulement ${live} créa active${live > 1 ? "s" : ""} : un ad set doit tourner avec 3 à 4 créas`}
+            title={`${live} créa active${live > 1 ? "s" : ""} sur 3 : il en manque ${missingCreatives(adset)} (un ad set tourne avec 3 à 4 créas)`}
             className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-500 px-1 py-px text-[8px] font-bold uppercase tracking-wide text-white"
           >
             <AlertTriangle className="h-2.5 w-2.5" />
-            Refill · {live} créa
+            Refill +{missingCreatives(adset)} créa{missingCreatives(adset) > 1 ? "s" : ""}
           </span>
           ) : (
             <span className="hidden shrink-0 rounded px-1 py-px text-[8px] font-medium text-emerald-700 ring-1 ring-emerald-500/30 sm:inline dark:text-emerald-300">

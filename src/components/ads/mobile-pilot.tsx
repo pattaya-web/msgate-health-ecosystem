@@ -18,7 +18,7 @@ import type {
   Metrics,
 } from "@/lib/meta/types";
 import { BudgetCell, StatusToggle } from "@/components/ads/bits";
-import { liveCreatives, needsRefill } from "@/lib/meta/refill";
+import { liveCreatives, missingCreatives, needsRefill } from "@/lib/meta/refill";
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -107,6 +107,18 @@ type FlatCampaign = {
   account: AccountNode;
   campaign: CampaignNode;
 };
+
+/** Les campagnes rangées par compte pub (le plus dépensier d'abord), puis par dépense. */
+function byAccount(rows: FlatCampaign[]): FlatCampaign[] {
+  const spendOf = new Map<string, number>();
+  for (const row of rows) spendOf.set(row.account.accountId, (spendOf.get(row.account.accountId) ?? 0) + row.campaign.metrics.spend);
+  return [...rows].sort(
+    (a, b) =>
+      (spendOf.get(b.account.accountId) ?? 0) - (spendOf.get(a.account.accountId) ?? 0) ||
+      a.account.accountId.localeCompare(b.account.accountId) ||
+      b.campaign.metrics.spend - a.campaign.metrics.spend
+  );
+}
 
 function flattenCampaigns(groups: BucketGroup[]): FlatCampaign[] {
   const byCampaign = new Map<string, FlatCampaign>();
@@ -533,7 +545,9 @@ function AdsetPilotRow({
         </div>
         <p className="mt-0.5 flex items-center gap-1 text-[8px] tabular-nums text-slate-400">
           {refill ? (
-            <span className="rounded bg-amber-500 px-1 py-px font-bold uppercase tracking-wide text-white">Refill · {live} créa</span>
+            <span className="rounded bg-amber-500 px-1 py-px font-bold uppercase tracking-wide text-white">
+              Refill +{missingCreatives(adset)} créa{missingCreatives(adset) > 1 ? "s" : ""}
+            </span>
           ) : (
             <span>{live} créa</span>
           )}
@@ -753,10 +767,17 @@ export function MobilePilot({
 
       <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-white/[0.06]">
         {visible.length ? (
-          visible.map((row) => {
+          byAccount(visible).map((row, index, rows) => {
+            const header = index === 0 || rows[index - 1].account.accountId !== row.account.accountId;
             return (
+              <div key={row.key}>
+              {header ? (
+                <div className="flex items-center gap-1.5 border-b border-slate-900/[0.05] bg-slate-50/90 px-2.5 py-1 dark:border-white/[0.05] dark:bg-slate-800/60">
+                  <span className="h-3 w-1 shrink-0 rounded-full bg-[#1877F2]" />
+                  <p className="min-w-0 flex-1 truncate text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:text-slate-300">{row.account.name}</p>
+                </div>
+              ) : null}
               <button
-                key={row.key}
                 type="button"
                 onClick={() => setSelectedKey(row.key)}
                 className="w-full border-b border-slate-900/[0.04] px-2.5 py-2 text-left last:border-0 transition-colors active:bg-emerald-50 hover:bg-emerald-50/90 dark:border-white/[0.04] dark:active:bg-emerald-500/15 dark:hover:bg-emerald-500/[0.12]"
@@ -791,6 +812,7 @@ export function MobilePilot({
                   <StatRow metrics={row.campaign.metrics} />
                 </div>
               </button>
+              </div>
             );
           })
         ) : (
