@@ -7,7 +7,7 @@ import path from "node:path";
 import { newId } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
+export const maxDuration = 300; // plafond du plan Vercel Hobby (600 refusé au déploiement du 31/10/2026)
 
 const MEDIA_DIR = path.join(process.cwd(), "data", "media");
 /** Morceaux en cours d'assemblage (envoi par morceaux, voir plus bas). */

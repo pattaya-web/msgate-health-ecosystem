@@ -3,7 +3,7 @@ import { uploadToKie, KieError } from "@/lib/kie";
 
 export const dynamic = "force-dynamic";
 /** Une vidéo de rush peut être longue à monter : on laisse largement le temps. */
-export const maxDuration = 600;
+export const maxDuration = 300; // plafond du plan Vercel Hobby (600 refusé au déploiement du 31/10/2026)
 
 /** 100 Mo. Au-delà, les modèles refusent de toute façon le média. */
 const MAX_BYTES = 100 * 1024 * 1024;
