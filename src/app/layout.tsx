@@ -3,6 +3,7 @@ import { Geist_Mono, Instrument_Sans, Instrument_Serif, TikTok_Sans } from "next
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth/auth-context";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { UpdateBar } from "@/components/layout/update-bar";
 import "./globals.css";
 
 /**
@@ -76,6 +77,7 @@ export default function RootLayout({
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           <AuthProvider>
+            <UpdateBar />
             {children}
             <Toaster
               position="top-right"

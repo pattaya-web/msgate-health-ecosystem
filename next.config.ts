@@ -23,10 +23,21 @@ function commitSha(): string {
   }
 }
 
+/**
+ * Identifiant de version figé au build, propre à chaque déploiement : la barre
+ * « Nouvelle version » (src/components/layout/update-bar.tsx) le compare à celui
+ * que sert le serveur. Vercel fournit l'identifiant du déploiement ; à défaut,
+ * commit + heure du build.
+ */
+function buildId(): string {
+  return (process.env.VERCEL_DEPLOYMENT_ID ?? "").trim() || `${commitSha() || "local"}-${Date.now()}`;
+}
+
 const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_ENV: appEnv(),
     NEXT_PUBLIC_COMMIT_SHA: commitSha(),
+    MSGATE_BUILD_ID: buildId(),
   },
 
   /**
