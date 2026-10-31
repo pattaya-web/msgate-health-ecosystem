@@ -17,7 +17,8 @@ import { BrandLogo } from "@/components/layout/brand-logo";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 const loginSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
+  // Un identifiant simple (« mady ») ou une adresse e-mail : les deux sont des comptes valides.
+  email: z.string().trim().min(2, "Identifiant requis"),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -97,13 +98,15 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="email" className="text-[12px] text-slate-600 dark:text-slate-400">
-              Email
+              Identifiant
             </Label>
             <Input
               id="email"
-              type="email"
-              autoComplete="email"
-              placeholder="you@msgate.internal"
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="identifiant ou e-mail"
               className="h-11 rounded-2xl px-4"
               {...register("email")}
             />

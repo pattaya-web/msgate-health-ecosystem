@@ -60,8 +60,9 @@ export function loadAuthUsers(): AuthUsers {
       const email = typeof (entry as { email?: unknown })?.email === "string" ? (entry as { email: string }).email.trim().toLowerCase() : "";
       const role = (entry as { role?: unknown })?.role;
       const hash = typeof (entry as { hash?: unknown })?.hash === "string" ? (entry as { hash: string }).hash.trim() : "";
-      if (!email.includes("@") || !ROLES.includes(role as UserRole) || !hash.startsWith("$scrypt$")) {
-        return { users: [], source: "none", error: "Une entrée de AUTH_USERS est incomplète (email, role, hash scrypt attendus)" };
+      // L'identifiant est une adresse e-mail ou un nom simple (« mady ») : lettres, chiffres, . _ - + @.
+      if (!/^[a-z0-9._+@-]{2,120}$/.test(email) || !ROLES.includes(role as UserRole) || !hash.startsWith("$scrypt$")) {
+        return { users: [], source: "none", error: "Une entrée de AUTH_USERS est incomplète (identifiant, role, hash scrypt attendus)" };
       }
       users.push({ email, role: role as UserRole, hash });
     }

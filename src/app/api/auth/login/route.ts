@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   }
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = typeof body.password === "string" ? body.password : "";
-  if (!email || !password) return NextResponse.json({ error: "E-mail et mot de passe requis" }, { status: 400 });
+  if (!email || !password) return NextResponse.json({ error: "Identifiant et mot de passe requis" }, { status: 400 });
 
   const secret = getAuthSecret();
   const accounts = loadAuthUsers();
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
       : password === account.demoPassword
     : await verifyPassword(password, DUMMY_HASH).then(() => false);
 
-  if (!valid || !account) return NextResponse.json({ error: "E-mail ou mot de passe incorrect" }, { status: 401 });
+  if (!valid || !account) return NextResponse.json({ error: "Identifiant ou mot de passe incorrect" }, { status: 401 });
 
   const session = { email: account.email, role: account.role };
   const response = NextResponse.json({ user: appUserFor(session), source: accounts.source });
