@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, formatCurrency, formatCreatedFr, formatNumber } from "@/lib/utils";
+import { adsetsToRefill, liveCreatives, needsRefill } from "@/lib/meta/refill";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, PHASE_TABS, type CampaignBucket, type PhaseTab } from "@/lib/meta/buckets";
 import { isAccountKilled, isCampaignLive } from "@/lib/meta/account-flow";
 import { loadHiddenAdIds, saveHiddenAdIds } from "@/lib/meta/hidden-ads";
@@ -1148,6 +1149,8 @@ export default function AdsPage() {
 
   const totals = useMemo(() => sum(groups.map((group) => group.metrics)), [groups]);
   const dailyBudget = groups.reduce((acc, group) => acc + group.dailyBudget, 0);
+  // Les ad sets allumés avec moins de 3 créas actives, tous comptes confondus : à réalimenter.
+  const refillAdsets = flowAccounts.flatMap((account) => account.campaigns.flatMap((campaign) => adsetsToRefill(campaign)));
   const shown = frRange(preset, range);
   // Spend Meta suit la vue (Actifs / recherche) — sinon le KPI et « Spend · Actifs » divergent.
   // Les comptes peuvent être en euros et Shopify en dollars : le KPI et le ROAS se font en dollars.
@@ -1559,6 +1562,22 @@ export default function AdsPage() {
             </div>
           </div>
 
+          {refillAdsets.length ? (
+            <div
+              className="flex items-start gap-1.5 rounded-xl bg-amber-50 px-2.5 py-2 text-[11px] text-amber-900 ring-1 ring-amber-500/20 dark:bg-amber-500/10 dark:text-amber-100"
+              title={refillAdsets.map((adset) => `${adset.name} : ${liveCreatives(adset)} créa`).join(" · ")}
+            >
+              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <span className="min-w-0">
+                <span className="font-semibold">
+                  {refillAdsets.length} ad set{refillAdsets.length > 1 ? "s" : ""} à réalimenter
+                </span>{" "}
+                (moins de 3 créas actives) : {refillAdsets.slice(0, 4).map((adset) => `${adset.name} (${liveCreatives(adset)})`).join(" · ")}
+                {refillAdsets.length > 4 ? ` · +${refillAdsets.length - 4}` : ""}
+              </span>
+            </div>
+          ) : null}
+
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -1844,6 +1863,7 @@ function CampaignRow({
   const zipKey = `zip-${key}`;
   const dead = shared.deadCampaignIds.has(campaign.id);
   const alerts = countAlertsInCampaign(campaign, shared.hsAdIds, shared.deadAdIds);
+  const refillCount = adsetsToRefill(campaign).length;
   const currency = account.currency;
 
   return (
@@ -1890,6 +1910,14 @@ function CampaignRow({
             {alerts.dead ? (
               <span className="shrink-0 rounded bg-rose-600/90 px-1 py-px text-[7px] font-bold uppercase tracking-wide text-white">
                 {alerts.dead} sans vente
+              </span>
+            ) : null}
+            {refillCount ? (
+              <span
+                title="Ad sets allumés avec moins de 3 créas actives : à réalimenter"
+                className="shrink-0 rounded bg-amber-500 px-1 py-px text-[7px] font-bold uppercase tracking-wide text-white"
+              >
+                {refillCount} à refill
               </span>
             ) : null}
           </div>
@@ -1944,6 +1972,8 @@ function AdsetRow({
   const key = `s:${adset.id}`;
   const isOpen = shared.open[key] ?? false;
   const zipKey = `zip-${key}`;
+  const live = liveCreatives(adset);
+  const refill = needsRefill(adset);
 
   return (
     <div>
@@ -1977,9 +2007,19 @@ function AdsetRow({
           >
             <Download className="h-2.5 w-2.5" />
           </ActionChip>
-          <span className="hidden shrink-0 rounded px-1 py-px text-[8px] font-medium text-emerald-700 ring-1 ring-emerald-500/30 sm:inline dark:text-emerald-300">
-            {adset.activeAds} créa
+          {refill ? (
+            <span
+            title={`Seulement ${live} créa active${live > 1 ? "s" : ""} : un ad set doit tourner avec 3 à 4 créas`}
+            className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-500 px-1 py-px text-[8px] font-bold uppercase tracking-wide text-white"
+          >
+            <AlertTriangle className="h-2.5 w-2.5" />
+            Refill · {live} créa
           </span>
+          ) : (
+            <span className="hidden shrink-0 rounded px-1 py-px text-[8px] font-medium text-emerald-700 ring-1 ring-emerald-500/30 sm:inline dark:text-emerald-300">
+              {live} créa
+            </span>
+          )}
         </div>
         <MetricsRail
           budget={

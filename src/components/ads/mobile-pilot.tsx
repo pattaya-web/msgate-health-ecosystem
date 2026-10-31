@@ -18,6 +18,7 @@ import type {
   Metrics,
 } from "@/lib/meta/types";
 import { BudgetCell, StatusToggle } from "@/components/ads/bits";
+import { liveCreatives, needsRefill } from "@/lib/meta/refill";
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -496,6 +497,8 @@ function AdsetPilotRow({
   onOpen: () => void;
 }) {
   const created = formatCreatedFr(adset.createdTime);
+  const live = liveCreatives(adset);
+  const refill = needsRefill(adset);
   return (
     <button
       type="button"
@@ -528,9 +531,13 @@ function AdsetPilotRow({
             {adset.metrics.roas ? `${adset.metrics.roas.toFixed(2)}x` : "—"}
           </span>
         </div>
-        <p className="mt-0.5 text-[8px] tabular-nums text-slate-400">
-          {adset.ads.length} créa
-          {created ? ` · ${created}` : ""}
+        <p className="mt-0.5 flex items-center gap-1 text-[8px] tabular-nums text-slate-400">
+          {refill ? (
+            <span className="rounded bg-amber-500 px-1 py-px font-bold uppercase tracking-wide text-white">Refill · {live} créa</span>
+          ) : (
+            <span>{live} créa</span>
+          )}
+          {created ? <span>· {created}</span> : null}
         </p>
       </div>
       <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
