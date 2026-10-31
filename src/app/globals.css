@@ -273,8 +273,15 @@ table {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
+/* L'affichage passe par une couche : ainsi `hidden` / `lg:hidden` posés sur un
+   bouton de l'en-tête (menu mobile, repli de la barre latérale) gagnent bien. */
+@layer components {
+  .float-header .pill-btn {
+    display: inline-flex;
+  }
+}
+
 .float-header .pill-btn {
-  display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 32px;
@@ -525,6 +532,83 @@ table {
 
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ---------------------------------------------------------------------------
+   Appli iPhone (ajoutée à l'écran d'accueil) : zones sûres et confort tactile.
+   viewport-fit=cover étend la page sous l'encoche et la barre d'accueil ; ces
+   marges ramènent l'en-tête, le contenu et la barre du bas à l'intérieur.
+   --------------------------------------------------------------------------- */
+.app-header-bar {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+
+.app-main {
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+  /* La barre flottante du bas (≈ 56 px) + son décalage + la barre d'accueil. */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6.5rem);
+}
+
+@media (min-width: 640px) {
+  .app-header-bar {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+
+  .app-main {
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-main {
+    padding-bottom: 2.5rem;
+  }
+}
+
+/* La barre du bas flotte au-dessus de la barre d'accueil de l'iPhone. */
+.mobile-tabbar {
+  left: max(0.75rem, env(safe-area-inset-left, 0px));
+  right: max(0.75rem, env(safe-area-inset-right, 0px));
+  bottom: max(0.75rem, calc(env(safe-area-inset-bottom, 0px) - 0.25rem));
+}
+
+.safe-drawer > aside {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Pas de flash gris au toucher, pas de délai de double-tap : on se croit dans une appli. */
+a,
+button,
+[role="button"],
+label,
+summary {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* iOS zoome sur tout champ écrit sous 16 px : au doigt, les champs passent à 16 px. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Une rangée qui défile sur le côté sans barre visible (onglets, filtres). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 @keyframes drawer-in {

@@ -52,12 +52,30 @@ export const metadata: Metadata = {
   title: "MSGate Health Ecosystem",
   description:
     "Operational health cockpit for ads, stats, ecosystem and process.",
+  applicationName: "MSGate",
+  /*
+   * Ajouté à l'écran d'accueil de l'iPhone, l'outil s'ouvre en plein écran.
+   * Barre d'état « default » : opaque, l'heure et la batterie restent lisibles
+   * sur le fond clair comme sur le sombre (« black-translucent » écrirait en
+   * blanc par-dessus le papier clair). Les marges env(safe-area-inset-*) de
+   * l'en-tête et de la barre du bas suivent quand même l'encoche en paysage.
+   */
+  appleWebApp: {
+    capable: true,
+    title: "MSGate",
+    statusBarStyle: "default",
+  },
+  formatDetection: { telephone: false },
+  // Next n'écrit plus que « mobile-web-app-capable » : on garde l'ancienne balise Apple pour les iOS plus anciens.
+  other: { "apple-mobile-web-app-capable": "yes" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  // Le contenu va jusqu'aux bords (encoche, barre d'accueil) : les zones sûres sont gérées en CSS.
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f9fbfb" },
     { media: "(prefers-color-scheme: dark)", color: "#0b1315" },

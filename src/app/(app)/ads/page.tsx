@@ -37,7 +37,6 @@ import type {
   Metrics,
 } from "@/lib/meta/types";
 import { DateRangePicker } from "@/components/phoenix/date-range-picker";
-import { DailySpendChart } from "@/components/ads/daily-spend-chart";
 import { useAuth } from "@/lib/auth/auth-context";
 import { TzBadge } from "@/components/phoenix/source-clocks";
 import { SplitBar } from "@/components/phoenix/ui";
@@ -643,6 +642,17 @@ export default function AdsPage() {
   });
   const [reloadKey, setReloadKey] = useState(0);
   const hardRefresh = useRef(false);
+
+  // Le bouton Actualiser de l'en-tête : ici, il relance une synchro Meta complète au lieu de recharger la page.
+  useEffect(() => {
+    const onRefresh = (event: Event) => {
+      event.preventDefault();
+      hardRefresh.current = true;
+      setReloadKey((key) => key + 1);
+    };
+    window.addEventListener("msgate:refresh", onRefresh);
+    return () => window.removeEventListener("msgate:refresh", onRefresh);
+  }, []);
   const presetsWarmed = useRef(false);
 
   const [tree, setTree] = useState<AdsTree | null>(null);
@@ -1344,11 +1354,8 @@ export default function AdsPage() {
         </div>
       </div>
 
-      <div className="order-2 lg:order-3">
-        <DailySpendChart start={shown.start} end={shown.end} reloadKey={reloadKey} />
-      </div>
-
-      <div className="order-6 grid gap-2 md:grid-cols-2 lg:order-4">
+      {/* Les comptes (prêts, en warm, à surveiller, morts) : tout en bas, après les campagnes. */}
+      <div className="order-7 grid gap-2 md:grid-cols-2 lg:order-7">
         {isAssociate ? null : (
         <div className="hidden rounded-xl bg-white ring-1 ring-slate-900/[0.06] md:block dark:bg-slate-900/70 dark:ring-white/[0.06]">
           <button
@@ -1463,8 +1470,8 @@ export default function AdsPage() {
 
       <div className="order-3 overflow-hidden rounded-2xl bg-white ring-1 ring-slate-900/[0.06] lg:order-5 dark:bg-slate-900/70 dark:ring-white/[0.06]">
         <div className="space-y-2 px-2.5 py-2 sm:px-3 sm:py-2.5">
-          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-            <div className="hidden min-w-0 rounded-xl bg-slate-50 px-2.5 py-2 sm:block dark:bg-slate-800/60">
+          <div className="grid grid-cols-2 gap-1.5">
+            <div className="min-w-0 rounded-xl bg-slate-50 px-2.5 py-2 dark:bg-slate-800/60">
               <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
                 Achats
               </p>

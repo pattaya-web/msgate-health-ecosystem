@@ -25,6 +25,7 @@ import {
   Network,
   Package,
   PanelLeftClose,
+  Receipt,
   ReceiptText,
   HandCoins,
   Settings,
@@ -59,6 +60,7 @@ export const SECTIONS: NavSection[] = [
       { href: "/phoenix", label: "Stats", icon: BarChart3 },
       { href: "/profit", label: "Profit calculator", icon: Calculator },
       { href: "/invoices", label: "Facturation", icon: ReceiptText },
+      { href: "/factures", label: "Factures fournisseurs", icon: Receipt },
       // Admin seulement : la page telle qu'un associé la voit (filtrée au rendu, voir Sidebar).
       { href: "/associate", label: "Vue Associé", icon: Handshake },
     ],
@@ -138,7 +140,7 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
   {
     id: "associate-compta",
     label: "Comptabilité",
-    items: [{ href: "/invoices", label: "Factures", icon: ReceiptText }],
+    items: [{ href: "/factures", label: "Factures", icon: ReceiptText }],
   },
   {
     id: "associate-creation",

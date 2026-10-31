@@ -6,6 +6,7 @@ import type { DateRange } from "@/components/phoenix/date-range-picker";
 import { reportToday } from "@/lib/report-tz";
 
 const RANGE_KEY = "msgate-associate-range";
+const LAST_KEY = "msgate-associate-last";
 
 function monthRange(): DateRange {
   const today = reportToday();
@@ -23,14 +24,33 @@ function loadRange(): DateRange {
   return monthRange();
 }
 
+/** Les derniers chiffres vus pour cette période, gardés dans le navigateur : affichés aussitôt à l'ouverture. */
+function readLast(range: DateRange): { overview: AssociateOverview; at: number } | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAST_KEY) || "null") as { key: string; at: number; overview: AssociateOverview } | null;
+    return saved && saved.key === `${range.start}:${range.end}` ? { overview: saved.overview, at: saved.at } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLast(range: DateRange, overview: AssociateOverview) {
+  try {
+    localStorage.setItem(LAST_KEY, JSON.stringify({ key: `${range.start}:${range.end}`, at: Date.now(), overview }));
+  } catch {
+    // stockage plein ou refusé : sans importance
+  }
+}
+
 /**
  * Les chiffres de la vue Associé, partagés par ses onglets.
  *
- * La plage de dates est gardée dans le navigateur : passer de « Ventes » à
- * « Profit » garde la même période. Tant que la période contient aujourd'hui,
- * les chiffres se relisent toutes les 15 s (le serveur relit Shopify toutes
- * les 30 s et Meta chaque minute). Le bouton Synchroniser force une relecture
- * immédiate de Shopify et Meta.
+ * Rapide d'abord : les derniers chiffres vus s'affichent tout de suite, puis
+ * se mettent à jour. La plage de dates est gardée dans le navigateur. Tant que
+ * la période contient aujourd'hui, les chiffres se relisent toutes les 15 s
+ * (le serveur relit Shopify toutes les 30 s et Meta chaque minute). Le bouton
+ * Synchroniser — celui de la page comme celui de l'en-tête — force une
+ * relecture immédiate de Shopify et Meta.
  */
 export function useAssociateOverview() {
   const [range, setRangeState] = useState<DateRange>(() => loadRange());
@@ -59,6 +79,7 @@ export function useAssociateOverview() {
       setOverview(body.overview);
       setError(null);
       setLoadedAt(Date.now());
+      writeLast(current, body.overview);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tableau de bord indisponible");
     } finally {
@@ -68,8 +89,26 @@ export function useAssociateOverview() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(range), 0);
+    const timer = window.setTimeout(() => {
+      const last = readLast(range);
+      if (last) {
+        setOverview(last.overview);
+        setLoadedAt(last.at);
+        setLoading(false);
+      }
+      void load(range);
+    }, 0);
     return () => window.clearTimeout(timer);
+  }, [range, load]);
+
+  // Le bouton Actualiser de l'en-tête : sur ces pages, il resynchronise au lieu de recharger la page.
+  useEffect(() => {
+    const onRefresh = (event: Event) => {
+      event.preventDefault();
+      void load(range, true);
+    };
+    window.addEventListener("msgate:refresh", onRefresh);
+    return () => window.removeEventListener("msgate:refresh", onRefresh);
   }, [range, load]);
 
   const building = Boolean(overview?.phoenix.building || overview?.phoenix.progress?.running);

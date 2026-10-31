@@ -15,6 +15,7 @@ import { REPORT_CURRENCY, describeConversion, fxRates } from "@/lib/fx";
 import { peekOrders, peekShopifyFeed, refreshShopifyNow } from "@/lib/reign/snapshot";
 import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
 import { getLiveShopifySales, reportDay, shopifyDirectMode } from "@/lib/shopify/live-sales";
+import { fastScopedSpend } from "@/lib/associate/meta-fast";
 
 /**
  * Le périmètre « Straight Sale » de l'accès Associé.
@@ -180,7 +181,66 @@ function spendInScope(account: AccountNode, scope: AssociateScope) {
   };
 }
 
-/** La dépense Meta du périmètre : comptes retenus en entier, plus les campagnes au mot-clé des autres comptes. */
+/**
+ * Dépenses Meta saisies à la main : un compte publicitaire banni dont la donnée
+ * n'est plus lisible chez Meta. Le montant est réparti à parts égales sur ses
+ * jours (jours de Paris) et compté comme payé par `payer` dans MoneyTalk.
+ */
+export const MANUAL_AD_SPEND: Array<{ id: string; name: string; currency: string; amount: number; start: string; end: string; payer: "mady" | "alison" }> = [
+  // Lancement de Venom : 544 € dépensés du 21 au 24 octobre 2026 sur un compte banni ensuite (données perdues).
+  { id: "manuel-compte-banni-2026-10", name: "Compte banni (saisie manuelle)", currency: "EUR", amount: 544, start: "2026-10-21", end: "2026-10-24", payer: "alison" },
+];
+
+const dayCount = (start: string, end: string) => Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) + 1;
+
+/** La part de chaque dépense manuelle qui tombe dans la période. */
+function manualSpendIn(start: string, end: string) {
+  return MANUAL_AD_SPEND.flatMap((entry) => {
+    const from = entry.start > start ? entry.start : start;
+    const to = entry.end < end ? entry.end : end;
+    if (from > to) return [];
+    return [{ ...entry, spend: (entry.amount * dayCount(from, to)) / dayCount(entry.start, entry.end) }];
+  });
+}
+
+type ScopedRow = {
+  accountId: string;
+  name: string;
+  currency: string;
+  /** Dépense de la part retenue du compte, dans sa devise. */
+  spend: number;
+  campaigns: Array<{ id: string; name: string; status: string; spend: number; purchases: number; purchaseValue: number }>;
+};
+
+/** Repli : l'arbre complet de l'Ads Manager (lent), quand la lecture directe échoue. */
+async function scopedRowsFromTree(start: string, end: string, scope: AssociateScope, force: boolean): Promise<ScopedRow[]> {
+  const tree = await buildAdsTree({ preset: "custom", start, end, force });
+  return tree.accounts
+    .map((account) => ({ account, ...spendInScope(account, scope) }))
+    .filter((row) => row.campaigns > 0 || scope.metaAccountIds.includes(row.account.accountId))
+    .map((row) => ({
+      accountId: row.account.accountId,
+      name: row.account.name,
+      currency: row.account.currency,
+      spend: row.spend,
+      campaigns: row.picked.map((campaign) => ({
+        id: campaign.id,
+        name: campaign.name,
+        status: campaign.status,
+        spend: campaign.metrics.spend,
+        purchases: campaign.metrics.purchases,
+        purchaseValue: campaign.metrics.purchaseValue,
+      })),
+    }));
+}
+
+/** La lecture directe des comptes du périmètre (~1 s) : voir src/lib/associate/meta-fast.ts. */
+async function scopedRowsFast(start: string, end: string, scope: AssociateScope, force: boolean): Promise<ScopedRow[]> {
+  const rows = await fastScopedSpend({ start, end, accountIds: scope.metaAccountIds, keyword: scope.campaignKeyword, force });
+  return rows.map((row) => ({ accountId: row.account.accountId, name: row.account.name, currency: row.account.currency, spend: row.spend, campaigns: row.campaigns }));
+}
+
+/** La dépense Meta du périmètre : comptes retenus en entier (et ceux au mot-clé), plus les dépenses saisies à la main. */
 export async function scopedMetaSpend(start: string, end: string, scope: AssociateScope, force = false): Promise<AssociateOverview["meta"]> {
   let meta: AssociateOverview["meta"] = {
     spend: 0,
@@ -193,42 +253,47 @@ export async function scopedMetaSpend(start: string, end: string, scope: Associa
     metaRoas: null,
     campaigns: [],
   };
+  const manual = manualSpendIn(start, end);
   const hasScope = scope.metaAccountIds.length > 0 || Boolean(scope.campaignKeyword);
-  if (meta.configured && hasScope) {
+  if ((meta.configured && hasScope) || manual.length) {
     try {
-      const tree = await buildAdsTree({ preset: "custom", start, end, force });
-      const rows = tree.accounts
-        .map((account) => ({ account, ...spendInScope(account, scope) }))
-        .filter((row) => row.campaigns > 0 || scope.metaAccountIds.includes(row.account.accountId));
+      let rows: ScopedRow[] = [];
+      if (meta.configured && hasScope) {
+        rows = await scopedRowsFast(start, end, scope, force).catch(() => scopedRowsFromTree(start, end, scope, force));
+      }
       // Tout en dollars, la devise des ventes : les comptes de Badgal Collection sont en euros.
-      const rates = await fxRates(rows.map((row) => row.account.currency), REPORT_CURRENCY);
-      const inUsd = (row: (typeof rows)[number]) => row.spend * (rates.get((row.account.currency || REPORT_CURRENCY).toUpperCase())?.rate ?? 1);
-      // Le ROAS de Meta se calcule dans la devise du compte (valeur des achats et dépense sont toutes deux en euros) : pas de conversion.
+      const rates = await fxRates([...rows.map((row) => row.currency), ...manual.map((entry) => entry.currency)], REPORT_CURRENCY);
       const rate = (currency: string) => rates.get((currency || REPORT_CURRENCY).toUpperCase())?.rate ?? 1;
+      // Le ROAS de Meta se calcule dans la devise du compte (valeur des achats et dépense sont toutes deux en euros) : pas de conversion.
       const campaigns = rows
-        .flatMap((row) => row.picked.map((campaign) => ({ campaign, currency: row.account.currency, account: row.account.name })))
-        .filter(({ campaign }) => campaign.metrics.spend > 0)
+        .flatMap((row) => row.campaigns.map((campaign) => ({ campaign, currency: row.currency, account: row.name })))
+        .filter(({ campaign }) => campaign.spend > 0)
         .map(({ campaign, currency, account }) => ({
           id: campaign.id,
           name: campaign.name,
           status: campaign.status,
-          spend: campaign.metrics.spend * rate(currency),
-          purchases: campaign.metrics.purchases,
-          roas: campaign.metrics.spend > 0 ? campaign.metrics.purchaseValue / campaign.metrics.spend : null,
-          value: campaign.metrics.purchaseValue * rate(currency),
+          spend: campaign.spend * rate(currency),
+          purchases: campaign.purchases,
+          roas: campaign.spend > 0 ? campaign.purchaseValue / campaign.spend : null,
+          value: campaign.purchaseValue * rate(currency),
           account,
         }))
         .sort((a, b) => b.spend - a.spend);
       const spendUsd = campaigns.reduce((sum, campaign) => sum + campaign.spend, 0);
       const valueUsd = campaigns.reduce((sum, campaign) => sum + campaign.value, 0);
+      const accounts = [
+        ...rows.map((row) => ({ id: row.accountId, name: row.name, spend: row.spend * rate(row.currency), campaigns: row.campaigns.filter((campaign) => campaign.spend > 0).length })),
+        ...manual.map((entry) => ({ id: entry.id, name: entry.name, spend: entry.spend * rate(entry.currency), campaigns: 0 })),
+      ].sort((a, b) => b.spend - a.spend);
       meta = {
-        spend: rows.reduce((sum, row) => sum + inUsd(row), 0),
+        spend: accounts.reduce((sum, account) => sum + account.spend, 0),
         currency: REPORT_CURRENCY,
-        accounts: rows.map((row) => ({ id: row.account.accountId, name: row.account.name, spend: inUsd(row), campaigns: row.campaigns })).sort((a, b) => b.spend - a.spend),
+        accounts,
         configured: true,
         error: null,
         conversion: describeConversion(rates, REPORT_CURRENCY),
         purchases: campaigns.reduce((sum, campaign) => sum + campaign.purchases, 0),
+        // Le ROAS Meta ne porte que sur les campagnes que Meta suit encore (pas la saisie manuelle).
         metaRoas: spendUsd > 0 ? valueUsd / spendUsd : null,
         campaigns: campaigns.map(({ value: _value, ...rest }) => {
           void _value;

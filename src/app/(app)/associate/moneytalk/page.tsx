@@ -62,6 +62,16 @@ export default function MoneyTalkPage() {
     };
   }, [reloadKey]);
 
+  // Le bouton « Actualiser » de l'en-tête : on relit MoneyTalk sur place plutôt que de recharger la page.
+  useEffect(() => {
+    const onRefresh = (event: Event) => {
+      event.preventDefault();
+      setReloadKey((key) => key + 1);
+    };
+    window.addEventListener("msgate:refresh", onRefresh);
+    return () => window.removeEventListener("msgate:refresh", onRefresh);
+  }, []);
+
   const save = useCallback(async (body: unknown, done?: string) => {
     setSaving(true);
     try {
@@ -81,8 +91,8 @@ export default function MoneyTalkPage() {
 
   return (
     <div className="space-y-4">
-      <div className="r-rise flex flex-wrap items-end gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-1">
+      <div className="r-rise flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-4">
+        <div className="min-w-0 sm:flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="r-chip">
               <HandCoins className="h-3.5 w-3.5" />
@@ -97,7 +107,7 @@ export default function MoneyTalkPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="r-tabs" role="radiogroup" aria-label="Rythme de paiement">
+          <div className="r-tabs flex-1 sm:flex-none" role="radiogroup" aria-label="Rythme de paiement">
             {(["weekly", "monthly"] as const).map((value) => (
               <button
                 key={value}
@@ -116,7 +126,7 @@ export default function MoneyTalkPage() {
           <button
             type="button"
             onClick={() => setReloadKey((key) => key + 1)}
-            className="r-icon h-10 w-10 rounded-full transition-transform hover:scale-105 active:scale-95"
+            className="r-icon h-10 w-10 shrink-0 rounded-full transition-transform hover:scale-105 active:scale-95"
             aria-label="Actualiser"
             title="Actualiser"
           >
@@ -167,11 +177,18 @@ export default function MoneyTalkPage() {
       {current ? <Versions period={current} frequency={frequency} processingRate={report?.processingRate ?? 0} /> : null}
 
       <div className="r-card r-rise overflow-hidden" style={{ animationDelay: "260ms" }}>
-        <div className="flex items-center justify-between px-5 pt-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-5 pt-4">
           <p className="r-label">Période par période</p>
           <p className="r-sub">{frequency === "weekly" ? "semaines du lundi au dimanche" : "mois civils"}</p>
         </div>
-        <div className="overflow-x-auto px-2 pb-3 pt-2">
+        {/* Sur téléphone : une carte par période, empilées, plutôt qu'un tableau qui défile. */}
+        <div className="space-y-2.5 px-3 pb-3 pt-3 md:hidden">
+          {(report?.periods ?? []).map((period) => (
+            <PeriodCard key={period.key} period={period} frequency={frequency} isAdmin={isAdmin} saving={saving} onSave={save} />
+          ))}
+          {!report?.periods.length ? <p className="r-sub py-8 text-center">{loading ? "Chargement…" : "Aucune période pour l'instant."}</p> : null}
+        </div>
+        <div className="hidden overflow-x-auto px-2 pb-3 pt-2 md:block">
           <table className="w-full min-w-[760px] text-[12.5px]">
             <thead>
               <tr className="r-label text-left">
@@ -228,6 +245,60 @@ export default function MoneyTalkPage() {
       {isAdmin && report ? <AdminSettings report={report} saving={saving} onSave={save} /> : null}
       {/* Le coût produit qu'on met : le même éditeur que le Profit calculator, réservé à l'admin. */}
       {isAdmin ? <CogsEditor onSaved={() => setReloadKey((key) => key + 1)} /> : null}
+    </div>
+  );
+}
+
+/** Une période en carte (téléphone) : la paie en gros, le détail du calcul en dessous. */
+function PeriodCard({
+  period,
+  frequency,
+  isAdmin,
+  saving,
+  onSave,
+}: {
+  period: PartnershipPeriod;
+  frequency: Frequency;
+  isAdmin: boolean;
+  saving: boolean;
+  onSave: (body: unknown, done?: string) => Promise<void>;
+}) {
+  const rows: { label: string; value: string; color?: string }[] = [
+    { label: "Ventes", value: usd(period.revenue) },
+    { label: "Commandes", value: String(period.orders) },
+    { label: "Coût produit", value: usd(period.cogs) },
+    { label: "Frais", value: usd(period.fees) },
+    { label: "Pub", value: usd(period.adsAlison + period.adsMady) },
+    { label: "Bénéfice", value: usd(period.profit), color: period.profit >= 0 ? "var(--r-good)" : "var(--r-bad)" },
+  ];
+  return (
+    <div className="rounded-2xl border p-3.5" style={{ borderColor: "var(--line)" }}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 text-[13.5px] font-semibold leading-snug" style={{ color: "var(--ink)" }}>
+          {periodLabel(period, frequency)}
+        </p>
+        <div className="shrink-0">
+          <PaidCell period={period} isAdmin={isAdmin} saving={saving} onSave={onSave} />
+        </div>
+      </div>
+      <div className="mt-2 flex items-baseline justify-between gap-2">
+        <span className="r-label">Paie Alison · {period.version === 2 ? "50/50" : "100 %"}</span>
+        <span className="text-[19px] font-semibold tabular-nums" style={{ color: "var(--ink)" }}>
+          {usd(period.owed)}
+        </span>
+      </div>
+      <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t pt-2.5 text-[12px]" style={{ borderColor: "var(--line)" }}>
+        {rows.map((row) => (
+          <div key={row.label} className="flex min-w-0 items-baseline justify-between gap-2">
+            <dt className="truncate" style={{ color: "var(--ink-3)" }}>
+              {row.label}
+            </dt>
+            <dd className="shrink-0 font-medium tabular-nums" style={{ color: row.color ?? "var(--ink-2)" }}>
+              {row.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -302,7 +373,7 @@ function VersionCard({
   period: PartnershipPeriod;
 }) {
   return (
-    <div className={cn("r-card r-rise p-5", !active && "opacity-70")} style={{ animationDelay: `${delay}ms`, outline: active ? "2px solid var(--r-accent)" : undefined }}>
+    <div className={cn("r-card r-rise p-4 sm:p-5", !active && "opacity-70")} style={{ animationDelay: `${delay}ms`, outline: active ? "2px solid var(--r-accent)" : undefined }}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="r-label">{tag}</p>
@@ -325,7 +396,7 @@ function VersionCard({
                 </span>
               ) : null}
             </span>
-            <span className="text-[13.5px] font-semibold tabular-nums" style={{ color: step.strong ? "var(--ink)" : "var(--ink-2)" }}>
+            <span className="shrink-0 whitespace-nowrap text-[13.5px] font-semibold tabular-nums" style={{ color: step.strong ? "var(--ink)" : "var(--ink-2)" }}>
               {step.value < 0 ? "−" : ""} {usd(Math.abs(step.value))}
             </span>
           </div>
@@ -335,7 +406,7 @@ function VersionCard({
         <span className="text-[14px] font-semibold" style={{ color: "var(--ink)" }}>
           {resultLabel}
         </span>
-        <span className="text-[22px] font-semibold tabular-nums" style={{ color: result >= 0 ? "var(--r-good)" : "var(--r-bad)" }}>
+        <span className="shrink-0 whitespace-nowrap text-[22px] font-semibold tabular-nums" style={{ color: result >= 0 ? "var(--r-good)" : "var(--r-bad)" }}>
           {usd(result)}
         </span>
       </div>

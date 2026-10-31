@@ -656,14 +656,21 @@ export default function PhoenixPage() {
             }
           >
             <div className="thin-scroll overflow-x-auto rounded-lg border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/60">
-              <table className="w-full min-w-[440px] text-left text-[11px]">
+              {/* Sur téléphone, le tableau tient dans l'écran : libellés courts, tentatives masquées. */}
+              <table className="w-full text-left text-[11px] sm:min-w-[440px]">
                 <thead>
                   <tr className="border-b border-slate-100 text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:border-slate-800">
-                    <th className="px-2.5 py-1.5">Catégorie</th>
-                    <th className="px-2.5 py-1.5 text-right">Taux d&apos;approbation</th>
-                    <th className="px-2.5 py-1.5 text-right">Approuvées</th>
-                    <th className="px-2.5 py-1.5 text-right">Tentatives</th>
-                    <th className="px-2.5 py-1.5 text-right">Revenus</th>
+                    <th className="px-2 py-1.5 sm:px-2.5">Catégorie</th>
+                    <th className="px-2 py-1.5 text-right sm:px-2.5">
+                      <span className="sm:hidden">Taux</span>
+                      <span className="hidden sm:inline">Taux d&apos;approbation</span>
+                    </th>
+                    <th className="px-2 py-1.5 text-right sm:px-2.5">
+                      <span className="sm:hidden">Appr.</span>
+                      <span className="hidden sm:inline">Approuvées</span>
+                    </th>
+                    <th className="hidden px-2.5 py-1.5 text-right sm:table-cell">Tentatives</th>
+                    <th className="px-2 py-1.5 text-right sm:px-2.5">Revenus</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -675,7 +682,7 @@ export default function PhoenixPage() {
                         key={category.key}
                         className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
                       >
-                        <td className="px-2.5 py-1.5">
+                        <td className="px-2 py-1.5 sm:px-2.5">
                           <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
                             <span
                               className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -684,7 +691,7 @@ export default function PhoenixPage() {
                             {category.label}
                           </span>
                         </td>
-                        <td className="px-2.5 py-1.5">
+                        <td className="px-2 py-1.5 sm:px-2.5">
                           <div className="flex items-center justify-end gap-2">
                             <div className="hidden h-1 w-16 overflow-hidden rounded-full bg-slate-100 sm:block dark:bg-slate-800">
                               <div
@@ -705,13 +712,14 @@ export default function PhoenixPage() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-700 dark:text-slate-200">
+                        <td className="px-2 py-1.5 text-right tabular-nums text-slate-700 sm:px-2.5 dark:text-slate-200">
                           {formatNumber(stats.approved)}
+                          <span className="text-slate-400 sm:hidden">/{formatNumber(stats.attempts)}</span>
                         </td>
-                        <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-400">
+                        <td className="hidden px-2.5 py-1.5 text-right tabular-nums text-slate-400 sm:table-cell">
                           {formatNumber(stats.attempts)}
                         </td>
-                        <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-slate-800 sm:px-2.5 dark:text-slate-100">
                           {formatCurrency(stats.revenue)}
                         </td>
                       </tr>

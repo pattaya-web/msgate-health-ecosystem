@@ -232,8 +232,8 @@ export function SavBoard() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
+        <div className="min-w-0">
           <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">
             SAV
           </h1>
@@ -242,14 +242,14 @@ export function SavBoard() {
           </p>
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
           {PRESETS.map((preset) => (
             <button
               key={preset.key}
               type="button"
               onClick={() => setDays(Number(preset.key))}
               className={cn(
-                "rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                "whitespace-nowrap rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
                 days === Number(preset.key)
                   ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200"
                   : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
@@ -360,12 +360,12 @@ export function SavBoard() {
         </Surface>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <Surface plain className="p-3">
           <PanelTitle
             accent="sky"
             right={
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setOnlyAwaiting((v) => !v)}

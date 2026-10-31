@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Clapperboard, Eraser, Image as ImageIcon, Mic, Video } from "lucide-react";
@@ -31,8 +32,18 @@ export function StudioTabs() {
   const pathname = usePathname() || "";
   const { isAssociate } = useAuth();
   const tabs = isAssociate ? TABS.filter((tab) => ASSOCIATE_TABS.has(tab.href)) : TABS;
+  const row = useRef<HTMLDivElement>(null);
+
+  // Sur téléphone la rangée défile sur le côté : on y garde l'onglet ouvert visible.
+  useEffect(() => {
+    const el = row.current;
+    const active = el?.querySelector<HTMLElement>('[data-active="true"]');
+    if (!el || !active || el.scrollWidth <= el.clientWidth) return;
+    el.scrollLeft = active.offsetLeft - (el.clientWidth - active.offsetWidth) / 2;
+  }, [pathname]);
+
   return (
-    <div className="inline-flex gap-0.5 rounded-full bg-slate-100 p-1 dark:bg-slate-800/70">
+    <div ref={row} className="no-scrollbar relative inline-flex max-w-full gap-0.5 overflow-x-auto rounded-full bg-slate-100 p-1 dark:bg-slate-800/70">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const selected = pathname.startsWith(tab.href);
@@ -41,8 +52,9 @@ export function StudioTabs() {
             key={tab.href}
             href={tab.href}
             prefetch
+            data-active={selected ? "true" : "false"}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition-[background-color,color,box-shadow] duration-150",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] font-medium transition-[background-color,color,box-shadow] duration-150",
               selected
                 ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(35,49,55,0.08),0_4px_12px_-6px_rgba(35,49,55,0.25)] dark:bg-slate-950 dark:text-slate-50"
                 : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"

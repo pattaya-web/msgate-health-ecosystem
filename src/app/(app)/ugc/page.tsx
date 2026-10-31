@@ -655,7 +655,8 @@ export default function UgcPage() {
       />
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 p-1 dark:bg-slate-800">
+        {/* Sur téléphone, la rangée d'onglets glisse sur le côté au lieu d'élargir la page. */}
+        <div className="no-scrollbar inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full bg-slate-100 p-1 dark:bg-slate-800">
           {(
             [
               ["generate", "Générer", Film],
@@ -670,7 +671,7 @@ export default function UgcPage() {
               type="button"
               onClick={() => setTab(id)}
               className={cn(
-                "flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-[background-color,color,box-shadow]",
+                "flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-[background-color,color,box-shadow]",
                 tab === id
                   ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(35,49,55,0.08),0_4px_12px_-6px_rgba(35,49,55,0.25)] dark:bg-slate-950 dark:text-slate-100"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"

@@ -7,6 +7,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { GenerationWatcher } from "@/components/layout/generation-watcher";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { NavProgress } from "@/components/layout/nav-progress";
+import { RefreshButton } from "@/components/layout/refresh-button";
 import { Sidebar, currentPage } from "@/components/layout/sidebar";
 import { EnvBadge } from "@/components/layout/env-badge";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -18,7 +19,7 @@ import { cn } from "@/lib/utils";
 const SIDEBAR_KEY = "msgate-sidebar-open";
 const ASSOCIATE_HOME = "/associate";
 /** Les autres pages ouvertes à l'associé : le Meta Ads Manager et l'uploader, filtrés sur ses comptes côté serveur. */
-const ASSOCIATE_EXTRA = ["/ads", "/ads-uploader", "/drive", "/invoices", "/studio/video", "/download-tiktok", "/product-images", "/spyshop", "/sav"];
+const ASSOCIATE_EXTRA = ["/ads", "/ads-uploader", "/drive", "/factures", "/studio/video", "/download-tiktok", "/product-images", "/spyshop", "/sav"];
 
 type ViewTransitionProps = {
   children: React.ReactNode;
@@ -145,7 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="animate-fade-in absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="animate-drawer-in absolute left-0 top-0 h-full">
+          <div className="animate-drawer-in safe-drawer absolute left-0 top-0 h-full">
             <Sidebar onNavigate={() => setMobileOpen(false)} />
           </div>
         </div>
@@ -153,7 +154,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div
-          className="sticky top-0 z-40 px-3 pt-2 sm:px-4 sm:pt-3"
+          className="app-header-bar sticky top-0 z-40"
           style={{ viewTransitionName: "app-header" } as React.CSSProperties}
         >
           <header
@@ -211,6 +212,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </>
             )}
 
+            <RefreshButton />
+
             <ThemeToggle />
 
             <div
@@ -241,7 +244,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         ) : null}
 
-        <main className="flex-1 px-3 pb-24 pt-5 sm:px-4 sm:pt-6 lg:pb-10">
+        <main className="app-main flex-1 pt-5 sm:pt-6">
           <ViewTransition default="page-fade">
             <div key={pathname} className={cn("page-enter mx-auto w-full", container)}>
               {children}

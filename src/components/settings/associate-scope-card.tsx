@@ -96,9 +96,10 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="flex items-center gap-2">
+        {/* Sur téléphone, les deux boutons passent sous le titre. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <CardTitle className="flex flex-wrap items-center gap-2">
               {icon}
               Périmètre Associé · Straight Sale
               {!isAdmin ? (
@@ -113,7 +114,7 @@ export function AssociateScopeCard({ isAdmin, icon }: { isAdmin: boolean; icon?:
             </CardDescription>
           </div>
           {isAdmin ? (
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" asChild>
                 <Link href="/associate">
                   <Eye className="mr-1.5 h-3.5 w-3.5" />

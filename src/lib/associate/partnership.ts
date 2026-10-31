@@ -3,7 +3,7 @@ import path from "path";
 import { getKnownAccounts } from "@/lib/meta/registry";
 import { buildSalesBreakdown } from "@/lib/metrics/sales-breakdown";
 import { reportToday } from "@/lib/report-tz";
-import { getAssociateScope, scopedMetaSpend } from "@/lib/associate/scope";
+import { MANUAL_AD_SPEND, getAssociateScope, scopedMetaSpend } from "@/lib/associate/scope";
 
 /**
  * MoneyTalk : la paie d'Alison sur le Straight Sale de Venom.
@@ -73,7 +73,12 @@ export type PartnershipReport = {
 };
 
 /** Aujourd'hui, c'est Alison qui paie la pub de ses deux comptes (BM Badgal Collection). Tout autre compte est à Mady. */
-const DEFAULT_PAYERS: Record<string, Partner> = { "1172300475381112": "alison", "1043532936352398": "alison" };
+const DEFAULT_PAYERS: Record<string, Partner> = {
+  "1172300475381112": "alison",
+  "1043532936352398": "alison",
+  // Les dépenses saisies à la main (compte banni) gardent leur payeur.
+  ...Object.fromEntries(MANUAL_AD_SPEND.map((entry) => [entry.id, entry.payer])),
+};
 const DEFAULT_START = "2026-10-01";
 
 const FILE = path.join(process.cwd(), ".msgate-cache", "associate-partnership.json");
@@ -246,7 +251,7 @@ export async function buildPartnershipReport(): Promise<PartnershipReport> {
   const ids = new Set([...scope.metaAccountIds, ...Object.keys(settings.payers)]);
   const accounts = [...ids].map((id) => ({
     id,
-    name: known.find((account) => account.accountId === id)?.name ?? id,
+    name: known.find((account) => account.accountId === id)?.name ?? MANUAL_AD_SPEND.find((entry) => entry.id === id)?.name ?? id,
     payer: settings.payers[id] ?? ("mady" as Partner),
   }));
 

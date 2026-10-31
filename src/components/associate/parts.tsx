@@ -85,8 +85,9 @@ export function AssociateHeader({
   now: number;
 }) {
   return (
-    <div className="r-rise flex flex-wrap items-end gap-x-4 gap-y-3">
-      <div className="min-w-0 flex-1">
+    // Sur téléphone : titre en haut, puis la rangée bouton + dates sur toute la largeur.
+    <div className="r-rise flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-4">
+      <div className="min-w-0 sm:flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           {shop ? (
             <span className="r-chip">

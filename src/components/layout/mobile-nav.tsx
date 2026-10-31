@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Calculator, Handshake, Mail, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, HandCoins, Handshake, Lightbulb, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -13,10 +13,11 @@ const items = [
   { href: "/process", label: "Process", icon: Workflow },
 ];
 
+/** L'associée : ses ventes, sa paie, le tableau des produits ; le reste passe par « Menu ». */
 const associateItems = [
   { href: "/associate", label: "Ventes", icon: Handshake },
-  { href: "/associate/profit", label: "Profit", icon: Calculator },
-  { href: "/ads", label: "Ads", icon: Megaphone },
+  { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
+  { href: "/associate/produits", label: "Produits", icon: Lightbulb },
 ];
 
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
@@ -24,7 +25,7 @@ export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { isAssociate } = useAuth();
 
   return (
-    <nav className="safe-bottom fixed inset-x-3 bottom-3 z-40 lg:hidden">
+    <nav className="mobile-tabbar fixed z-40 lg:hidden">
       <div className="float-header flex items-stretch px-1 py-1">
         {(isAssociate ? associateItems : items).map((item) => {
           const active =

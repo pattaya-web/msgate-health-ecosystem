@@ -281,7 +281,7 @@ export function SpyShopBoard() {
               if (event.key === "Enter") void addShop();
             }}
             placeholder="Lien de la boutique à suivre — ex. marque.com ou https://marque.com/products/…"
-            className="min-w-[260px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-[12px] dark:border-slate-700 dark:bg-slate-950"
+            className="min-w-[min(260px,100%)] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-[12px] dark:border-slate-700 dark:bg-slate-950"
           />
           <input
             value={note}
@@ -290,7 +290,7 @@ export function SpyShopBoard() {
               if (event.key === "Enter") void addShop();
             }}
             placeholder="Note (facultatif) : pourquoi tu la suis"
-            className="min-w-[200px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-[12px] dark:border-slate-700 dark:bg-slate-950"
+            className="min-w-[min(200px,100%)] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-[12px] dark:border-slate-700 dark:bg-slate-950"
           />
           <Button size="sm" onClick={() => void addShop()} disabled={adding || !project}>
             {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
@@ -332,7 +332,7 @@ export function SpyShopBoard() {
           description={query ? "Essaie un autre mot." : "Colle le lien d'une boutique concurrente ou de référence ci-dessus. Son catalogue est lu tout de suite."}
         />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {shops.map((shop) => (
             <ShopCard
               key={shop.id}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Printer, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { InvoiceDocument } from "@/components/invoices/invoice-document";
@@ -19,6 +19,9 @@ import { cn } from "@/lib/utils";
 const DRAFT_KEY = "msgate-invoice-draft";
 const ZOOM_KEY = "msgate-invoice-zoom";
 const ZOOMS = [0.55, 0.7, 1] as const;
+/** Largeur de la feuille A4 (210 mm) à 96 dpi, et le padding (p-3) de l'aperçu autour d'elle. */
+const SHEET_PX = 794;
+const PREVIEW_PADDING_PX = 24;
 
 const inputClass =
   "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-600 dark:focus:ring-emerald-900/40";
@@ -53,6 +56,22 @@ export default function InvoicesPage() {
   const [invoice, setInvoice] = useState<Invoice>(defaultInvoice);
   const [zoom, setZoom] = useState<number>(0.7);
   const [hydrated, setHydrated] = useState(false);
+  // Le zoom qui fait tenir la feuille dans la largeur de l'aperçu (téléphone) ; au-delà, le zoom choisi s'applique.
+  const [fitZoom, setFitZoom] = useState(1);
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const width = el.clientWidth - PREVIEW_PADDING_PX;
+      if (width > 0) setFitZoom(Math.floor((width / SHEET_PX) * 1000) / 1000);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const shownZoom = Math.min(zoom, fitZoom);
 
   // Le brouillon survit à un refresh : une facture se remplit rarement d'un trait.
   // Relu au tick suivant : le rendu serveur et l'hydratation gardent le modèle par défaut.
@@ -360,8 +379,9 @@ export default function InvoicesPage() {
           </details>
         </div>
 
-        <div className="invoice-preview min-w-0 overflow-x-auto rounded-2xl bg-slate-100/70 p-3 ring-1 ring-slate-900/[0.06] thin-scroll dark:bg-slate-950/50 dark:ring-slate-100/[0.06]">
+        <div ref={previewRef} className="invoice-preview min-w-0 overflow-x-auto rounded-2xl bg-slate-100/70 p-3 ring-1 ring-slate-900/[0.06] thin-scroll dark:bg-slate-950/50 dark:ring-slate-100/[0.06]">
           <div className="mb-2 flex items-center justify-end gap-1 print:hidden">
+            {shownZoom < zoom ? <span className="mr-auto text-[11px] text-slate-500">Ajustée à l&apos;écran · {Math.round(shownZoom * 100)}%</span> : null}
             {ZOOMS.map((value) => (
               <button
                 key={value}
@@ -382,7 +402,7 @@ export default function InvoicesPage() {
           {/* `zoom` plutôt qu'un `transform` : il réduit aussi la place occupée dans le flux. */}
           <div
             className="invoice-zoom mx-auto w-fit shadow-[0_10px_40px_-12px_rgba(15,23,42,0.35)]"
-            style={{ zoom }}
+            style={{ zoom: shownZoom }}
           >
             <InvoiceDocument invoice={invoice} />
           </div>

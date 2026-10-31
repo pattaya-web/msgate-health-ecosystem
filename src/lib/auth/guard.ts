@@ -53,6 +53,8 @@ const ASSOCIATE_READ = new Set([
   "/api/associate/profit",
   "/api/associate/partnership",
   "/api/associate/ideas",
+  "/api/accounting/invoices",
+  "/api/accounting/invoices/file",
   "/api/meta/tree",
   "/api/meta/accounts",
   "/api/meta/creatives",
@@ -63,6 +65,7 @@ const ASSOCIATE_READ = new Set([
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",
   "/api/associate/ideas",
+  "/api/accounting/invoices",
   "/api/meta/entity",
   "/api/meta/creatives",
   "/api/meta/creatives/zip",

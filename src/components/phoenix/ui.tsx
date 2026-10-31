@@ -127,7 +127,8 @@ export function PanelTitle({
 }) {
   const tone = ACCENTS[accent];
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    // Sur téléphone, les boutons de droite passent sous le titre plutôt que de pousser la carte hors de l'écran.
+    <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1.5", className)}>
       <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tone.dot)} />
       <p
         className={cn(
@@ -138,7 +139,7 @@ export function PanelTitle({
         {children}
       </p>
       {source ? <TzBadge source={source} className="shrink-0" /> : null}
-      {right ? <div className="ml-auto shrink-0">{right}</div> : null}
+      {right ? <div className="ml-auto max-w-full shrink-0">{right}</div> : null}
     </div>
   );
 }

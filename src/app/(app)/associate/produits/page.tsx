@@ -129,7 +129,16 @@ export default function ProductIdeasPage() {
         </button>
       </form>
 
-      <div className="r-card r-rise overflow-hidden" style={{ animationDelay: "120ms" }}>
+      {/* Sur téléphone : une carte par produit, empilées. */}
+      <div className="r-rise space-y-2.5 md:hidden" style={{ animationDelay: "120ms" }}>
+        {(ideas ?? []).map((idea) => (
+          <IdeaRow key={idea.id} idea={idea} busy={busy} onRun={run} card />
+        ))}
+        {ideas && !ideas.length ? <p className="r-card r-sub px-4 py-10 text-center">Pas encore de produit. Colle un lien de reel et une page produit au-dessus.</p> : null}
+        {!ideas ? <p className="r-card r-sub py-10 text-center">Chargement…</p> : null}
+      </div>
+
+      <div className="r-card r-rise hidden overflow-hidden md:block" style={{ animationDelay: "120ms" }}>
         <div className="overflow-x-auto px-2 py-2">
           <table className="w-full min-w-[680px] text-[12.5px]">
             <thead>
@@ -167,10 +176,17 @@ export default function ProductIdeasPage() {
   );
 }
 
-function LinkCell({ url, icon }: { url: string; icon: React.ReactNode }) {
+function LinkCell({ url, icon, wide }: { url: string; icon: React.ReactNode; wide?: boolean }) {
   if (!url) return <span className="r-sub">—</span>;
   return (
-    <a href={url} target="_blank" rel="noreferrer noopener" className="group inline-flex max-w-[280px] items-center gap-2 font-medium hover:underline" style={{ color: "var(--ink)" }} title={url}>
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={cn("group inline-flex items-center gap-2 font-medium hover:underline", wide ? "w-full min-w-0" : "max-w-[280px]")}
+      style={{ color: "var(--ink)" }}
+      title={url}
+    >
       <span className="r-icon h-7 w-7 shrink-0 rounded-full">{icon}</span>
       <span className="min-w-0 truncate">
         {host(url)}
@@ -181,7 +197,7 @@ function LinkCell({ url, icon }: { url: string; icon: React.ReactNode }) {
   );
 }
 
-function IdeaRow({ idea, busy, onRun }: { idea: ProductIdea; busy: boolean; onRun: (body: unknown, done?: string) => Promise<boolean> }) {
+function IdeaRow({ idea, busy, onRun, card }: { idea: ProductIdea; busy: boolean; onRun: (body: unknown, done?: string) => Promise<boolean>; card?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [reel, setReel] = useState(idea.reelUrl);
   const [product, setProduct] = useState(idea.productUrl);
@@ -196,44 +212,70 @@ function IdeaRow({ idea, busy, onRun }: { idea: ProductIdea; busy: boolean; onRu
     if (await onRun({ action: "update", id: idea.id, reelUrl: reel, productUrl: product }, "Modifié")) setEditing(false);
   }
 
+  const reelField = editing ? (
+    <input value={reel} onChange={(event) => setReel(event.target.value)} className={inputClass} style={inputStyle} placeholder="Lien du reel" />
+  ) : (
+    <LinkCell url={idea.reelUrl} icon={<Clapperboard className="h-3.5 w-3.5" />} wide={card} />
+  );
+  const productField = editing ? (
+    <input value={product} onChange={(event) => setProduct(event.target.value)} className={inputClass} style={inputStyle} placeholder="Lien de la page produit" />
+  ) : (
+    <LinkCell url={idea.productUrl} icon={<ShoppingBag className="h-3.5 w-3.5" />} wide={card} />
+  );
+  const date = new Date(idea.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  const actions = (
+    <div className={cn("flex justify-end gap-1", busy && "pointer-events-none opacity-60")}>
+      {editing ? (
+        <>
+          <button type="button" title="Enregistrer" className="r-icon h-8 w-8 rounded-full" onClick={() => void save()}>
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" title="Annuler" className="r-icon h-8 w-8 rounded-full" onClick={() => setEditing(false)}>
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </>
+      ) : (
+        <>
+          <button type="button" title="Modifier" className="r-icon h-8 w-8 rounded-full" onClick={startEdit}>
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            title="Supprimer"
+            className="r-icon h-8 w-8 rounded-full"
+            onClick={() => window.confirm("Supprimer cette ligne pour vous deux ?") && void onRun({ action: "delete", id: idea.id }, "Ligne supprimée")}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+
+  if (card) {
+    return (
+      <div className="r-card space-y-2.5 p-3.5 text-[12.5px]" style={{ color: "var(--ink-2)" }}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="r-sub truncate">
+            {idea.addedBy} · {date}
+          </span>
+          {actions}
+        </div>
+        <div className="space-y-2">
+          {reelField}
+          {productField}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <tr className="border-t align-middle" style={{ borderColor: "var(--line)", color: "var(--ink-2)" }}>
-      <td className="px-3 py-2.5">
-        {editing ? <input value={reel} onChange={(event) => setReel(event.target.value)} className={inputClass} style={inputStyle} /> : <LinkCell url={idea.reelUrl} icon={<Clapperboard className="h-3.5 w-3.5" />} />}
-      </td>
-      <td className="px-3 py-2.5">
-        {editing ? <input value={product} onChange={(event) => setProduct(event.target.value)} className={inputClass} style={inputStyle} /> : <LinkCell url={idea.productUrl} icon={<ShoppingBag className="h-3.5 w-3.5" />} />}
-      </td>
+      <td className="px-3 py-2.5">{reelField}</td>
+      <td className="px-3 py-2.5">{productField}</td>
       <td className="px-3 py-2.5">{idea.addedBy}</td>
-      <td className="px-3 py-2.5 tabular-nums">{new Date(idea.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</td>
-      <td className="px-3 py-2.5">
-        <div className={cn("flex justify-end gap-1", busy && "pointer-events-none opacity-60")}>
-          {editing ? (
-            <>
-              <button type="button" title="Enregistrer" className="r-icon h-8 w-8 rounded-full" onClick={() => void save()}>
-                <Check className="h-3.5 w-3.5" />
-              </button>
-              <button type="button" title="Annuler" className="r-icon h-8 w-8 rounded-full" onClick={() => setEditing(false)}>
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" title="Modifier" className="r-icon h-8 w-8 rounded-full" onClick={startEdit}>
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Supprimer"
-                className="r-icon h-8 w-8 rounded-full"
-                onClick={() => window.confirm("Supprimer cette ligne pour vous deux ?") && void onRun({ action: "delete", id: idea.id }, "Ligne supprimée")}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </>
-          )}
-        </div>
-      </td>
+      <td className="px-3 py-2.5 tabular-nums">{date}</td>
+      <td className="px-3 py-2.5">{actions}</td>
     </tr>
   );
 }
