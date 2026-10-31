@@ -52,6 +52,7 @@ const ASSOCIATE_READ = new Set([
   "/api/associate/overview",
   "/api/associate/profit",
   "/api/associate/partnership",
+  "/api/associate/ideas",
   "/api/meta/tree",
   "/api/meta/accounts",
   "/api/meta/creatives",
@@ -61,6 +62,7 @@ const ASSOCIATE_READ = new Set([
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",
+  "/api/associate/ideas",
   "/api/meta/entity",
   "/api/meta/creatives",
   "/api/meta/creatives/zip",
@@ -78,11 +80,12 @@ const ASSOCIATE_STUDIO_PREFIXES = ["/api/studio-ia/", "/api/kie/", "/api/media/"
 const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit", "/api/drive", "/api/drive/file"]);
 
 /**
- * Les outils ouverts à l'associé en plus (31/10/2026) : Toutes les créas et
+ * Les outils ouverts à l'associé en plus (31/10/2026) : Texte / Montage et
  * Download TikTok (routes /api/studio/*), Image Product, SpyShop (et sa
- * recherche Brandsearch) et SAV. Facturation n'appelle aucune API.
+ * recherche Brandsearch). Factures n'appelle aucune API ; son SAV reste vide
+ * tant qu'aucune boîte mail n'est branchée (pas d'accès à /api/sav).
  */
-const ASSOCIATE_TOOL_PREFIXES = ["/api/studio/", "/api/product-images/", "/api/spyshop/", "/api/brandsearch/", "/api/sav/"];
+const ASSOCIATE_TOOL_PREFIXES = ["/api/studio/", "/api/product-images/", "/api/spyshop/", "/api/brandsearch/"];
 const ASSOCIATE_TOOL_PATHS = new Set(["/api/studio", "/api/ugc/file", "/api/product-images", "/api/spyshop", "/api/brandsearch"]);
 
 export function isAssociateApi(method: string, pathname: string) {

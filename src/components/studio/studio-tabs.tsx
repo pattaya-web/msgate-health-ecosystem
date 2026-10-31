@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Clapperboard, Eraser, Image as ImageIcon, Mic, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/auth-context";
 
 /**
  * La bibliothèque n'est plus ici : elle a rejoint la barre de gauche, dans
@@ -23,11 +24,16 @@ const TABS = [
   { href: "/studio/video", label: "Texte / montage", icon: Video },
 ];
 
+/** L'associée n'a que le montage : les autres onglets la renverraient sur son tableau de bord. */
+const ASSOCIATE_TABS = new Set(["/studio/video"]);
+
 export function StudioTabs() {
   const pathname = usePathname() || "";
+  const { isAssociate } = useAuth();
+  const tabs = isAssociate ? TABS.filter((tab) => ASSOCIATE_TABS.has(tab.href)) : TABS;
   return (
     <div className="inline-flex gap-0.5 rounded-full bg-slate-100 p-1 dark:bg-slate-800/70">
-      {TABS.map((tab) => {
+      {tabs.map((tab) => {
         const Icon = tab.icon;
         const selected = pathname.startsWith(tab.href);
         return (

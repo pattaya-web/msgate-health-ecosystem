@@ -17,6 +17,7 @@ import {
   ImagePlus,
   Landmark,
   Library,
+  Lightbulb,
   LogOut,
   type LucideIcon,
   Mail,
@@ -82,6 +83,7 @@ export const SECTIONS: NavSection[] = [
     items: [
       { href: "/drive", label: "Drive", icon: HardDrive },
       { href: "/spyshop", label: "SpyShop", icon: Eye },
+      { href: "/associate/produits", label: "Produits à lancer", icon: Lightbulb },
     ],
   },
   {
@@ -119,7 +121,7 @@ export const SECTIONS: NavSection[] = [
   },
 ];
 
-/** La barre d'un associé : Venom, la création et la boutique, pas de réglage d'ordre. */
+/** La barre d'un associé : Venom, la comptabilité, la création et la boutique, pas de réglage d'ordre. */
 const ASSOCIATE_SECTIONS: NavSection[] = [
   {
     id: "straight-sale",
@@ -128,17 +130,22 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
       { href: "/associate/partage", label: "Partage 50/50", icon: Scale },
+      { href: "/associate/produits", label: "Produits à lancer", icon: Lightbulb },
       { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
       { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
-      { href: "/invoices", label: "Facturation", icon: ReceiptText },
     ],
+  },
+  {
+    id: "associate-compta",
+    label: "Comptabilité",
+    items: [{ href: "/invoices", label: "Factures", icon: ReceiptText }],
   },
   {
     id: "associate-creation",
     label: "Création",
     items: [
       { href: "/studio-ia", label: "Studio IA", icon: Clapperboard },
-      { href: "/studio/library", label: "Toutes les créas", icon: FolderOpen },
+      { href: "/studio/video", label: "Texte / Montage", icon: Video },
       { href: "/product-images", label: "Image Product", icon: ImagePlus },
       { href: "/download-tiktok", label: "Download Tiktok", icon: Download },
     ],
