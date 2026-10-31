@@ -541,7 +541,8 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-slate-200/70 p-3 dark:border-slate-800">
-        {isAssociate ? null : <KieCredit />}
+        {/* Le solde Kie AI : Alison s'en sert aussi pour le Studio IA. */}
+        <KieCredit />
 
         {isAdmin ? (
           <div className="mb-2 rounded-2xl border border-slate-200/70 bg-white/70 p-1 dark:border-slate-800 dark:bg-slate-900/50" data-view-switch>

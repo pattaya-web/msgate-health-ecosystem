@@ -81,7 +81,7 @@ const ASSOCIATE_WRITE = new Set([
  * compris). Plus le Drive commun (dossier « Commun » seulement).
  */
 const ASSOCIATE_STUDIO_PREFIXES = ["/api/studio-ia/", "/api/kie/", "/api/media/", "/api/data/"];
-const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit", "/api/drive", "/api/drive/file"]);
+const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit", "/api/kie-credit", "/api/drive", "/api/drive/file"]);
 
 /**
  * Les outils ouverts à l'associé en plus (31/10/2026) : Texte / Montage et

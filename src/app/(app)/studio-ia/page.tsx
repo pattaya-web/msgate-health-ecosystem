@@ -1197,7 +1197,8 @@ export default function StudioPage() {
    * qui porte ses styles.
    */
   return (
-    <div className="studio-ia">
+    // Centré dans une colonne lisible plutôt qu'étalé sur toute la largeur de l'écran.
+    <div className="studio-ia mx-auto w-full max-w-5xl">
       <ToastHost>
         <Suspense fallback={<SkPage />}>
           <StudioInner />
