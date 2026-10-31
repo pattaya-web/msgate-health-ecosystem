@@ -61,7 +61,8 @@ export type MetaConfig = {
 };
 
 export function getMetaConfig(): MetaConfig | null {
-  const raw = process.env.META_ACCESS_TOKENS?.trim();
+  // META_EXTRA_TOKENS : les jetons d'agence collés dans l'outil (registre du PC), recopiés pour le site en ligne qui n'a pas ce registre.
+  const raw = [process.env.META_ACCESS_TOKENS, process.env.META_EXTRA_TOKENS].map((value) => value?.trim()).filter(Boolean).join(",");
   if (!raw) return null;
   const tokens = raw.split(",").map((t) => t.trim()).filter(Boolean);
   if (!tokens.length) return null;

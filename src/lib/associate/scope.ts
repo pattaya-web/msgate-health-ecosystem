@@ -14,6 +14,7 @@ import { reportToday } from "@/lib/report-tz";
 import { REPORT_CURRENCY, describeConversion, fxRates } from "@/lib/fx";
 import { peekOrders, peekShopifyFeed } from "@/lib/reign/snapshot";
 import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
+import { getLiveShopifySales, reportDay, shopifyDirectMode } from "@/lib/shopify/live-sales";
 
 /**
  * Le périmètre « Straight Sale » de l'accès Associé.
@@ -101,6 +102,12 @@ const FILE = path.join(process.cwd(), ".msgate-cache", "associate-scope.json");
 
 const state = ((globalThis as typeof globalThis & { __msgateAssociateScope?: { scope: AssociateScope | null } }).__msgateAssociateScope ??= { scope: null });
 
+/**
+ * Le périmètre de Venom quand aucun réglage n'est enregistré : c'est le cas du
+ * site en ligne (Vercel, sans disque). Sur le PC, le réglage de Settings prime.
+ */
+const VENOM_SCOPE = { stores: ["venom-necklace.com"], metaAccountIds: ["1172300475381112", "1043532936352398"], campaignKeyword: "venom" };
+
 function empty(): AssociateScope {
   return { stores: [], metaAccountIds: [], campaignKeyword: "", processingRate: DEFAULT_PROCESSING_RATE, targetMargin: DEFAULT_TARGET_MARGIN, updatedAt: "" };
 }
@@ -123,7 +130,7 @@ export async function getAssociateScope(): Promise<AssociateScope> {
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
     };
   } catch {
-    state.scope = empty();
+    state.scope = { ...empty(), ...VENOM_SCOPE };
   }
   return state.scope;
 }
@@ -258,7 +265,30 @@ export async function buildAssociateOverview(start: string, end: string): Promis
   const latest: Array<{ at: string; amount: number; orderId: string | null }> = [];
   let phoenix: AssociateOverview["phoenix"] = { configured: billing.configured, building: false, stale: false, progress: null };
 
-  if (billing.configured) {
+  // Site en ligne (pas de Reign) : les ventes viennent de Shopify en direct, relues toutes les 45 s.
+  const direct = shopifyDirectMode();
+  let directFeed: Awaited<ReturnType<typeof getLiveShopifySales>> | null = null;
+  if (direct) {
+    directFeed = await getLiveShopifySales(start < today ? start : today);
+    if (inScope(directFeed.domain)) {
+      for (const order of directFeed.orders) {
+        const day = reportDay(order.createdAt);
+        latest.push({ at: order.createdAt, amount: order.total, orderId: order.name });
+        if (day === today) {
+          todayTotals.revenue += order.total;
+          todayTotals.orders += 1;
+        }
+        if (day < start || day > end) continue;
+        revenue += order.total;
+        orders += 1;
+        const point = byDay.get(day) ?? { revenue: 0, orders: 0 };
+        point.revenue += order.total;
+        point.orders += 1;
+        byDay.set(day, point);
+      }
+    }
+    phoenix = { configured: true, building: false, stale: false, progress: null };
+  } else if (billing.configured) {
     const snapshot = await peekSnapshot();
     const needsSync = !snapshot || !snapshot.complete || isStale(snapshot) || (focusIncludesToday({ start, end }) && isStale(snapshot, billing.todayMaxAgeMs));
     if (needsSync) void startSync({ focus: { start, end } });
@@ -296,12 +326,13 @@ export async function buildAssociateOverview(start: string, end: string): Promis
   }
   const series = days.map((date) => ({ date, revenue: round2(byDay.get(date)?.revenue ?? 0), orders: byDay.get(date)?.orders ?? 0 }));
 
-  const [meta, sales, feed, orderMap] = await Promise.all([
+  const [meta, sales, peekedFeed, orderMap] = await Promise.all([
     scopedMetaSpend(start, end, scope),
     buildSalesBreakdown({ start, end, stores: scope.stores, categories: ["direct"] }),
-    peekShopifyFeed(),
-    peekOrders(),
+    direct ? Promise.resolve(null) : peekShopifyFeed(),
+    direct ? Promise.resolve(new Map<string, { shopifyName?: string | null }>()) : peekOrders(),
   ]);
+  const feed = directFeed ? { name: directFeed.name, domain: directFeed.domain, fetchedAt: directFeed.fetchedAt } : peekedFeed;
 
   // Conversion : seulement si la boutique Shopify branchée est dans le périmètre.
   let conversion: AssociateOverview["conversion"] = null;
@@ -325,7 +356,7 @@ export async function buildAssociateOverview(start: string, end: string): Promis
     orders: latest.slice(0, 8).map((sale) => ({
       at: sale.at,
       amount: round2(sale.amount),
-      number: (sale.orderId && orderMap.get(sale.orderId)?.shopifyName) || null,
+      number: direct ? sale.orderId : (sale.orderId && orderMap.get(sale.orderId)?.shopifyName) || null,
     })),
   };
 

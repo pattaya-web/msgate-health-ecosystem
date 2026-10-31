@@ -177,6 +177,11 @@ export async function shopifyGraphql<T extends GraphQLResult>(
       throw new Error(`Shopify ${res.status}: ${text.slice(0, 200) || res.statusText}`);
     }
 
+    // Shopify renvoie parfois `errors` en simple texte (clé invalide, boutique inconnue) : on le ramène à une liste.
+    const rawErrors = (body as { errors?: unknown }).errors;
+    if (rawErrors && !Array.isArray(rawErrors)) {
+      throw new ShopifyError(`Shopify ${res.status}: ${typeof rawErrors === "string" ? rawErrors : JSON.stringify(rawErrors)}`.slice(0, 300), undefined);
+    }
     const throttled = body.errors?.some((e) => e.extensions?.code === "THROTTLED");
     if (throttled && attempt < 5) {
       await sleep(1000 * (attempt + 1));

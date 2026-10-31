@@ -3,6 +3,7 @@ import { resolveSource } from "@/lib/phoenix/sources";
 import type { OrderCategory } from "@/lib/phoenix/types";
 import { getProductCosts, unitCostFor } from "@/lib/metrics/product-costs";
 import { peekOrders } from "@/lib/reign/snapshot";
+import { getLiveShopifySales, reportDay, shopifyDirectMode } from "@/lib/shopify/live-sales";
 
 /**
  * Les ventes d'une période par catégorie, avec leur coût de revient.
@@ -52,6 +53,7 @@ export async function buildSalesBreakdown(params: {
   /** Catégories retenues ; absent = toutes. */
   categories?: OrderCategory[];
 }): Promise<SalesBreakdown | null> {
+  if (shopifyDirectMode()) return shopifyBreakdown(params);
   const billing = resolveSource(null);
   if (!billing.configured) return null;
   const snapshot = await billing.peekSnapshot();
@@ -155,5 +157,67 @@ export async function buildSalesBreakdown(params: {
     refunds: { count: refunds.count, amount: round(refunds.amount) },
     chargebacks: { count: chargebacks.count, amount: round(chargebacks.amount) },
     cogs,
+  };
+}
+
+/**
+ * Le même calcul, lu directement chez Shopify (site en ligne, sans Reign) :
+ * chaque commande de la boutique est une vente directe (Straight sale), ses
+ * articles font le COGS, ses remboursements comptent au jour du remboursement.
+ */
+async function shopifyBreakdown(params: { start: string; end: string; stores?: string[]; categories?: OrderCategory[] }): Promise<SalesBreakdown | null> {
+  const keep = new Set<OrderCategory>(params.categories ?? ["direct", "initial", "recurring", "salvage", "upsell"]);
+  const revenue = emptyRecord();
+  const approved = emptyRecord();
+  const attempts = emptyRecord();
+  const refunds = { count: 0, amount: 0 };
+  if (!keep.has("direct")) return { revenue, approved, attempts, refunds, chargebacks: { count: 0, amount: 0 }, cogs: null };
+
+  const [feed, costs] = await Promise.all([getLiveShopifySales(params.start), getProductCosts()]);
+  const storeSet = new Set((params.stores ?? []).filter(Boolean));
+  if (storeSet.size && !storeSet.has(feed.domain)) return { revenue, approved, attempts, refunds, chargebacks: { count: 0, amount: 0 }, cogs: null };
+
+  const rows = new Map<string, CogsProductRow>();
+  let units = 0;
+  let unitsAtDefault = 0;
+  let total = 0;
+  const inRange = (day: string) => day >= params.start && day <= params.end;
+  for (const order of feed.orders) {
+    for (const refund of order.refunds) {
+      if (!inRange(reportDay(refund.createdAt)) || refund.amount <= 0) continue;
+      refunds.count += 1;
+      refunds.amount += refund.amount;
+    }
+    if (!inRange(reportDay(order.createdAt))) continue;
+    attempts.direct += 1;
+    approved.direct += 1;
+    revenue.direct += order.total;
+    for (const line of order.lines) {
+      const { cost, fallback } = unitCostFor(costs, null, line.title);
+      const key = line.title || "?";
+      const row = rows.get(key) ?? { key, name: line.title || key, units: 0, unitCost: cost, cogs: 0, fallback };
+      row.units += line.quantity;
+      row.cogs += line.quantity * cost;
+      rows.set(key, row);
+      units += line.quantity;
+      if (fallback) unitsAtDefault += line.quantity;
+      total += line.quantity * cost;
+    }
+  }
+  revenue.direct = round(revenue.direct);
+  return {
+    revenue,
+    approved,
+    attempts,
+    refunds: { count: refunds.count, amount: round(refunds.amount) },
+    chargebacks: { count: 0, amount: 0 },
+    cogs: {
+      total: round(total),
+      units,
+      unitsAtDefault,
+      ordersWithoutLines: 0,
+      defaultUnitCost: costs.defaultUnitCost,
+      products: [...rows.values()].map((row) => ({ ...row, cogs: round(row.cogs) })).sort((a, b) => b.units - a.units),
+    },
   };
 }
