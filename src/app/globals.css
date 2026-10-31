@@ -707,7 +707,9 @@ table {
    Les nuances slate et emerald, que tout l'écran utilise, sont re-teintées en
    rose et prune : barre latérale, en-tête, sélecteur de dates et cartes
    suivent sans qu'aucun composant ne change. Le mode sombre est un prune
-   profond, jamais un noir brut.
+   profond, jamais un noir brut. La gamme garde le même sens dans les deux
+   thèmes : les composants ont déjà leurs variantes dark: (dark:bg-slate-900…),
+   l'inverser les retournerait une seconde fois.
    --------------------------------------------------------------------------- */
 [data-skin="rose"] {
   --background: #fff6f9;
@@ -747,9 +749,9 @@ table {
   --color-slate-500: #a07a8a;
   --color-slate-600: #80596a;
   --color-slate-700: #633f50;
-  --color-slate-800: #4a2c3b;
-  --color-slate-900: #3a1f2d;
-  --color-slate-950: #241019;
+  --color-slate-800: #3d2433;
+  --color-slate-900: #2a1520;
+  --color-slate-950: #1b0d15;
   --color-emerald-50: #fff1f5;
   --color-emerald-100: #fde3ec;
   --color-emerald-200: #fbc7d8;
@@ -793,17 +795,6 @@ table {
   --r-bad: #ff7b8c;
   --r-grid: rgba(255, 160, 195, 0.08);
 
-  --color-slate-50: #1b0d15;
-  --color-slate-100: #241019;
-  --color-slate-200: #3a1f2d;
-  --color-slate-300: #5a3446;
-  --color-slate-400: #8a6474;
-  --color-slate-500: #b48b9c;
-  --color-slate-600: #d0aabb;
-  --color-slate-700: #e5c3d1;
-  --color-slate-800: #f2d8e3;
-  --color-slate-900: #fbe8f0;
-  --color-slate-950: #fff5f9;
 }
 
 [data-skin="rose"].app-aurora {
