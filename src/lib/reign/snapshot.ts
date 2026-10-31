@@ -23,6 +23,7 @@ import { focusIncludesToday, type PhoenixSnapshot, type SnapshotCustomer, type S
 import { toReportLocal } from "@/lib/report-tz";
 import { fetchShopifySales, isShopifySalesConfigured, type ShopifySaleOrder } from "@/lib/shopify/sales-orders";
 import type { SnapshotProgress } from "@/lib/phoenix/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * L'instantané Reign, dans la forme exacte de celui de Phoenix.
@@ -46,7 +47,7 @@ import type { SnapshotProgress } from "@/lib/phoenix/types";
  * même durée de validité que Phoenix donnait à ses historiques).
  */
 
-const CACHE_DIR = path.join(process.cwd(), ".phoenix-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".phoenix-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "reign-snapshot.json");
 const STORE_VERSION = 3;
 const WINDOW_DAYS = 92;

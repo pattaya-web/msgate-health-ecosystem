@@ -5,11 +5,12 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { newId } from "@/lib/db";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // plafond du plan Vercel Hobby (600 refusé au déploiement du 31/10/2026)
 
-const MEDIA_DIR = path.join(process.cwd(), "data", "media");
+const MEDIA_DIR = path.join(STORAGE_ROOT, "data", "media");
 /** Morceaux en cours d'assemblage (envoi par morceaux, voir plus bas). */
 const PARTS_DIR = path.join(MEDIA_DIR, ".parts");
 const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2 Go

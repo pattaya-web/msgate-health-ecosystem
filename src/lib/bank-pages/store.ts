@@ -2,8 +2,9 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { persistJson, readMirror } from "@/lib/storage";
 import { defaultBankPage, type BankPage } from "@/lib/bank-pages/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
-const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "bank-pages.json");
 
 type Store = { pages: BankPage[] };

@@ -3,9 +3,10 @@ import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import { promisify } from "util";
 import ffmpegPath from "ffmpeg-static";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 const run = promisify(execFile);
-const TMP = path.join(process.cwd(), ".msgate-cache", "tmp");
+const TMP = path.join(STORAGE_ROOT, ".msgate-cache", "tmp");
 
 /**
  * Analyse d'une créative à refaire.

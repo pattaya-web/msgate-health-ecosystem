@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Le coût de revient de base des produits (COGS), saisi par l'admin.
@@ -18,7 +19,7 @@ export type ProductCosts = {
   updatedAt: string;
 };
 
-const FILE = path.join(process.cwd(), ".msgate-cache", "product-costs.json");
+const FILE = path.join(STORAGE_ROOT, ".msgate-cache", "product-costs.json");
 
 const state = ((globalThis as typeof globalThis & { __msgateProductCosts?: { costs: ProductCosts | null } }).__msgateProductCosts ??= { costs: null });
 

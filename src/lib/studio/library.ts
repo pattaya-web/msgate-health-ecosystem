@@ -2,10 +2,11 @@ import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 
 import path from "path";
 import { mirror } from "@/lib/storage";
 import type { StaticCreative } from "@/lib/studio/library-types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export type { StaticCreative } from "@/lib/studio/library-types";
 
-const ROOT = path.join(process.cwd(), ".msgate-cache", "studio-static");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "studio-static");
 const INDEX = path.join(ROOT, "index.json");
 /* Copie de l'index précédent, prise avant chaque réécriture : un index illisible
    (coupure pendant le rename, fichier verrouillé) se relit depuis elle au lieu

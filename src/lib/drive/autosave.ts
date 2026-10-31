@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { extensionFor, saveFile } from "@/lib/drive/store";
 import { reportToday } from "@/lib/report-tz";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * La sauvegarde automatique dans le Drive.
@@ -18,7 +19,7 @@ import { reportToday } from "@/lib/report-tz";
 
 export const AUTOSAVE_STUDIO = "Commun/Sauvegardes auto/Studio IA";
 
-const LEDGER = path.join(process.cwd(), ".msgate-cache", "drive-autosave.json");
+const LEDGER = path.join(STORAGE_ROOT, ".msgate-cache", "drive-autosave.json");
 
 type Ledger = { saved: Record<string, string[]> };
 

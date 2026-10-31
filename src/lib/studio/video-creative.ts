@@ -5,6 +5,7 @@ import { kieClaude } from "@/lib/studio/kie";
 import { stitchClips } from "@/lib/ugc/stitch";
 import type { ProductInput } from "@/lib/ugc/types";
 import { clampDuration } from "@/lib/ugc/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Studio Vidéo IA : un prompt, un produit (ou pas), un style — des clips.
@@ -149,7 +150,7 @@ export function composeShotPrompt(
 /* Stockage des lots                                                   */
 /* ------------------------------------------------------------------ */
 
-const ROOT = path.join(process.cwd(), ".msgate-cache", "video-creatives");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "video-creatives");
 
 function batchDir(id: string) {
   return path.join(ROOT, path.basename(id));

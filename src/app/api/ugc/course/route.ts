@@ -1,6 +1,7 @@
 import { readFile, readdir } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
  * qu'importé dans le bundle : 80 Ko de texte n'ont rien à faire dans le
  * JavaScript envoyé au navigateur à chaque visite de la page.
  */
-const DIR = path.join(process.cwd(), "data", "ugc-course");
+const DIR = path.join(STORAGE_ROOT, "data", "ugc-course");
 
 /** Titres lisibles : le nom de fichier vient d'un slug d'aspiration. */
 const TITLES: Record<string, string> = {

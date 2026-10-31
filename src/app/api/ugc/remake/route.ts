@@ -20,6 +20,7 @@ import { handlingFor, type ProductKind } from "@/lib/ugc/kinds";
 import { analyzeCreative, extractAudio, muxAudio, shotFrames, type Shot } from "@/lib/ugc/remake";
 import { createBatch, stitchAngle } from "@/lib/ugc/store";
 import type { ProductInput, Resolution } from "@/lib/ugc/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -831,7 +832,7 @@ export async function POST(request: Request) {
       if (!audio && body.audioBase64) audio = decode(body.audioBase64);
       if (!audio) return NextResponse.json({ file: stitched, audio: false, voiceError });
 
-      const dir = path.join(process.cwd(), ".msgate-cache", "ugc-batches", body.batchId);
+      const dir = path.join(STORAGE_ROOT, ".msgate-cache", "ugc-batches", body.batchId);
       const withAudio = `remake-audio-${Date.now().toString(36)}.mp4`;
       await muxAudio(path.join(dir, stitched), audio, path.join(dir, withAudio));
       return NextResponse.json({

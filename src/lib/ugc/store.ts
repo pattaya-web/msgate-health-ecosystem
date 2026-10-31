@@ -3,6 +3,7 @@ import path from "path";
 import { mirror } from "@/lib/storage";
 import { stitchClips } from "@/lib/ugc/stitch";
 import type { ProductInput, Resolution, UgcJob } from "@/lib/ugc/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Chaque lot est écrit sur disque DÈS SA CRÉATION, avant même que le premier
@@ -10,7 +11,7 @@ import type { ProductInput, Resolution, UgcJob } from "@/lib/ugc/types";
  * génération payée et irrécupérable. On sauve donc les identifiants d'abord, les
  * vidéos ensuite — et on télécharge les mp4, parce que les URLs de Kie expirent.
  */
-const ROOT = path.join(process.cwd(), ".msgate-cache", "ugc-batches");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "ugc-batches");
 
 export type UgcBatch = {
   id: string;

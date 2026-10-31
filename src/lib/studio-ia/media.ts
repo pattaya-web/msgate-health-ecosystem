@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { newId } from "@/lib/db";
 import { uploadToKie } from "@/lib/kie";
 import { REMOTE_MEDIA_HOSTS } from "./config";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Manipulation des médias du Swap vidéo : sondage, extraction audio, mux,
@@ -17,7 +18,7 @@ import { REMOTE_MEDIA_HOSTS } from "./config";
  */
 
 const run = promisify(execFile);
-const MEDIA_DIR = path.join(process.cwd(), "data", "media");
+const MEDIA_DIR = path.join(STORAGE_ROOT, "data", "media");
 
 export class MediaError extends Error {
   code: number;

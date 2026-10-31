@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { createHash } from "crypto";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Remembers every ad account the cockpit has already seen, and optional tokens
@@ -10,7 +11,7 @@ import { createHash } from "crypto";
  * forget them and we never have to rewrite the env file from the browser.
  */
 
-const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "meta-registry.json");
 
 export type KnownAccount = {

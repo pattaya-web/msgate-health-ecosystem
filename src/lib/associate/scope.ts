@@ -16,6 +16,7 @@ import { peekOrders, peekShopifyFeed, refreshShopifyNow } from "@/lib/reign/snap
 import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
 import { getLiveShopifySales, reportDay, shopifyDirectMode } from "@/lib/shopify/live-sales";
 import { fastScopedSpend } from "@/lib/associate/meta-fast";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Le périmètre « Straight Sale » de l'accès Associé.
@@ -99,7 +100,7 @@ export type AssociateOverview = {
   scope: Pick<AssociateScope, "stores" | "metaAccountIds" | "campaignKeyword">;
 };
 
-const FILE = path.join(process.cwd(), ".msgate-cache", "associate-scope.json");
+const FILE = path.join(STORAGE_ROOT, ".msgate-cache", "associate-scope.json");
 
 const state = ((globalThis as typeof globalThis & { __msgateAssociateScope?: { scope: AssociateScope | null } }).__msgateAssociateScope ??= { scope: null });
 

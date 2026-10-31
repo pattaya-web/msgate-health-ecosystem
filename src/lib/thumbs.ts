@@ -4,6 +4,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import { isAllowedRemote } from "@/lib/studio-ia/media";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Vignettes des medias locaux.
@@ -22,7 +23,7 @@ import { isAllowedRemote } from "@/lib/studio-ia/media";
 
 const run = promisify(execFile);
 
-export const MEDIA_DIR = path.join(process.cwd(), "data", "media");
+export const MEDIA_DIR = path.join(STORAGE_ROOT, "data", "media");
 const THUMB_DIR = path.join(MEDIA_DIR, ".thumbs");
 /* Largeur des vignettes : les tuiles font 150-260 px, 360 px couvre les ecrans retina. */
 const WIDTH = 360;

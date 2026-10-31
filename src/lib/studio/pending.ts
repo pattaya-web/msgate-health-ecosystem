@@ -3,6 +3,7 @@ import path from "path";
 import { getKieTask, isKieDone, isKieFailed } from "@/lib/studio/kie";
 import { saveStaticCreative, type StaticCreative } from "@/lib/studio/library";
 import type { Ratio } from "@/lib/studio/ratios";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Registre des tâches Kie lancées par le studio et pas encore rangées.
@@ -27,7 +28,7 @@ export type PendingTask = {
   media: "image" | "video";
 };
 
-const ROOT = path.join(process.cwd(), ".msgate-cache", "studio-static");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "studio-static");
 const FILE = path.join(ROOT, "pending.json");
 /** Kie ne garde pas ses résultats bien plus longtemps : au-delà, la tâche est abandonnée. */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;

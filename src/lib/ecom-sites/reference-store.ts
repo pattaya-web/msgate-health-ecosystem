@@ -1,8 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { normalizeDomain } from "@/lib/ecom-sites/reference";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
-const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "ecom-references.json");
 
 export type ReferenceSite = {

@@ -3,6 +3,7 @@ import path from "path";
 import { mirror } from "@/lib/storage";
 import { BUILTIN_STYLES } from "@/lib/creative-library/builtin";
 import type { LibraryIndex, ScriptTemplate, StyleTemplate } from "@/lib/creative-library/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * La bibliothèque vit dans `.msgate-cache/creative-library/` : un index JSON et
@@ -10,7 +11,7 @@ import type { LibraryIndex, ScriptTemplate, StyleTemplate } from "@/lib/creative
  * fusionnés à la lecture, ce qui permet d'en ajouter dans le code sans
  * migration et de ne jamais les perdre sur un disque effacé.
  */
-const ROOT = path.join(process.cwd(), ".msgate-cache", "creative-library");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "creative-library");
 const INDEX = path.join(ROOT, "library.json");
 
 async function load(): Promise<LibraryIndex> {
@@ -117,13 +118,13 @@ export async function deleteStyle(id: string) {
  * versionnées avec le code — ce sont des créas d'autrui — mais une fois là,
  * la grille montre la vraie DA au lieu de l'aperçu dessiné.
  */
-const BUILTIN_POSTERS = path.join(process.cwd(), "data", "style-posters");
+const BUILTIN_POSTERS = path.join(STORAGE_ROOT, "data", "style-posters");
 
 function typeOf(file: string) {
   return /\.jpe?g$/i.test(file) ? "image/jpeg" : /\.webp$/i.test(file) ? "image/webp" : "image/png";
 }
 
-const REFERENCES = path.join(process.cwd(), "data", "references");
+const REFERENCES = path.join(STORAGE_ROOT, "data", "references");
 
 function referencePosterPath(id: string) {
   const style = BUILTIN_STYLES.find((item) => item.id === id);

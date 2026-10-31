@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "fs/promises";
 import path from "path";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Comptabilité › Factures : la liste des factures fournisseurs qu'on paie,
@@ -25,7 +26,7 @@ export type SupplierInvoice = {
   createdAt: string;
 };
 
-const ROOT = path.join(process.cwd(), ".msgate-cache", "supplier-invoices");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "supplier-invoices");
 const INDEX = path.join(ROOT, "index.json");
 const FILES = path.join(ROOT, "files");
 /** 25 Mo par facture : un PDF de fournisseur, pas une vidéo. */

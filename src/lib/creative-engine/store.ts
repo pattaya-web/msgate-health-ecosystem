@@ -23,6 +23,7 @@ import {
   type ReferenceStrength,
   type TestBatch,
 } from "@/lib/creative-engine/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Persistance du moteur : deux fichiers JSON (produits, lots) et un dossier
@@ -32,7 +33,7 @@ import {
  * valeurs par défaut à la lecture.
  */
 
-const ROOT = path.join(process.cwd(), ".msgate-cache", "creative-engine");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "creative-engine");
 const PRODUCTS = path.join(ROOT, "products.json");
 const BATCHES = path.join(ROOT, "batches.json");
 const MODEL_IMAGE_TO_IMAGE = "gpt-image-2-image-to-image";

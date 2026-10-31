@@ -4,12 +4,13 @@ import path from "path";
 import { promisify } from "util";
 import ffmpegPath from "ffmpeg-static";
 import { NextResponse } from "next/server";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const run = promisify(execFile);
-const TMP = path.join(process.cwd(), ".msgate-cache", "tmp");
+const TMP = path.join(STORAGE_ROOT, ".msgate-cache", "tmp");
 
 /** 512 Mo : au-delà, le navigateur aurait déjà lâché avant d'envoyer. */
 const MAX_BYTES = 512 * 1024 * 1024;

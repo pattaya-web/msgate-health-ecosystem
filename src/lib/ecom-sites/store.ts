@@ -2,8 +2,9 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "fs/promises";
 import path from "path";
 import { persistJson, readMirror } from "@/lib/storage";
 import { defaultEcomSite, type EcomSite } from "@/lib/ecom-sites/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
-const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "ecom-sites.json");
 /** Le fichier d'avant chaque écriture, pour pouvoir revenir en arrière. */
 const BACKUP_FILE = path.join(CACHE_DIR, "ecom-sites.bak.json");

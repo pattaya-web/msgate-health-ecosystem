@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { persistJson, readMirror } from "@/lib/storage";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Le journal des appels Hermes.
@@ -10,7 +11,7 @@ import { persistJson, readMirror } from "@/lib/storage";
  * savoir ce que l'agent a demandé et si ça a marché, pas relire ses données.
  * Même mécanique que les autres stores : fichier local, copie Supabase.
  */
-const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "hermes-audit.json");
 const MAX_ENTRIES = 1000;
 

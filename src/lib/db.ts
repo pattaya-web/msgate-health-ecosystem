@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { CollectionName, DB, Settings } from "./types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /*
  * Persistance du Studio IA : un fichier JSON, data/db.json, avec la même
@@ -9,7 +10,7 @@ import type { CollectionName, DB, Settings } from "./types";
  * réglages et les collections du Studio existent ici.
  */
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = path.join(STORAGE_ROOT, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 
 export const DEFAULT_SETTINGS: Settings = {

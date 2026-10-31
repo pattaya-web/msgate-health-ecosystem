@@ -13,8 +13,9 @@ import path from "path";
 import { mirror } from "@/lib/storage";
 import { uploadBase64 } from "@/lib/studio/kie";
 import type { Casting } from "@/lib/ugc/casting";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
-const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const FILE = path.join(CACHE_DIR, "ugc-avatars.json");
 
 export type SavedAvatar = {

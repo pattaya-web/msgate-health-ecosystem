@@ -1,6 +1,7 @@
 import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import { mirror } from "@/lib/storage";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Le Drive : des dossiers et des fichiers, rien d'autre.
@@ -13,7 +14,7 @@ import { mirror } from "@/lib/storage";
  * explorateur de fichiers suffit à le lire en cas de doute.
  */
 
-const ROOT = path.join(process.cwd(), ".msgate-cache", "drive");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "drive");
 
 export type DriveFolder = { name: string; path: string; count: number };
 export type DriveFile = { name: string; path: string; size: number; mtime: string; kind: "image" | "video" | "audio" | "file" };

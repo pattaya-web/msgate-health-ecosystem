@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * « Produits à lancer » : le tableau commun de Mady et Alison. Chaque ligne,
@@ -17,7 +18,7 @@ export type ProductIdea = {
   updatedAt: string;
 };
 
-const FILE = path.join(process.cwd(), ".msgate-cache", "product-ideas.json");
+const FILE = path.join(STORAGE_ROOT, ".msgate-cache", "product-ideas.json");
 const MAX_IDEAS = 2000;
 
 const state = ((globalThis as typeof globalThis & { __msgateProductIdeas?: { ideas: ProductIdea[] | null; queue: Promise<unknown> } }).__msgateProductIdeas ??= {

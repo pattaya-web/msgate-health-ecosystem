@@ -3,11 +3,12 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 
 const run = promisify(execFile);
 
-const COOKIES_PATH = path.join(process.cwd(), "data", "ig-cookies.txt");
+const COOKIES_PATH = path.join(STORAGE_ROOT, "data", "ig-cookies.txt");
 
 /**
  * Cookies Instagram (format Netscape), déposés à la main dans data/ig-cookies.txt.

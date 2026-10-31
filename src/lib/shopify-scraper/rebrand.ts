@@ -7,6 +7,7 @@ import ffmpegPath from "ffmpeg-static";
 import { createKieTask, getKieTask, isKieDone, isKieFailed, uploadBase64 } from "@/lib/studio/kie";
 import { isStorageReady, persistJson, putFile, readMirror, readMirrorBytes } from "@/lib/storage";
 import type { ShopifyProduct } from "@/lib/shopify-scraper/client";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Rebranding du packaging d'un catalogue scrapé.
@@ -116,7 +117,7 @@ export type RebrandState = {
   updatedAt: string;
 };
 
-const ROOT = path.join(process.cwd(), ".msgate-cache", "shopify-scraper", "rebrand");
+const ROOT = path.join(STORAGE_ROOT, ".msgate-cache", "shopify-scraper", "rebrand");
 const CREATE_GAP_MS = 900;
 const TRANSIENT = /rate|limit|429|timeout|busy|saturé|too many/i;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

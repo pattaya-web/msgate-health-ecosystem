@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import { fetchProducts, normalizeShopUrl, variantPrice, type ShopifyProduct } from "@/lib/shopify-scraper/client";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * SpyShop : les boutiques qu'on surveille, rangées par projet.
@@ -12,7 +13,7 @@ import { fetchProducts, normalizeShopUrl, variantPrice, type ShopifyProduct } fr
  * il se lit à l'œil nu si un jour l'interface est fermée.
  */
 
-const FILE = path.join(process.cwd(), ".msgate-cache", "spyshop.json");
+const FILE = path.join(STORAGE_ROOT, ".msgate-cache", "spyshop.json");
 const DEFAULT_PROJECT = "Aesthetic Lab";
 const LATEST_KEPT = 6;
 

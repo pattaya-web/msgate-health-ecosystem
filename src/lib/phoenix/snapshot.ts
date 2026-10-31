@@ -7,6 +7,7 @@ import type {
   PhoenixTransaction,
   SnapshotProgress,
 } from "@/lib/phoenix/types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Phoenix exposes no reporting endpoint, so the dashboard is rebuilt from
@@ -23,7 +24,7 @@ import type {
  *    range are fetched first.
  */
 
-const CACHE_DIR = path.join(process.cwd(), ".phoenix-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".phoenix-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "snapshot.json");
 const STORE_VERSION = 2;
 

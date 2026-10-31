@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 import { ensureThumb, thumbWidth } from "@/lib/thumbs";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export const dynamic = "force-dynamic";
 
-const MEDIA_DIR = path.join(process.cwd(), "data", "media");
+const MEDIA_DIR = path.join(STORAGE_ROOT, "data", "media");
 
 const MIME: Record<string, string> = {
   ".mp4": "video/mp4",

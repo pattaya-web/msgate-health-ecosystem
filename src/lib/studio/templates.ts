@@ -3,6 +3,7 @@ import path from "path";
 import { persistJson, readMirror } from "@/lib/storage";
 import { CREATIVE_CATEGORIES, CREATIVE_TYPES } from "@/lib/studio/creative-types";
 import type { PromptTemplate, PromptTemplateInput } from "@/lib/studio/template-types";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Persistance des templates de prompt : un fichier JSON, copié dans Supabase
@@ -11,7 +12,7 @@ import type { PromptTemplate, PromptTemplateInput } from "@/lib/studio/template-
  * pour que l'opérateur parte de quelque chose et puisse tout retoucher.
  */
 
-const FILE = path.join(process.cwd(), ".msgate-cache", "creative-engine", "templates.json");
+const FILE = path.join(STORAGE_ROOT, ".msgate-cache", "creative-engine", "templates.json");
 
 function uid() {
   return `tpl-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

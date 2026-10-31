@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * Daily ad spend, entered by hand until the Meta Marketing API is wired.
@@ -7,7 +8,7 @@ import path from "path";
  * API sync can later write into the same store.
  */
 
-const CACHE_DIR = path.join(process.cwd(), ".msgate-cache");
+const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "ad-spend.json");
 
 export type SpendSource = "manual" | "meta-api";

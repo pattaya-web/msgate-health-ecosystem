@@ -4,6 +4,7 @@ import { getKnownAccounts } from "@/lib/meta/registry";
 import { buildSalesBreakdown } from "@/lib/metrics/sales-breakdown";
 import { reportToday } from "@/lib/report-tz";
 import { MANUAL_AD_SPEND, getAssociateScope, scopedMetaSpend } from "@/lib/associate/scope";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 
 /**
  * MoneyTalk : la paie d'Alison sur le Straight Sale de Venom.
@@ -81,7 +82,7 @@ const DEFAULT_PAYERS: Record<string, Partner> = {
 };
 const DEFAULT_START = "2026-10-01";
 
-const FILE = path.join(process.cwd(), ".msgate-cache", "associate-partnership.json");
+const FILE = path.join(STORAGE_ROOT, ".msgate-cache", "associate-partnership.json");
 
 const state = ((globalThis as typeof globalThis & {
   __msgatePartnershipV2?: { settings: PartnershipSettings | null; periods: Map<string, { at: number; period: PartnershipPeriod }> };
