@@ -75,12 +75,13 @@ const ASSOCIATE_WRITE = new Set([
 ]);
 
 /**
- * Le Drive commun (dossier « Commun » seulement, voir /api/drive). Le Studio IA
- * lui a été retiré le 01/11/2026 : plus de générations Kie, ni d'uploads, ni de
- * médias du studio.
+ * Le Studio IA, en entier, pour faire ses créas : générations Kie, voix,
+ * montage, uploads, médias et ses trois collections (générations, personnages,
+ * tâches — la route data refuse toute autre collection, réglages et clés
+ * compris). Plus le Drive commun (dossier « Commun » seulement).
  */
-const ASSOCIATE_STUDIO_PREFIXES: string[] = [];
-const ASSOCIATE_STUDIO_PATHS = new Set(["/api/drive", "/api/drive/file"]);
+const ASSOCIATE_STUDIO_PREFIXES = ["/api/studio-ia/", "/api/kie/", "/api/media/", "/api/data/"];
+const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit", "/api/drive", "/api/drive/file"]);
 
 /**
  * Les outils ouverts à l'associé en plus (31/10/2026) : Texte / Montage et
