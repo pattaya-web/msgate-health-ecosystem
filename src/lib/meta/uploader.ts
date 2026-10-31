@@ -190,6 +190,17 @@ function enroll(enhancements: Record<string, boolean>) {
   return spec;
 }
 
+/**
+ * Le message de Meta en clair : son titre et son explication pour l'utilisateur
+ * (« Autorisation de Page manquante : … ») plutôt que « Invalid parameter ».
+ */
+function metaMessage(error: GraphError["error"] | undefined) {
+  if (!error) return "réponse vide de Meta.";
+  const detail = error as { message: string; error_user_title?: string; error_user_msg?: string };
+  if (detail.error_user_title || detail.error_user_msg) return `${detail.error_user_title ?? ""}${detail.error_user_title && detail.error_user_msg ? " : " : ""}${detail.error_user_msg ?? ""}`;
+  return detail.message;
+}
+
 function fileStem(name: string) {
   return name.replace(/\.[^.]+$/, "").slice(0, 80);
 }
@@ -271,8 +282,76 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
     );
   }
 
+  const plannedCampaignName = input.createNewCampaign && sourceCampaign?.name ? `${sourceCampaign.name} · copy` : sourceCampaign?.name || "Campaign";
+
+  const headlines = input.headlines.map((t) => t.trim()).filter(Boolean);
+  const bodies = input.bodies.map((t) => t.trim()).filter(Boolean);
+  const descriptions = input.descriptions.map((t) => t.trim()).filter(Boolean);
+  const groups: UploadedMedia[][] = input.adsetPerUpload
+    ? input.media.map((item) => [item])
+    : input.autoDivide && input.autoDivide > 0
+      ? chunk(input.media, input.autoDivide)
+      : [input.media];
+  const makesAdsets = input.createNewAdset || input.adsetPerUpload || groups.length > 1;
+  const adsetNameOf = (g: number) => (makesAdsets ? (groups.length > 1 ? `${sourceAdset?.name} · ${g + 1}` : `${sourceAdset?.name} · copy`) : sourceAdset?.name || "Ad set");
+  if (makesAdsets && (!sourceAdset?.targeting || !sourceAdset.optimization_goal || !sourceAdset.billing_event)) {
+    throw new Error("L’ad set source n’a pas de targeting / optimization copiable");
+  }
+
+  /*
+   * 1. Toutes les créas d'abord. Une créa seule n'est diffusée nulle part : si
+   * Meta en refuse une (droits sur la Page, lien manquant…), on s'arrête avant
+   * d'avoir créé la moindre campagne, le moindre ad set ou la moindre pub —
+   * plus d'ad set allumé et vide comme le 01/11/2026.
+   */
+  const planned: Array<{ group: number; media: UploadedMedia; name: string; creativeId: string }> = [];
+  let index = 0;
+  for (let g = 0; g < groups.length; g++) {
+    for (const media of groups[g]) {
+      const name = adName(input.adNamePattern, media.fileName, plannedCampaignName, adsetNameOf(g), index);
+      index += 1;
+      const images = media.kind === "image" && media.hash ? [{ hash: media.hash }] : [];
+      const videos = media.kind === "video" && media.videoId ? [{ video_id: media.videoId }] : [];
+      const featureSpec = enroll(input.enhancements);
+      const creativeBody: Record<string, unknown> = {
+        name: `${name} · creative`,
+        object_story_spec: {
+          page_id: pageId,
+          ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
+          // Comme le Gestionnaire Meta : le lien (et l'image) dans la publication elle-même, sinon « Le champ link est requis ».
+          ...(media.kind === "image" && media.hash ? { link_data: { link: website, image_hash: media.hash, call_to_action: { type: cta } } } : {}),
+        },
+        asset_feed_spec: {
+          ad_formats: [media.kind === "video" ? "SINGLE_VIDEO" : "SINGLE_IMAGE"],
+          ...(images.length ? { images } : {}),
+          ...(videos.length ? { videos } : {}),
+          titles: (headlines.length ? headlines : [fileStem(media.fileName)]).map((text) => ({ text })),
+          bodies: (bodies.length ? bodies : [" "]).map((text) => ({ text })),
+          ...(descriptions.length ? { descriptions: descriptions.map((text) => ({ text })) } : {}),
+          call_to_action_types: [cta],
+          link_urls: [{ website_url: website, ...(input.displayUrl ? { display_url: input.displayUrl } : {}) }],
+          // Hors créa dynamique, Meta exige ce mode pour plusieurs titres / textes sur une même pub.
+          ...(targetDynamic ? {} : { optimization_type: "DEGREES_OF_FREEDOM" }),
+        },
+        ...(Object.keys(featureSpec).length ? { degrees_of_freedom_spec: { creative_features_spec: featureSpec } } : {}),
+        ...(input.aiGenerated ? { contextual_multi_ads: { enroll_status: "OPT_IN" } } : {}),
+      };
+
+      let creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
+      if (creative.error && creativeBody.degrees_of_freedom_spec) {
+        delete creativeBody.degrees_of_freedom_spec;
+        creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
+      }
+      if (creative.error || !creative.id) {
+        throw new Error(`Créa refusée par Meta (${media.fileName}) — ${metaMessage(creative.error)} Rien n'a été créé dans le compte.`);
+      }
+      planned.push({ group: g, media, name, creativeId: creative.id });
+    }
+  }
+
+  // 2. La campagne (si demandée), puis les ad sets et les pubs.
   let campaignId = sourceAdset?.campaign_id || input.sourceCampaignId;
-  let campaignName = sourceCampaign?.name || "Campaign";
+  const campaignName = plannedCampaignName;
   if (input.createNewCampaign) {
     if (!sourceCampaign?.objective) throw new Error("La campagne source n’a pas d’objective copiable");
     const created = await graphPost<GraphError & { id?: string }>(`${act}/campaigns`, token, {
@@ -288,34 +367,20 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         : {}),
       ...(sourceCampaign.promoted_object ? { promoted_object: sourceCampaign.promoted_object } : {}),
     });
-    if (created.error || !created.id) throw new Error(created.error?.message || "Création campagne refusée");
+    if (created.error || !created.id) throw new Error(`Campagne refusée par Meta — ${metaMessage(created.error)}`);
     campaignId = created.id;
-    campaignName = `${sourceCampaign.name} · copy`;
   }
   if (!campaignId) throw new Error("Campagne cible manquante");
-
-  const headlines = input.headlines.map((t) => t.trim()).filter(Boolean);
-  const bodies = input.bodies.map((t) => t.trim()).filter(Boolean);
-  const descriptions = input.descriptions.map((t) => t.trim()).filter(Boolean);
-  const groups: UploadedMedia[][] = input.adsetPerUpload
-    ? input.media.map((item) => [item])
-    : input.autoDivide && input.autoDivide > 0
-      ? chunk(input.media, input.autoDivide)
-      : [input.media];
+  void campaignName;
 
   const createdAds: Array<{ id: string; name: string }> = [];
   const createdAdsets: string[] = [];
 
   for (let g = 0; g < groups.length; g++) {
-    const group = groups[g];
     let adsetId = input.sourceAdsetId;
-    let adsetName = sourceAdset?.name || "Ad set";
-    if (input.createNewAdset || input.adsetPerUpload || groups.length > 1) {
-      if (!sourceAdset?.targeting || !sourceAdset.optimization_goal || !sourceAdset.billing_event) {
-        throw new Error("L’ad set source n’a pas de targeting / optimization copiable");
-      }
+    if (makesAdsets && sourceAdset) {
       const created = await graphPost<GraphError & { id?: string }>(`${act}/adsets`, token, {
-        name: groups.length > 1 ? `${sourceAdset.name} · ${g + 1}` : `${sourceAdset.name} · copy`,
+        name: adsetNameOf(g),
         campaign_id: campaignId,
         targeting: sourceAdset.targeting,
         optimization_goal: sourceAdset.optimization_goal,
@@ -336,60 +401,21 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         ...(sourceAdset.instagram_actor_id ? { instagram_actor_id: sourceAdset.instagram_actor_id } : {}),
         is_dynamic_creative: targetDynamic,
       });
-      if (created.error || !created.id) throw new Error(created.error?.message || "Création ad set refusée");
+      if (created.error || !created.id) throw new Error(`Ad set refusé par Meta — ${metaMessage(created.error)}`);
       adsetId = created.id;
-      adsetName = groups.length > 1 ? `${sourceAdset.name} · ${g + 1}` : `${sourceAdset.name} · copy`;
       createdAdsets.push(adsetId);
     }
     if (!adsetId) throw new Error("Ad set cible manquant");
 
-    for (let i = 0; i < group.length; i++) {
-      const media = group[i];
-      const name = adName(input.adNamePattern, media.fileName, campaignName, adsetName, createdAds.length);
-      const images = media.kind === "image" && media.hash ? [{ hash: media.hash }] : [];
-      const videos = media.kind === "video" && media.videoId ? [{ video_id: media.videoId }] : [];
-      const featureSpec = enroll(input.enhancements);
-      const creativeBody: Record<string, unknown> = {
-        name: `${name} · creative`,
-        object_story_spec: {
-          page_id: pageId,
-          ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
-        },
-        asset_feed_spec: {
-          ad_formats: [media.kind === "video" ? "SINGLE_VIDEO" : "SINGLE_IMAGE"],
-          ...(images.length ? { images } : {}),
-          ...(videos.length ? { videos } : {}),
-          titles: (headlines.length ? headlines : [fileStem(media.fileName)]).map((text) => ({ text })),
-          bodies: (bodies.length ? bodies : [" "]).map((text) => ({ text })),
-          descriptions: (descriptions.length ? descriptions : [""]).map((text) => ({ text })),
-          call_to_action_types: [cta],
-          link_urls: [{ website_url: website, ...(input.displayUrl ? { display_url: input.displayUrl } : {}) }],
-          // Hors créa dynamique, Meta exige ce mode pour plusieurs titres / textes sur une même pub.
-          ...(targetDynamic ? {} : { optimization_type: "DEGREES_OF_FREEDOM" }),
-        },
-        ...(Object.keys(featureSpec).length
-          ? { degrees_of_freedom_spec: { creative_features_spec: featureSpec } }
-          : {}),
-        ...(input.aiGenerated ? { contextual_multi_ads: { enroll_status: "OPT_IN" } } : {}),
-      };
-
-      let creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
-      if (creative.error && creativeBody.degrees_of_freedom_spec) {
-        delete creativeBody.degrees_of_freedom_spec;
-        creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
-      }
-      if (creative.error || !creative.id) {
-        throw new Error(creative.error?.message || `Creative refusée (${media.fileName})`);
-      }
-
+    for (const row of planned.filter((item) => item.group === g)) {
       const ad = await graphPost<GraphError & { id?: string }>(`${act}/ads`, token, {
-        name,
+        name: row.name,
         adset_id: adsetId,
-        creative: { creative_id: creative.id },
+        creative: { creative_id: row.creativeId },
         status,
       });
-      if (ad.error || !ad.id) throw new Error(ad.error?.message || `Ad refusée (${media.fileName})`);
-      createdAds.push({ id: ad.id, name });
+      if (ad.error || !ad.id) throw new Error(`Pub refusée par Meta (${row.media.fileName}) — ${metaMessage(ad.error)}`);
+      createdAds.push({ id: ad.id, name: row.name });
     }
   }
 
