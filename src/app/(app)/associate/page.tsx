@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { Area, Bar, CartesianGrid, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertTriangle, BadgeDollarSign, CalendarHeart, Layers, Loader2, Megaphone, MousePointerClick, ShoppingBag, Sparkles, Target } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, CalendarHeart, CreditCard, HelpCircle, Layers, Loader2, Megaphone, MousePointerClick, ShoppingBag, Sparkles, Target, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth/auth-context";
 import { AssociateHeader, Kpi, ago, pct, ratio, usd, usdShort, useNow } from "@/components/associate/parts";
 import { useAssociateOverview } from "@/components/associate/use-associate-overview";
@@ -31,8 +31,9 @@ const CATEGORIES: Array<{ key: OrderCategory; label: string }> = [
 ];
 
 /** Le bloc de l'admin : une tuile par catégorie (part du CA total en barre) et le ROAS combined. */
-function AdminCategories({ admin, loading }: { admin: AdminSales | null; loading: boolean }) {
+function AdminCategories({ admin, loading, metaSpend, realRoas }: { admin: AdminSales | null; loading: boolean; metaSpend: number; realRoas: number | null }) {
   const total = admin?.total ?? 0;
+  const [explain, setExplain] = useState(false);
   return (
     <div className="r-card r-rise p-4" style={{ animationDelay: "200ms" }} data-admin-categories>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -76,17 +77,110 @@ function AdminCategories({ admin, loading }: { admin: AdminSales | null; loading
             </div>
           );
         })}
-        <div className="rounded-2xl px-3 py-2.5" style={{ background: "linear-gradient(135deg, color-mix(in oklab, var(--r-accent) 16%, transparent), var(--r-accent-soft))", border: "1px solid color-mix(in oklab, var(--r-accent) 22%, transparent)" }}>
-          <p className="r-label" style={{ color: "var(--r-accent-ink)" }}>
+        <button
+          type="button"
+          onClick={() => setExplain((value) => !value)}
+          aria-expanded={explain}
+          title="Clique pour la définition"
+          className="rounded-2xl px-3 py-2.5 text-left transition-transform hover:scale-[1.02]"
+          style={{ background: "linear-gradient(135deg, color-mix(in oklab, var(--r-accent) 16%, transparent), var(--r-accent-soft))", border: "1px solid color-mix(in oklab, var(--r-accent) 22%, transparent)" }}
+        >
+          <p className="r-label flex items-center gap-1" style={{ color: "var(--r-accent-ink)" }}>
             ROAS combined
+            <HelpCircle className="h-3 w-3" />
           </p>
           <p className="mt-1 text-[19px] font-semibold tabular-nums leading-tight" style={{ color: "var(--r-accent-ink)" }}>
             {ratio(admin?.roasCombined)}
           </p>
-          <p className="r-sub mt-0.5 truncate" style={{ fontSize: 10.5 }} title="Tout le chiffre d'affaires des catégories ÷ dépense Meta">
+          <p className="r-sub mt-0.5 truncate" style={{ fontSize: 10.5 }}>
             {admin ? `${usdShort(total)} ÷ dépense Meta` : loading ? "Chargement…" : "—"}
           </p>
+        </button>
+      </div>
+
+      {explain ? (
+        <div className="mt-3 rounded-2xl px-4 py-3 text-[12.5px] leading-relaxed" style={{ background: "var(--r-accent-soft)", color: "var(--ink-2)" }}>
+          <p className="mb-1 font-semibold" style={{ color: "var(--ink)" }}>
+            Le ROAS combined, c&apos;est quoi ?
+          </p>
+          <p>
+            C&apos;est <b>tout l&apos;argent encaissé</b> sur la période — Straight sale + VIP Initial + Recurring + Salvage + Upsell — <b>divisé par la dépense Meta</b> de la même période.
+            {admin && metaSpend > 0 ? ` Ici : ${usd(total)} ÷ ${usd(metaSpend)} = ${ratio(admin.roasCombined)}.` : ""}
+          </p>
+          <p className="mt-1.5">
+            Il est plus large que le <b>ROAS réel</b> ({ratio(realRoas)}, seulement les ventes directes ÷ pub) et que le <b>ROAS Meta</b> (les achats que Meta s&apos;attribue) : il compte aussi
+            l&apos;argent des abonnements (premiers paiements VIP, renouvellements, rattrapages), qui tombe grâce aux clients que la pub a fait venir.
+          </p>
+          <p className="mt-1.5">
+            Au-dessus de <b>1,00×</b>, la pub rapporte plus qu&apos;elle ne coûte — <b>avant</b> coût produit et frais de paiement (pour le bénéfice, voir l&apos;onglet Profit).
+          </p>
         </div>
+      ) : null}
+
+      <AdminSubscribersApproval admin={admin} loading={loading} />
+    </div>
+  );
+}
+
+/** Abonnés et taux d'approbation (global et par MID / processeur), comme la page Stats. */
+function AdminSubscribersApproval({ admin, loading }: { admin: AdminSales | null; loading: boolean }) {
+  if (admin?.source === "shopify") {
+    return <p className="r-sub mt-3">Abonnés et taux d&apos;approbation : disponibles avec Reign.</p>;
+  }
+  const subs = admin?.subscribers;
+  const approval = admin?.approval;
+  const best = Math.max(1, ...(admin?.processors ?? []).map((row) => row.attempts));
+  return (
+    <div className="mt-3 grid gap-2.5 lg:grid-cols-[1fr_1fr_2fr]">
+      <div className="rounded-2xl px-3 py-2.5" style={{ background: "var(--r-accent-soft)" }}>
+        <p className="r-label flex items-center gap-1">
+          <Users className="h-3 w-3" />
+          Abonnés actifs
+        </p>
+        <p className="mt-1 text-[22px] font-semibold tabular-nums leading-tight" style={{ color: "var(--ink)" }}>
+          {subs ? subs.active.toLocaleString("fr-FR") : loading ? "…" : "—"}
+        </p>
+        <p className="r-sub mt-0.5" style={{ fontSize: 10.5 }}>
+          {subs
+            ? `${subs.salvage} en salvage${subs.paused != null ? ` · ${subs.paused} en pause` : ""} · ${subs.cancelled} annulés`
+            : "toutes dates confondues"}
+        </p>
+      </div>
+      <div className="rounded-2xl px-3 py-2.5" style={{ background: "var(--r-accent-soft)" }}>
+        <p className="r-label flex items-center gap-1">
+          <CreditCard className="h-3 w-3" />
+          Taux d&apos;approbation
+        </p>
+        <p className="mt-1 text-[22px] font-semibold tabular-nums leading-tight" style={{ color: "var(--ink)" }}>
+          {approval ? pct(approval.rate) : loading ? "…" : "—"}
+        </p>
+        <p className="r-sub mt-0.5" style={{ fontSize: 10.5 }}>
+          {approval ? `${approval.approved.toLocaleString("fr-FR")} approuvées sur ${approval.attempts.toLocaleString("fr-FR")} tentatives` : "sur la période"}
+        </p>
+      </div>
+      <div className="rounded-2xl px-3 py-2.5" style={{ background: "var(--r-accent-soft)" }}>
+        <p className="r-label mb-1.5">Par MID / processeur</p>
+        {admin?.processors.length ? (
+          <ul className="space-y-1.5">
+            {admin.processors.slice(0, 6).map((row) => (
+              <li key={row.name}>
+                <div className="flex items-baseline justify-between gap-2 text-[12px]">
+                  <span className="min-w-0 truncate font-medium" style={{ color: "var(--ink)" }} title={row.name}>
+                    {row.name}
+                  </span>
+                  <span className="shrink-0 tabular-nums" style={{ color: "var(--ink-2)" }}>
+                    <b style={{ color: "var(--ink)" }}>{pct(row.approvalRate)}</b> · {row.approved}/{row.attempts}
+                  </span>
+                </div>
+                <div className="r-bar mt-1" style={{ height: 4 }}>
+                  <span style={{ width: `${Math.min(100, (row.attempts / best) * 100)}%` }} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="r-sub">{loading ? "Chargement…" : "Aucune tentative sur la période."}</p>
+        )}
       </div>
     </div>
   );
@@ -218,7 +312,7 @@ export default function AssociatePage() {
         />
       </div>
 
-      {adminView ? <AdminCategories admin={admin} loading={loading} /> : null}
+      {adminView ? <AdminCategories admin={admin} loading={loading} metaSpend={overview?.meta.spend ?? 0} realRoas={overview?.roas ?? null} /> : null}
 
       <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
         <div className="r-card r-rise p-4" style={{ animationDelay: "220ms" }}>
