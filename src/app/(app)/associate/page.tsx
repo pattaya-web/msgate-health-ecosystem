@@ -167,6 +167,13 @@ export default function AssociatePage() {
         </div>
       ) : null}
 
+      {overview?.meta.error ? (
+        <div className="r-card r-rise flex items-center gap-2 px-4 py-3 text-[12.5px]" style={{ color: "var(--r-bad)" }}>
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Dépense Meta indisponible : {overview.meta.error}
+        </div>
+      ) : null}
+
       {overview?.phoenix.error ? (
         <div className="r-card r-rise flex items-center gap-2 px-4 py-3 text-[12.5px]" style={{ color: "var(--r-bad)" }}>
           <AlertTriangle className="h-4 w-4 shrink-0" />

@@ -33,7 +33,7 @@ export type FastAccountSpend = { account: FastAccount; spend: number; campaigns:
 
 const state = ((globalThis as typeof globalThis & {
   __msgateMetaFast?: {
-    accounts: { at: number; list: FastAccount[]; apiVersion: string } | null;
+    accounts: { at: number; list: FastAccount[]; apiVersion: string; errors: string[] } | null;
     spend: Map<string, { at: number; rows: FastAccountSpend[] }>;
   };
 }).__msgateMetaFast ??= { accounts: null, spend: new Map() });
@@ -53,6 +53,7 @@ export async function knownAccounts(force = false) {
   state.accounts = {
     at: Date.now(),
     apiVersion: config.apiVersion,
+    errors,
     list: accounts.map((account) => ({ accountId: account.accountId, name: account.name, currency: account.currency, token: account.token })),
   };
   return state.accounts;
@@ -91,9 +92,17 @@ export async function fastScopedSpend(params: { start: string; end: string; acco
   const key = `${params.start}:${params.end}:${params.accountIds.join(",")}:${params.keyword}`;
   const hit = state.spend.get(key);
   if (!params.force && hit && Date.now() - hit.at < SPEND_TTL_MS) return hit.rows;
-  const { list, apiVersion } = await knownAccounts();
+  const { list, apiVersion, errors } = await knownAccounts();
   const keyword = params.keyword.trim().toLowerCase();
   const picked = list.filter((account) => params.accountIds.includes(account.accountId) || (keyword && account.name.toLowerCase().includes(keyword)));
+  // Un compte du périmètre qu'aucun jeton n'ouvre plus (jeton bloqué ou expiré chez Meta) : on le dit, plutôt qu'afficher 0 $.
+  const missing = params.accountIds.filter((id) => !list.some((account) => account.accountId === id));
+  if (missing.length) {
+    const blocked = errors.find((error) => /blocked/i.test(error)) ?? errors.find((error) => /deactivated|expired|session/i.test(error)) ?? errors[0];
+    throw new Error(
+      `Meta n'ouvre plus ${missing.length > 1 ? "les comptes" : "le compte"} ${missing.join(", ")}${blocked ? ` — ${blocked}` : ""}. Le jeton du BM est à remplacer (Ads Manager › Agence · BM).`
+    );
+  }
   const rows = await Promise.all(picked.map((account) => accountSpend(account, apiVersion, params.start, params.end)));
   state.spend.set(key, { at: Date.now(), rows });
   return rows;

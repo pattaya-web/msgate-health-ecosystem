@@ -260,7 +260,12 @@ export async function scopedMetaSpend(start: string, end: string, scope: Associa
     try {
       let rows: ScopedRow[] = [];
       if (meta.configured && hasScope) {
-        rows = await scopedRowsFast(start, end, scope, force).catch(() => scopedRowsFromTree(start, end, scope, force));
+        rows = await scopedRowsFast(start, end, scope, force).catch(async (fastError) => {
+          const fromTree = await scopedRowsFromTree(start, end, scope, force).catch(() => []);
+          // Si l'arbre complet ne retrouve pas les comptes non plus, la vraie cause (jeton bloqué…) remonte à l'écran.
+          if (scope.metaAccountIds.some((id) => !fromTree.some((row) => row.accountId === id))) throw fastError;
+          return fromTree;
+        });
       }
       // Tout en dollars, la devise des ventes : les comptes de Badgal Collection sont en euros.
       const rates = await fxRates([...rows.map((row) => row.currency), ...manual.map((entry) => entry.currency)], REPORT_CURRENCY);
