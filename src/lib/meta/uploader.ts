@@ -1,5 +1,5 @@
 import { discoverAdAccounts, getMetaConfigWithExtras } from "@/lib/meta/client";
-import { graphGet, graphPost, graphPostForm, type GraphError } from "@/lib/meta/graph";
+import { centsToUnits, graphGet, graphPost, graphPostForm, unitsToCents, type GraphError } from "@/lib/meta/graph";
 import { resolveToken } from "@/lib/meta/token";
 import { invalidateTreeCache } from "@/lib/meta/tree";
 import {
@@ -52,12 +52,12 @@ export async function listAccountStructure(accountId: string) {
   const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
   const token = await resolveToken(act);
   const [campaigns, adsets, ads] = await Promise.all([
-    allPages<{ id: string; name: string; status: string; objective?: string }>(
-      `${act}/campaigns?fields=id,name,status,objective&limit=200`,
+    allPages<{ id: string; name: string; status: string; objective?: string; daily_budget?: string }>(
+      `${act}/campaigns?fields=id,name,status,objective,daily_budget&limit=200`,
       token
     ),
-    allPages<{ id: string; name: string; status: string; campaign_id: string }>(
-      `${act}/adsets?fields=id,name,status,campaign_id&limit=300`,
+    allPages<{ id: string; name: string; status: string; campaign_id: string; daily_budget?: string }>(
+      `${act}/adsets?fields=id,name,status,campaign_id,daily_budget&limit=300`,
       token
     ),
     allPages<{ id: string; name: string; status: string; adset_id: string; campaign_id: string }>(
@@ -71,12 +71,14 @@ export async function listAccountStructure(accountId: string) {
       name: row.name,
       status: row.status,
       objective: row.objective || "",
+      dailyBudget: centsToUnits(row.daily_budget),
     })) as PickerCampaign[],
     adsets: adsets.map((row) => ({
       id: row.id,
       name: row.name,
       status: row.status,
       campaignId: row.campaign_id,
+      dailyBudget: centsToUnits(row.daily_budget),
     })) as PickerAdset[],
     ads: ads.map((row) => ({
       id: row.id,
@@ -180,6 +182,10 @@ export type CreateAdsInput = {
   aiGenerated: boolean;
   enhancements: Record<string, boolean>;
   media: UploadedMedia[];
+  /** Budget journalier (devise du compte) du ou des nouveaux ad sets — ou de la nouvelle campagne si elle porte le budget (CBO). Vide = celui du modèle. */
+  dailyBudget?: number | null;
+  /** Nom du nouvel ad set (« · 2, · 3 » ajoutés s'il y en a plusieurs). Vide = « <modèle> · copy ». */
+  adsetName?: string;
 };
 
 function enroll(enhancements: Record<string, boolean>) {
@@ -293,7 +299,20 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
       ? chunk(input.media, input.autoDivide)
       : [input.media];
   const makesAdsets = input.createNewAdset || input.adsetPerUpload || groups.length > 1;
-  const adsetNameOf = (g: number) => (makesAdsets ? (groups.length > 1 ? `${sourceAdset?.name} · ${g + 1}` : `${sourceAdset?.name} · copy`) : sourceAdset?.name || "Ad set");
+  const chosenName = input.adsetName?.trim().slice(0, 200);
+  const adsetNameOf = (g: number) =>
+    makesAdsets
+      ? chosenName
+        ? groups.length > 1
+          ? `${chosenName} · ${g + 1}`
+          : chosenName
+        : groups.length > 1
+          ? `${sourceAdset?.name} · ${g + 1}`
+          : `${sourceAdset?.name} · copy`
+      : sourceAdset?.name || "Ad set";
+  // Le budget choisi : sur la campagne si elle le porte (CBO), sinon sur chaque nouvel ad set (ABO).
+  const budget = input.dailyBudget && Number.isFinite(input.dailyBudget) && input.dailyBudget > 0 ? unitsToCents(input.dailyBudget) : null;
+  const campaignBudget = Boolean(sourceCampaign?.daily_budget || sourceCampaign?.lifetime_budget);
   if (makesAdsets && (!sourceAdset?.targeting || !sourceAdset.optimization_goal || !sourceAdset.billing_event)) {
     throw new Error("L’ad set source n’a pas de targeting / optimization copiable");
   }
@@ -361,7 +380,7 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
       status,
       ...(sourceCampaign.buying_type ? { buying_type: sourceCampaign.buying_type } : {}),
       ...(sourceCampaign.bid_strategy ? { bid_strategy: sourceCampaign.bid_strategy } : {}),
-      ...(sourceCampaign.daily_budget ? { daily_budget: sourceCampaign.daily_budget } : {}),
+      ...(sourceCampaign.daily_budget ? { daily_budget: budget ?? sourceCampaign.daily_budget } : {}),
       ...(sourceCampaign.lifetime_budget && !sourceCampaign.daily_budget
         ? { lifetime_budget: sourceCampaign.lifetime_budget }
         : {}),
@@ -386,7 +405,8 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         optimization_goal: sourceAdset.optimization_goal,
         billing_event: sourceAdset.billing_event,
         status,
-        ...(sourceAdset.daily_budget ? { daily_budget: sourceAdset.daily_budget } : {}),
+        // Budget de l'ad set : celui choisi dans l'uploader, sinon celui du modèle (jamais si la campagne porte le budget).
+        ...(!campaignBudget && (budget || sourceAdset.daily_budget) ? { daily_budget: budget ?? sourceAdset.daily_budget } : {}),
         ...(sourceAdset.lifetime_budget && !sourceAdset.daily_budget
           ? { lifetime_budget: sourceAdset.lifetime_budget }
           : {}),

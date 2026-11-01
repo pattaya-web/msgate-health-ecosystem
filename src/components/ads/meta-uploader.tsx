@@ -86,6 +86,9 @@ export function MetaUploader() {
   const [paused, setPaused] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [copyLoaded, setCopyLoaded] = useState(false);
+  /** Budget / jour et nom du nouvel ad set, pré-remplis depuis l'ad set modèle. */
+  const [budget, setBudget] = useState("");
+  const [newAdsetName, setNewAdsetName] = useState("");
 
   // L'ad copy de la dernière fois, relu au tick suivant (pas de setState synchrone dans l'effet).
   useEffect(() => {
@@ -284,6 +287,8 @@ export function MetaUploader() {
           createNewAdset,
           adsetPerUpload,
           autoDivide: autoDivide ? 5 : null,
+          dailyBudget: Number(budget.replace(",", ".")) || null,
+          adsetName: newAdsetName.trim() || undefined,
           adNamePattern: useNamePattern ? namePattern : "{file}",
           headlines,
           bodies,
@@ -496,6 +501,11 @@ export function MetaUploader() {
               onSelect={(id) => {
                 setAdsetId(id);
                 setAdId("");
+                const picked = adsets.find((row) => row.id === id);
+                const parent = campaigns.find((row) => row.id === picked?.campaignId);
+                const value = picked?.dailyBudget || parent?.dailyBudget || 0;
+                setBudget(value ? String(value) : "");
+                setNewAdsetName("");
               }}
             />
             <PickerColumn
@@ -545,6 +555,38 @@ export function MetaUploader() {
         <CheckRow label="Create new ad set per upload or group" checked={adsetPerUpload} onChange={setAdsetPerUpload} />
         <CheckRow label="Auto-divide ads into ad sets" checked={autoDivide} onChange={setAutoDivide} />
         <CheckRow label="Build custom ad set configuration" checked={customAdset} onChange={setCustomAdset} />
+        {createNewAdset || adsetPerUpload || autoDivide ? (
+          <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+            <label className="block text-[12px] font-medium text-slate-600">
+              Nom du nouvel ad set
+              <input
+                value={newAdsetName}
+                onChange={(e) => setNewAdsetName(e.target.value)}
+                placeholder={adsetId ? `${adsets.find((row) => row.id === adsetId)?.name ?? "Ad set"} · copy` : "Choisis d'abord un ad set modèle"}
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
+              />
+            </label>
+            <label className="block text-[12px] font-medium text-slate-600">
+              Budget / jour ({accounts.find((row) => row.id === accountId)?.currency || "devise du compte"})
+              <input
+                inputMode="decimal"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                placeholder="même que le modèle"
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-slate-400">
+                {(() => {
+                  const parent = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
+                  if (!parent?.dailyBudget) return "Budget par ad set (ABO) : appliqué à chaque nouvel ad set.";
+                  return createNewCampaign || multiCampaigns
+                    ? "Budget au niveau campagne (CBO) : appliqué à la nouvelle campagne."
+                    : "Cette campagne porte le budget (CBO) : les ad sets n'en ont pas. Coche « Create new campaign » pour lui donner ce budget.";
+                })()}
+              </span>
+            </label>
+          </div>
+        ) : null}
       </Card>
       <Card title="Ad Name Options">
         <CheckRow label="Use custom ad name pattern" checked={useNamePattern} onChange={setUseNamePattern} />

@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { cn, formatCurrency, formatCreatedFr, formatNumber } from "@/lib/utils";
 import { adsetsToRefill, liveCreatives, missingCreatives, needsRefill } from "@/lib/meta/refill";
+import { RenameDialogHost, askName } from "@/components/ads/rename-dialog";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, PHASE_TABS, type CampaignBucket, type PhaseTab } from "@/lib/meta/buckets";
 import { isAccountKilled, isCampaignLive } from "@/lib/meta/account-flow";
 import { loadHiddenAdIds, saveHiddenAdIds } from "@/lib/meta/hidden-ads";
@@ -1669,6 +1670,7 @@ export default function AdsPage() {
 
       {tree ? (
         <div className="order-4 space-y-2.5 lg:order-6">
+          <RenameDialogHost />
           <MobilePilot
             groups={groups}
             busy={busy}
@@ -1858,10 +1860,12 @@ type RowShared = {
 };
 
 /** Renomme une campagne, un ad set ou une pub, après saisie du nouveau nom. */
+const RENAME_TITLE: Record<EntityLevel, string> = { campaign: "Renommer la campagne", adset: "Renommer l'ad set", ad: "Renommer la pub" };
+
 function askRename(shared: RowShared, level: EntityLevel, id: string, current: string) {
-  const next = window.prompt("Nouveau nom", current)?.trim();
-  if (!next || next === current) return;
-  void shared.onWrite(level, id, { name: next }, "Renommé");
+  void askName(RENAME_TITLE[level], current).then((next) => {
+    if (next) void shared.onWrite(level, id, { name: next }, "Renommé sur Meta");
+  });
 }
 
 function RenameChip({ onClick }: { onClick: () => void }) {

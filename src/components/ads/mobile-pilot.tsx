@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMounted } from "@/lib/use-mounted";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Download, EyeOff, Loader2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, EyeOff, Loader2, Pencil, X } from "lucide-react";
 import { cn, formatCurrency, formatCreatedFr, formatNumber, shortenCreativeName } from "@/lib/utils";
 import { PHASE_TABS, BUCKET_LABELS, type CampaignBucket, type PhaseTab } from "@/lib/meta/buckets";
 import { isAccountKilled, isCampaignLive } from "@/lib/meta/account-flow";
@@ -19,6 +19,7 @@ import type {
 } from "@/lib/meta/types";
 import { BudgetCell, StatusToggle } from "@/components/ads/bits";
 import { liveCreatives, missingCreatives, needsRefill } from "@/lib/meta/refill";
+import { askName } from "@/components/ads/rename-dialog";
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -150,7 +151,7 @@ function flattenCampaigns(groups: BucketGroup[]): FlatCampaign[] {
 type WriteFn = (
   level: EntityLevel,
   id: string,
-  patch: { status?: EntityStatus; dailyBudget?: number },
+  patch: { status?: EntityStatus; dailyBudget?: number; name?: string },
   label: string
 ) => Promise<void>;
 
@@ -554,6 +555,21 @@ function AdsetPilotRow({
           {created ? <span>· {created}</span> : null}
         </p>
       </div>
+      <span
+        role="button"
+        tabIndex={0}
+        title="Renommer l'ad set"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 ring-1 ring-slate-200 dark:text-slate-300 dark:ring-slate-700"
+        onClick={(event) => {
+          event.stopPropagation();
+          void askName("Renommer l'ad set", adset.name).then((next) => {
+            if (next) void onWrite("adset", adset.id, { name: next }, "Renommé sur Meta");
+          });
+        }}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <Pencil className="h-3 w-3" />
+      </span>
       <span className="shrink-0 text-[11px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
         {money(adset.metrics.spend)}
       </span>
@@ -620,6 +636,19 @@ function CampaignSheet({
               <span className={cn("rounded px-1 py-px text-[9px] font-semibold", PHASE_CHIP[bucket])}>
                 {BUCKET_LABELS[bucket]}
               </span>
+              <button
+                type="button"
+                title="Renommer la campagne"
+                className="inline-flex h-6 items-center gap-0.5 rounded-md bg-white px-1.5 text-[9px] font-semibold uppercase text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700"
+                onClick={() =>
+                  void askName("Renommer la campagne", campaign.name).then((next) => {
+                    if (next) void onWrite("campaign", campaign.id, { name: next }, "Renommé sur Meta");
+                  })
+                }
+              >
+                <Pencil className="h-2.5 w-2.5" />
+                Renommer
+              </button>
               <DownloadBtn
                 busy={busy[zipKey]}
                 onClick={() => void onZip(adIdsOfCampaign(campaign), campaign.name, zipKey)}

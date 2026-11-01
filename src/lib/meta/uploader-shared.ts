@@ -1,7 +1,8 @@
 export type UploadAccount = { id: string; accountId: string; name: string; currency: string; status: number };
 
-export type PickerCampaign = { id: string; name: string; status: string; objective: string };
-export type PickerAdset = { id: string; name: string; status: string; campaignId: string };
+/** dailyBudget : budget journalier en devise du compte (0 = pas de budget à ce niveau). */
+export type PickerCampaign = { id: string; name: string; status: string; objective: string; dailyBudget: number };
+export type PickerAdset = { id: string; name: string; status: string; campaignId: string; dailyBudget: number };
 export type PickerAd = { id: string; name: string; status: string; adsetId: string; campaignId: string };
 
 export type MediaKind = "image" | "video";
