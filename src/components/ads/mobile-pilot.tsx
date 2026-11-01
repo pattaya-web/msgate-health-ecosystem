@@ -458,7 +458,8 @@ function AdsetSheet({
     () =>
       [...adset.ads]
         .filter((ad) => Boolean(ad.id))
-        .sort((a, b) => b.metrics.spend - a.metrics.spend),
+        // Les créas actives d'abord, les off tout en bas ; chaque groupe par dépense.
+        .sort((a, b) => Number(b.status === "ACTIVE") - Number(a.status === "ACTIVE") || b.metrics.spend - a.metrics.spend),
     [adset.ads]
   );
   const created = formatCreatedFr(adset.createdTime);

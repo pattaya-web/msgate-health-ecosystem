@@ -231,17 +231,79 @@ function MetricsRail({
   );
 }
 
-function ColumnHeader() {
+/* ------------------------------------------------------------------ *
+ * Tri par colonne, comme dans le Gestionnaire de publicités Meta
+ * ------------------------------------------------------------------ */
+
+type SortKey = "budget" | "spend" | "purchases" | "cpc" | "ctr" | "roas";
+type SortState = { key: SortKey; dir: "desc" | "asc" } | null;
+const SORT_KEY = "msgate-ads-sort";
+
+const SORT_COLUMNS: Array<{ key: SortKey; label: string; width: string; from?: "lg" }> = [
+  { key: "budget", label: "Budget/j", width: COL.budget, from: "lg" },
+  { key: "spend", label: "Dépense", width: COL.spend },
+  { key: "purchases", label: "Achats", width: COL.purchases },
+  { key: "cpc", label: "CPC", width: COL.cpc },
+  { key: "ctr", label: "CTR", width: COL.ctr },
+  { key: "roas", label: "ROAS", width: COL.roas },
+];
+
+function readSort(): SortState {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SORT_KEY) ?? "null");
+    return raw && SORT_COLUMNS.some((column) => column.key === raw.key) && (raw.dir === "desc" || raw.dir === "asc") ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function sortValue(node: { metrics: Metrics; dailyBudget?: number | null }, key: SortKey) {
+  if (key === "budget") return node.dailyBudget || node.metrics.spend;
+  return node.metrics[key];
+}
+
+/** Trie des lignes sur la colonne choisie ; les cases vides (0) restent en bas dans les deux sens. */
+function sortRows<T extends { metrics: Metrics; dailyBudget?: number | null }>(rows: T[], sort: SortState): T[] {
+  if (!sort) return rows;
+  return [...rows].sort((a, b) => {
+    const va = sortValue(a, sort.key);
+    const vb = sortValue(b, sort.key);
+    if (!va || !vb) return (vb ? 1 : 0) - (va ? 1 : 0);
+    return sort.dir === "desc" ? vb - va : va - vb;
+  });
+}
+
+/** Les créas d'un ad set : les actives d'abord, les off tout en bas ; chaque groupe suit le tri choisi (dépense par défaut). */
+function orderAds(ads: AdNode[], sort: SortState): AdNode[] {
+  const sorted = sortRows(ads, sort ?? { key: "spend", dir: "desc" });
+  return [...sorted.filter((ad) => ad.status === "ACTIVE"), ...sorted.filter((ad) => ad.status !== "ACTIVE")];
+}
+
+function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (key: SortKey) => void }) {
   return (
     <div className="flex items-center gap-2 border-b border-slate-900/[0.06] bg-slate-50/60 px-2.5 py-1.5 dark:border-white/[0.06] dark:bg-slate-800/30">
       <span className="min-w-0 flex-1" />
       <div className="ml-auto flex shrink-0 items-center gap-2 text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-        <span className={cn("hidden shrink-0 text-right lg:block", COL.budget)}>Budget/j</span>
-        <span className={cn("shrink-0 text-right", COL.spend)}>Dépense</span>
-        <span className={cn("shrink-0 text-right", COL.purchases)}>Achats</span>
-        <span className={cn("shrink-0 text-right", COL.cpc)}>CPC</span>
-        <span className={cn("shrink-0 text-right", COL.ctr)}>CTR</span>
-        <span className={cn("shrink-0 text-right", COL.roas)}>ROAS</span>
+        {SORT_COLUMNS.map((column) => {
+          const active = sort?.key === column.key;
+          return (
+            <button
+              key={column.key}
+              type="button"
+              onClick={() => onSort(column.key)}
+              title={active ? (sort?.dir === "desc" ? "Du plus grand au plus petit · cliquer pour inverser" : "Du plus petit au plus grand · cliquer pour retirer le tri") : "Trier du plus grand au plus petit"}
+              className={cn(
+                "shrink-0 items-center justify-end gap-0.5 text-right uppercase hover:text-emerald-800 dark:hover:text-emerald-200",
+                column.width,
+                column.from === "lg" ? "hidden lg:flex" : "flex",
+                active && "text-emerald-800 underline underline-offset-2 dark:text-emerald-200"
+              )}
+            >
+              {column.label}
+              {active ? <span aria-hidden>{sort?.dir === "desc" ? "▼" : "▲"}</span> : null}
+            </button>
+          );
+        })}
         <span className={cn("shrink-0", COL.actions)} />
       </div>
     </div>
@@ -753,6 +815,21 @@ export default function AdsPage() {
   const [chosenPhaseTab, setPhaseTab] = useState<PhaseTab | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  // Tri par colonne : 1er clic = du plus grand au plus petit, 2e = l'inverse, 3e = ordre de Meta. Gardé sur cet appareil.
+  const [sort, setSort] = useState<SortState>(null);
+  useEffect(() => {
+    const saved = readSort();
+    if (saved) setTimeout(() => setSort(saved), 0);
+  }, []);
+  const changeSort = (key: SortKey) => {
+    const next: SortState = sort?.key !== key ? { key, dir: "desc" } : sort.dir === "desc" ? { key, dir: "asc" } : null;
+    setSort(next);
+    try {
+      localStorage.setItem(SORT_KEY, JSON.stringify(next));
+    } catch {
+      // stockage indisponible : le tri vaut pour cette visite
+    }
+  };
   const [panelAd, setPanelAd] = useState<string | null>(null);
   // Sans useMemo : le contexte Hermes compare une version sérialisée, et le compilateur React mémoïse lui-même.
   const hermesAd = (() => {
@@ -1763,10 +1840,10 @@ export default function AdsPage() {
                             </span>
                           </span>
                         </div>
-                        <ColumnHeader />
-                        {sortAccounts(group.accounts).flatMap((account) => [
+                        <ColumnHeader sort={sort} onSort={changeSort} />
+                        {sortAccounts(group.accounts, sort).flatMap((account) => [
                           <AccountHeader key={`acc-${account.accountId}`} account={account} />,
-                          ...account.campaigns.map((campaign) => (
+                          ...sortRows(account.campaigns, sort).map((campaign) => (
                             <CampaignRow
                               key={campaign.id}
                               campaign={campaign}
@@ -1782,6 +1859,7 @@ export default function AdsPage() {
                               deadAdIds={deadAdIds}
                               deadCampaignIds={deadCampaignIds}
                               onHideAd={hideAd}
+                              sort={sort}
                             />
                           )),
                         ])}
@@ -1801,10 +1879,10 @@ export default function AdsPage() {
                         <div className="border-b border-slate-900/[0.05] px-2.5 py-1 text-[11px] font-semibold dark:border-white/[0.05]">
                           {BUCKET_LABELS.other} ({group.campaignCount})
                         </div>
-                        <ColumnHeader />
-                        {sortAccounts(group.accounts).flatMap((account) => [
+                        <ColumnHeader sort={sort} onSort={changeSort} />
+                        {sortAccounts(group.accounts, sort).flatMap((account) => [
                           <AccountHeader key={`acc-${account.accountId}`} account={account} />,
-                          ...account.campaigns.map((campaign) => (
+                          ...sortRows(account.campaigns, sort).map((campaign) => (
                             <CampaignRow
                               key={campaign.id}
                               campaign={campaign}
@@ -1820,6 +1898,7 @@ export default function AdsPage() {
                               deadAdIds={deadAdIds}
                               deadCampaignIds={deadCampaignIds}
                               onHideAd={hideAd}
+                              sort={sort}
                             />
                           )),
                         ])}
@@ -1857,6 +1936,7 @@ type RowShared = {
   hsAdIds: Set<string>;
   deadAdIds: Set<string>;
   deadCampaignIds: Set<string>;
+  sort: SortState;
 };
 
 /** Renomme une campagne, un ad set ou une pub, après saisie du nouveau nom. */
@@ -1988,7 +2068,7 @@ function CampaignRow({
       </HoverRow>
 
       {isOpen
-        ? campaign.adsets.map((adset) => (
+        ? sortRows(campaign.adsets, shared.sort).map((adset) => (
             <AdsetRow
               key={adset.id}
               adset={adset}
@@ -2002,9 +2082,10 @@ function CampaignRow({
   );
 }
 
-/** Les comptes d'une phase, le plus dépensier d'abord. */
-function sortAccounts(accounts: AccountNode[]) {
-  return [...accounts].filter((account) => account.campaigns.length).sort((a, b) => b.metrics.spend - a.metrics.spend);
+/** Les comptes d'une phase : selon la colonne triée, sinon le plus dépensier d'abord. */
+function sortAccounts(accounts: AccountNode[], sort: SortState) {
+  const withCampaigns = accounts.filter((account) => account.campaigns.length);
+  return sort ? sortRows(withCampaigns, sort) : withCampaigns.sort((a, b) => b.metrics.spend - a.metrics.spend);
 }
 
 /** Le titre d'un compte pub dans une phase : ses campagnes suivent, jusqu'au compte suivant. */
@@ -2098,7 +2179,7 @@ function AdsetRow({
       </HoverRow>
 
       {isOpen
-        ? adset.ads.map((ad) => <AdRow key={ad.id} ad={ad} {...shared} />)
+        ? orderAds(adset.ads, shared.sort).map((ad) => <AdRow key={ad.id} ad={ad} {...shared} />)
         : null}
     </div>
   );
