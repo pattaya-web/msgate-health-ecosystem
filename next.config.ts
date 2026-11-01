@@ -53,6 +53,13 @@ const nextConfig: NextConfig = {
   experimental: {
     /** Fondu natif entre deux routes via l'API View Transitions du navigateur. */
     viewTransition: true,
+    /**
+     * Le proxy (src/proxy.ts) garde en mémoire le corps des requêtes, 10 Mo par
+     * défaut : au-delà, un envoi au Drive ou au Studio IA plantait en 500 sur le
+     * serveur. 1 Go couvre les vidéos ; les très gros fichiers passent par
+     * l'envoi en morceaux du Studio IA.
+     */
+    proxyClientMaxBodySize: "1gb",
   },
 
   async redirects() {
