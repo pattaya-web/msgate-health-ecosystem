@@ -183,6 +183,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     id: "admin-compta",
     label: "Comptabilité",
     items: [
+      { href: "/tresorerie", label: "Trésorerie", icon: Landmark },
       { href: "/factures", label: "Factures", icon: ReceiptText },
       { href: "/invoices", label: "Facturation", icon: Receipt },
     ],

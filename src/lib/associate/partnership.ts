@@ -32,9 +32,20 @@ export type PartnershipSettings = {
   madyPaysFrom: string | null;
   /** Qui paie chaque compte publicitaire Meta (account_id → partenaire). */
   payers: Record<string, Partner>;
-  /** Les périodes réglées : clé « début_fin » → montant versé et date. */
-  paid: Record<string, { amount: number; at: string }>;
+  /** Les périodes réglées : clé « début_fin » → montant versé, moyen, date du versement. */
+  paid: Record<string, PaidRecord>;
   updatedAt: string;
+};
+
+export type PaidRecord = {
+  amount: number;
+  /** Quand c'est noté dans l'outil. */
+  at: string;
+  /** Virement bancaire, espèces, PayPal… (absent sur les anciens paiements). */
+  method?: string;
+  /** Le jour du versement (YYYY-MM-DD). */
+  date?: string;
+  note?: string;
 };
 
 export type PartnershipPeriod = {
@@ -60,7 +71,7 @@ export type PartnershipPeriod = {
   payV2: number;
   /** Ce que Mady verse à Alison pour la période (selon sa version). Négatif : c'est elle qui doit. */
   owed: number;
-  paid: { amount: number; at: string } | null;
+  paid: PaidRecord | null;
   error: string | null;
 };
 
@@ -125,7 +136,7 @@ export type PartnershipPatch = {
   madyPaysFrom?: unknown;
   payers?: unknown;
   /** Marquer une période payée (avec le montant versé) ou la rouvrir. */
-  markPaid?: { key?: unknown; amount?: unknown; paid?: unknown };
+  markPaid?: { key?: unknown; amount?: unknown; paid?: unknown; method?: unknown; date?: unknown; note?: unknown };
 };
 
 /** L'associée ne règle que son rythme de paiement ; le reste est à l'admin. */
@@ -147,7 +158,15 @@ export async function updatePartnership(patch: PartnershipPatch, role: "admin" |
       if (mark.paid === false) delete next.paid[mark.key];
       else {
         const amount = Number(mark.amount);
-        next.paid[mark.key] = { amount: Number.isFinite(amount) ? round2(amount) : 0, at: new Date().toISOString() };
+        const method = typeof mark.method === "string" ? mark.method.trim().slice(0, 40) : "";
+        const note = typeof mark.note === "string" ? mark.note.trim().slice(0, 200) : "";
+        next.paid[mark.key] = {
+          amount: Number.isFinite(amount) ? round2(amount) : 0,
+          at: new Date().toISOString(),
+          ...(method ? { method } : {}),
+          ...(isDay(mark.date) ? { date: mark.date } : {}),
+          ...(note ? { note } : {}),
+        };
       }
     }
   }
