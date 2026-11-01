@@ -43,7 +43,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 import { TzBadge } from "@/components/phoenix/source-clocks";
 import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
-import { HS_ROAS_MIN, HS_SPEND_MIN, collectAdsAlerts } from "@/components/ads/alerts-rail";
+import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type PromoTarget } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
@@ -513,7 +513,7 @@ const shortDay = (date: string) => {
   return text.charAt(0).toUpperCase() + text.slice(1);
 };
 
-function HsBadge({ adId, metrics }: { adId: string; metrics: Metrics }) {
+function HsBadge({ adId, metrics, target }: { adId: string; metrics: Metrics; target: PromoTarget }) {
   const [open, setOpen] = useState(false);
   const [days, setDays] = useState<DayStat[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -557,18 +557,26 @@ function HsBadge({ adId, metrics }: { adId: string; metrics: Metrics }) {
           if (open) setOpen(false);
           else load();
         }}
-        className="rounded-md bg-emerald-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white"
+        className={cn(
+          "rounded-md px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white",
+          target === "hyper" ? "bg-emerald-600" : "bg-sky-600"
+        )}
       >
-        Promo HS
+        {PROMO_LABEL[target]}
       </button>
       {open ? (
         <span
           onClick={(event) => event.stopPropagation()}
           className="absolute left-0 top-full z-40 mt-1 block w-[22rem] max-w-[calc(100vw-2rem)] rounded-xl bg-white p-3 text-[11px] text-slate-700 shadow-xl ring-1 ring-slate-900/10 dark:bg-slate-900 dark:text-slate-200 dark:ring-white/10"
         >
-          <span className="mb-1.5 block font-semibold text-slate-900 dark:text-slate-50">Avant de passer en HS : la créa jour par jour</span>
+          <span className="mb-1.5 block font-semibold text-slate-900 dark:text-slate-50">
+            {target === "hyper" ? "Avant de passer en Hyper (Ultra)" : "Avant de passer en Scaling / Testing"} : la créa jour par jour
+          </span>
           <span className="mb-2 block text-[10px] text-slate-500">
-            HS proposé dès {money(HS_SPEND_MIN)} dépensés et un ROAS ≥ {HS_ROAS_MIN} sur la période affichée (ici {money(metrics.spend)}, ROAS {metrics.roas.toFixed(2)}). Vérifie que ça tient sur 3 jours.
+            {target === "hyper"
+              ? `Scaling / Testing → Hyper si la créa tient un ROAS de ${PROMO_ROAS_MIN.hyper.toFixed(2)} ou plus`
+              : `Testing → Scaling / Testing dès un ROAS de ${PROMO_ROAS_MIN.scaling.toFixed(2)}`}{" "}
+            (au moins {money(HS_SPEND_MIN)} dépensés). Sur la période affichée : {money(metrics.spend)}, ROAS {metrics.roas.toFixed(2)}. Vérifie que ça tient sur 3 jours.
           </span>
           {failed ? (
             <span className="block text-rose-600">Stats Meta indisponibles, réessaie.</span>
@@ -1396,7 +1404,7 @@ export default function AdsPage() {
   const shopifyRoas = metaSpend > 0 && shopify ? shopifyRevenue / metaSpend : 0;
 
   const adsAlerts = useMemo(() => collectAdsAlerts(groups), [groups]);
-  const hsAdIds = useMemo(() => new Set(adsAlerts.hs.map((item) => item.adId)), [adsAlerts]);
+  const hsAdIds = useMemo(() => new Map(adsAlerts.hs.map((item) => [item.adId, item.target] as const)), [adsAlerts]);
   const deadAdIds = useMemo(() => new Set(adsAlerts.dead.map((item) => item.adId)), [adsAlerts]);
   const deadCampaignIds = useMemo(() => {
     const ids = new Set<string>();
@@ -2051,7 +2059,7 @@ type RowShared = {
   onAdDownload: (ad: AdNode) => Promise<void>;
   onOpenAd: (id: string) => void;
   onHideAd: (id: string) => void;
-  hsAdIds: Set<string>;
+  hsAdIds: Map<string, PromoTarget>;
   deadAdIds: Set<string>;
   deadCampaignIds: Set<string>;
   sort: SortState;
@@ -2076,7 +2084,7 @@ function RenameChip({ onClick }: { onClick: () => void }) {
 
 function countAlertsInCampaign(
   campaign: CampaignNode,
-  hsAdIds: Set<string>,
+  hsAdIds: Map<string, PromoTarget>,
   deadAdIds: Set<string>
 ) {
   let hs = 0;
@@ -2141,7 +2149,7 @@ function CampaignRow({
             </span>
             {alerts.hs ? (
               <span className="shrink-0 rounded bg-emerald-600/90 px-1 py-px text-[7px] font-bold uppercase tracking-wide text-white">
-                {alerts.hs} HS
+                {alerts.hs} promo
               </span>
             ) : null}
             {alerts.dead ? (
@@ -2305,7 +2313,7 @@ function AdsetRow({
 
 function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
   const dead = shared.deadAdIds.has(ad.id);
-  const hs = shared.hsAdIds.has(ad.id);
+  const hs = shared.hsAdIds.get(ad.id);
   const paused = ad.status !== "ACTIVE";
   const m = ad.metrics;
 
@@ -2362,7 +2370,7 @@ function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
               Off
             </span>
           ) : null}
-          {hs && !paused ? <HsBadge adId={ad.id} metrics={m} /> : null}
+          {hs && !paused ? <HsBadge adId={ad.id} metrics={m} target={hs} /> : null}
           {dead ? (
             <span
               title={`Spend sans vente · ${formatCurrency(m.spend)} · CPC ${m.cpc.toFixed(2)}`}
@@ -2381,12 +2389,7 @@ function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
           busy={shared.busy[`dl-${ad.id}`]}
           onOpen={() => shared.onOpenAd(ad.id)}
           onDownload={() => void shared.onAdDownload(ad)}
-          onHide={() => shared.onHideAd(ad.id)}
           onRename={() => askRename(shared, "ad", ad.id, ad.name)}
-          onArchive={() => {
-            if (!window.confirm(`Retirer « ${ad.name} » ? La pub est archivée sur Meta : elle ne diffuse plus et sort de la liste.`)) return;
-            void shared.onWrite("ad", ad.id, { status: "ARCHIVED" }, "Pub retirée");
-          }}
         />
       </div>
       <MetricsRail metrics={ad.metrics} />

@@ -18,16 +18,24 @@ export type CreativeAlert = {
   roas: number;
   cpc: number;
   purchases: number;
+  /** Où la pousser : de Testing vers Scaling / Testing, ou de Scaling / Testing vers Hyper (Ultra). */
+  target: PromoTarget;
 };
+
+export type PromoTarget = "scaling" | "hyper";
 
 export type AdsAlerts = {
   hs: CreativeAlert[];
   dead: CreativeAlert[];
 };
 
-/** Scaling / Testing créa ready to push to Hyper-scaling. */
+/**
+ * Règles de Mady : une créa de Testing passe en Scaling / Testing dès 1,8 de ROAS ;
+ * une créa de Scaling / Testing passe en Hyper (Ultra) si elle tient 2,0 de ROAS ou plus.
+ */
 export const HS_SPEND_MIN = 50;
-export const HS_ROAS_MIN = 1.5;
+export const PROMO_ROAS_MIN: Record<PromoTarget, number> = { scaling: 1.8, hyper: 2 };
+export const PROMO_LABEL: Record<PromoTarget, string> = { scaling: "Passer en Scaling", hyper: "Promo HS" };
 
 /** Créa burning budget with no purchase. */
 export const DEAD_SPEND_MIN = 40;
@@ -225,12 +233,13 @@ export function collectAdsAlerts(
               roas: m.roas,
               cpc: m.cpc,
               purchases: m.purchases,
+              target: group.bucket === "testing" ? "scaling" : "hyper",
             };
 
             if (
               (group.bucket === "scaling" || group.bucket === "testing") &&
               m.spend >= HS_SPEND_MIN &&
-              m.roas >= HS_ROAS_MIN &&
+              m.roas >= PROMO_ROAS_MIN[base.target] &&
               !seenHs.has(ad.id)
             ) {
               seenHs.add(ad.id);

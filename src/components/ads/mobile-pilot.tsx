@@ -481,7 +481,6 @@ function AdsetSheet({
             onWrite={onWrite}
             onOpen={onOpenAd}
             onZip={onZip}
-            onHide={onHideAd}
           />
         ))
       ) : (
