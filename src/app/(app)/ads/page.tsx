@@ -45,7 +45,7 @@ import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
 import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type PromoTarget } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
-import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative } from "@/components/ads/bits";
+import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
 
 /* ------------------------------------------------------------------ *
@@ -1012,6 +1012,7 @@ export default function AdsPage() {
           if (last) {
             shownOnce.current = true;
             setTree(applyPending(last.tree));
+            setBudgetFx(last.fx ?? {});
             setFx(last.fx ?? {});
             setLoading(false);
           }
@@ -1026,6 +1027,7 @@ export default function AdsPage() {
         if (cancelled) return;
         if (!res.ok) throw new Error(body.error || "Synchronisation impossible");
         shownOnce.current = true;
+        setBudgetFx((body as { fx?: Record<string, number> }).fx ?? {});
         setTree(applyPending(body as AdsTree));
         setFx((body as { fx?: Record<string, number> }).fx ?? {});
         writeLastTree(lastKey, body as AdsTree, (body as { fx?: Record<string, number> }).fx ?? {});

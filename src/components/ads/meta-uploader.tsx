@@ -566,10 +566,12 @@ export function MetaUploader() {
             <span className={cn("font-medium", postIds.length ? "text-emerald-700" : "text-rose-600")}>
               {postIds.length ? `${postIds.length} post${postIds.length > 1 ? "s" : ""} reconnu${postIds.length > 1 ? "s" : ""}` : "Aucun Post ID reconnu"}
             </span>
+          </div>
+        ) : null}
+        {postIds.length ? (
+          <div className="mt-2 flex gap-3 overflow-x-auto pb-2">
             {postIds.map((id) => (
-              <code key={id} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-600">
-                {id}
-              </code>
+              <PostPreview key={`${accountId}-${id}`} accountId={accountId} postId={id} onRemove={() => setPostText((text) => removePostId(text, id))} />
             ))}
           </div>
         ) : null}
@@ -951,6 +953,89 @@ export function MetaUploader() {
       >
         {busy === "create" ? "Creating ads…" : "Create Ads"}
       </button>
+    </div>
+  );
+}
+
+/** Retire un Post ID du champ (toutes les écritures qui y mènent : ID nu, ID complet ou lien). */
+function removePostId(text: string, id: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .split(/([\s,;]+)/)
+        .filter((token) => !parsePostIds(token).includes(id))
+        .join("")
+        .trim()
+    )
+    .filter(Boolean)
+    .join("\n");
+}
+
+type PreviewState = { status: "loading" } | { status: "ok"; src: string; storyId: string } | { status: "error"; message: string };
+
+/** Les aperçus déjà demandés (compte + post), pour ne pas rappeler Meta à chaque frappe. */
+const postPreviews = new Map<string, Promise<PreviewState>>();
+
+function loadPostPreview(accountId: string, postId: string): Promise<PreviewState> {
+  const key = `${accountId}|${postId}`;
+  const known = postPreviews.get(key);
+  if (known) return known;
+  const promise = fetch(`/api/meta/upload?accountId=${encodeURIComponent(accountId)}&postId=${encodeURIComponent(postId)}`)
+    .then(async (res) => {
+      const body = (await res.json()) as { preview?: { src: string; storyId: string }; error?: string };
+      if (!res.ok || !body.preview) return { status: "error", message: body.error || "Aperçu indisponible" } as PreviewState;
+      return { status: "ok", ...body.preview } as PreviewState;
+    })
+    .catch(() => {
+      postPreviews.delete(key);
+      return { status: "error", message: "Meta ne répond pas, réessaie." } as PreviewState;
+    });
+  postPreviews.set(key, promise);
+  return promise;
+}
+
+/** L'aperçu Meta d'un Post ID collé : la pub telle qu'elle sortira, pour vérifier que c'est le bon post. */
+function PostPreview({ accountId, postId, onRemove }: { accountId: string; postId: string; onRemove: () => void }) {
+  const [state, setState] = useState<PreviewState>({ status: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountId) return;
+    void loadPostPreview(accountId, postId).then((next) => {
+      if (!cancelled) setState(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, postId]);
+
+  return (
+    <div className="relative w-[340px] shrink-0 overflow-hidden rounded-xl bg-slate-50 ring-1 ring-slate-200">
+      <div className="flex items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5">
+        <span
+          className={cn(
+            "h-2 w-2 shrink-0 rounded-full",
+            state.status === "ok" ? "bg-emerald-500" : state.status === "error" ? "bg-rose-500" : "animate-pulse bg-slate-300"
+          )}
+        />
+        <code className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-600" title={postId}>
+          {postId}
+        </code>
+        <button type="button" title="Retirer ce post" onClick={onRemove} className="grid h-5 w-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      {!accountId ? (
+        <p className="px-3 py-10 text-center text-[12px] text-slate-500">Choisis d’abord le compte pub.</p>
+      ) : state.status === "loading" ? (
+        <p className="flex items-center justify-center gap-1.5 px-3 py-10 text-[12px] text-slate-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Aperçu Meta…
+        </p>
+      ) : state.status === "error" ? (
+        <p className="px-3 py-8 text-center text-[12px] text-rose-600">{state.message}</p>
+      ) : (
+        <iframe src={state.src} title={`Aperçu ${postId}`} className="h-[560px] w-full border-0 bg-white" scrolling="no" loading="lazy" />
+      )}
     </div>
   );
 }

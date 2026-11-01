@@ -548,6 +548,34 @@ export async function readAdCopy(adId: string) {
   };
 }
 
+/**
+ * L'aperçu Meta d'une publication existante (Post ID), tel qu'il sortira en
+ * pub dans le fil mobile : de quoi vérifier qu'on a collé le bon post avant
+ * de créer quoi que ce soit. Lecture seule — Meta renvoie un lien d'iframe.
+ */
+export async function previewPost(accountId: string, postId: string) {
+  const id = postId.trim();
+  if (!/^\d+(_\d+)?$/.test(id)) throw new Error("Post ID illisible");
+  const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  const token = await resolveToken(act);
+  let storyId = id;
+  if (!id.includes("_")) {
+    const pages = await graphGet<GraphError & { data?: Array<{ id: string }> }>(`${act}/promote_pages?fields=id&limit=1`, token);
+    const pageId = pages.data?.[0]?.id;
+    if (!pageId) throw new Error("Page Facebook du compte introuvable : colle le Post ID complet (idPage_idPost).");
+    storyId = `${pageId}_${id}`;
+  }
+  const creative = encodeURIComponent(JSON.stringify({ object_story_id: storyId }));
+  const body = await graphGet<GraphError & { data?: Array<{ body?: string }> }>(
+    `${act}/generatepreviews?ad_format=MOBILE_FEED_STANDARD&creative=${creative}`,
+    token
+  );
+  if (body.error) throw new Error(`Post introuvable pour ce compte pub : vérifie le Post ID (Meta : ${metaMessage(body.error)})`);
+  const src = body.data?.[0]?.body?.match(/src="([^"]+)"/)?.[1]?.replaceAll("&amp;", "&");
+  if (!src || !/^https:\/\/[^/]*facebook\.com\//.test(src)) throw new Error("Meta n'a pas renvoyé d'aperçu pour ce post.");
+  return { storyId, src };
+}
+
 function chunk<T>(items: T[], size: number) {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));

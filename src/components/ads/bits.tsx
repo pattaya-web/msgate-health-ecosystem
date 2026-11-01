@@ -13,6 +13,40 @@ import { copyText } from "@/components/ads/creative-panel";
 /** Meta spend ladder — dollars (user listed € amounts, applied as $). */
 export const BUDGET_STEPS = [50, 75, 120, 150, 210, 270, 330, 390, 450, 550] as const;
 
+/*
+ * Les budgets s'affichent et se choisissent en dollars. Les comptes pub de
+ * Mady sont en euros chez Meta : on convertit au taux du jour pour l'affichage
+ * et on reconvertit en devise du compte avant d'écrire chez Meta.
+ */
+const FX_KEY = "msgate-budget-fx";
+let budgetFx: Record<string, number> | null = null;
+
+/** Les taux devise → dollar reçus avec l'arbre Meta (gardés pour la visite suivante). */
+export function setBudgetFx(fx: Record<string, number>) {
+  if (!Object.keys(fx).length) return;
+  budgetFx = fx;
+  try {
+    localStorage.setItem(FX_KEY, JSON.stringify(fx));
+  } catch {
+    // stockage refusé : le taux reste en mémoire
+  }
+}
+
+/** Taux devise du compte → dollar ; null quand on ne le connaît pas encore. */
+function rateToUsd(currency: string): number | null {
+  const code = (currency || "USD").toUpperCase();
+  if (code === "USD") return 1;
+  if (!budgetFx) {
+    try {
+      budgetFx = JSON.parse(localStorage.getItem(FX_KEY) || "null") as Record<string, number> | null;
+    } catch {
+      budgetFx = null;
+    }
+  }
+  const rate = budgetFx?.[code];
+  return rate && rate > 0 ? rate : null;
+}
+
 /** Short display name — click copies the full créa name. */
 export function CreativeName({
   name,
@@ -301,8 +335,12 @@ export function BudgetCell({
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; w: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const symbol = currency === "EUR" ? "€" : "$";
-  const label = value > 0 ? `${symbol}${Math.round(value)}` : "—";
+  // En dollars dès que le taux est connu ; sinon dans la devise du compte, sans conversion.
+  const rate = rateToUsd(currency);
+  const shown = rate ? value * rate : value;
+  const symbol = rate ? "$" : currency === "EUR" ? "€" : `${currency} `;
+  const label = value > 0 ? `${symbol}${Math.round(shown)}` : "—";
+  const native = rate && rate !== 1 ? ` (${Math.round(value * 100) / 100} ${currency} chez Meta)` : "";
   const quiet = tone === "quiet";
 
   useEffect(() => {
@@ -337,12 +375,13 @@ export function BudgetCell({
   };
 
   const pick = async (next: number) => {
-    if (next === value) {
+    if (next === Math.round(shown)) {
       setOpen(false);
       return;
     }
     setSaving(true);
-    await onSave(next);
+    // Le palier choisi en dollars, écrit chez Meta dans la devise du compte.
+    await onSave(rate ? Math.round((next / rate) * 100) / 100 : next);
     setSaving(false);
     setOpen(false);
   };
@@ -357,7 +396,7 @@ export function BudgetCell({
             : "inline-flex h-6 items-center rounded-md px-1.5 text-[11px] font-medium text-emerald-700/50 ring-1 ring-emerald-400/25 dark:text-emerald-400/40 dark:ring-emerald-400/20",
           className
         )}
-        title="Budget géré au niveau campagne (CBO)"
+        title={`Budget géré au niveau campagne (CBO)${native}`}
       >
         {label}
       </span>
@@ -370,7 +409,7 @@ export function BudgetCell({
         ref={btnRef}
         type="button"
         disabled={saving}
-        title="Ajuster le budget / jour"
+        title={`Ajuster le budget / jour${native}`}
         onClick={(event) => {
           event.stopPropagation();
           if (open) {
@@ -405,11 +444,12 @@ export function BudgetCell({
               onClick={(event) => event.stopPropagation()}
             >
               <p className="border-b border-slate-900/[0.06] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-white/[0.06] dark:text-emerald-300">
-                Budget / jour · $
+                Budget / jour · {symbol.trim()}
+                {native ? <span className="ml-1 font-normal normal-case text-slate-400">converti en {currency} pour Meta</span> : null}
               </p>
               <div className="grid grid-cols-2 gap-1 p-1.5">
                 {BUDGET_STEPS.map((step) => {
-                  const active = Math.round(value) === step;
+                  const active = Math.round(shown) === step;
                   return (
                     <button
                       key={step}
@@ -425,7 +465,8 @@ export function BudgetCell({
                           : "text-emerald-800 hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
                       )}
                     >
-                      ${step}
+                      {symbol}
+                      {step}
                     </button>
                   );
                 })}

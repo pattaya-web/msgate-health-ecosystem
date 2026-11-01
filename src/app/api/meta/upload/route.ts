@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
-import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, readAdCopy } from "@/lib/meta/uploader";
+import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy } from "@/lib/meta/uploader";
 import { OutOfScopeError, assertAccountInScope, assertObjectsInScope, associateAccountsFor } from "@/lib/associate/meta-access";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,17 @@ export async function GET(request: Request) {
     if (adId) {
       if (scoped) await assertObjectsInScope([adId], scoped);
       return NextResponse.json({ copy: await readAdCopy(adId) });
+    }
+    // ?postId=&accountId= : l'aperçu Meta d'une publication existante, avant d'en faire une pub.
+    const postId = params.get("postId")?.trim();
+    if (postId) {
+      if (!accountId) return NextResponse.json({ error: "Choisis d'abord un compte" }, { status: 400 });
+      if (scoped) assertAccountInScope(accountId, scoped);
+      try {
+        return NextResponse.json({ preview: await previewPost(accountId, postId) });
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Aperçu indisponible" }, { status: 404 });
+      }
     }
     if (!accountId) {
       const accounts = await listUploadAccounts();
