@@ -92,7 +92,9 @@ export async function fastScopedSpend(params: { start: string; end: string; acco
   const key = `${params.start}:${params.end}:${params.accountIds.join(",")}:${params.keyword}`;
   const hit = state.spend.get(key);
   if (!params.force && hit && Date.now() - hit.at < SPEND_TTL_MS) return hit.rows;
-  const { list, apiVersion, errors } = await knownAccounts();
+  let { list, apiVersion, errors } = await knownAccounts();
+  // Un compte du périmètre absent de la liste gardée : on la relit tout de suite (jeton débloqué entre-temps…).
+  if (params.accountIds.some((id) => !list.some((account) => account.accountId === id))) ({ list, apiVersion, errors } = await knownAccounts(true));
   const keyword = params.keyword.trim().toLowerCase();
   const picked = list.filter((account) => params.accountIds.includes(account.accountId) || (keyword && account.name.toLowerCase().includes(keyword)));
   // Un compte du périmètre qu'aucun jeton n'ouvre plus (jeton bloqué ou expiré chez Meta) : on le dit, plutôt qu'afficher 0 $.

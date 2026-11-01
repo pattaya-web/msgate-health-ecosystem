@@ -334,29 +334,55 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
       const images = media.kind === "image" && media.hash ? [{ hash: media.hash }] : [];
       const videos = media.kind === "video" && media.videoId ? [{ video_id: media.videoId }] : [];
       const featureSpec = enroll(input.enhancements);
-      const creativeBody: Record<string, unknown> = {
-        name: `${name} · creative`,
-        object_story_spec: {
-          page_id: pageId,
-          ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
-          // Comme le Gestionnaire Meta : le lien (et l'image) dans la publication elle-même, sinon « Le champ link est requis ».
-          ...(media.kind === "image" && media.hash ? { link_data: { link: website, image_hash: media.hash, call_to_action: { type: cta } } } : {}),
-        },
-        asset_feed_spec: {
-          ad_formats: [media.kind === "video" ? "SINGLE_VIDEO" : "SINGLE_IMAGE"],
-          ...(images.length ? { images } : {}),
-          ...(videos.length ? { videos } : {}),
-          titles: (headlines.length ? headlines : [fileStem(media.fileName)]).map((text) => ({ text })),
-          bodies: (bodies.length ? bodies : [" "]).map((text) => ({ text })),
-          ...(descriptions.length ? { descriptions: descriptions.map((text) => ({ text })) } : {}),
-          call_to_action_types: [cta],
-          link_urls: [{ website_url: website, ...(input.displayUrl ? { display_url: input.displayUrl } : {}) }],
-          // Hors créa dynamique, Meta exige ce mode pour plusieurs titres / textes sur une même pub.
-          ...(targetDynamic ? {} : { optimization_type: "DEGREES_OF_FREEDOM" }),
-        },
-        ...(Object.keys(featureSpec).length ? { degrees_of_freedom_spec: { creative_features_spec: featureSpec } } : {}),
-        ...(input.aiGenerated ? { contextual_multi_ads: { enroll_status: "OPT_IN" } } : {}),
-      };
+      const titleList = headlines.length ? headlines : [fileStem(media.fileName)];
+      const bodyList = bodies.length ? bodies : [" "];
+      /*
+       * Plusieurs titres / textes / descriptions : le mode « degrés de liberté »
+       * (asset_feed_spec), comme le Gestionnaire Meta. Un seul de chaque :
+       * Meta refuse ce mode (« au moins un champ doit avoir plus d'une
+       * ressource »), on fait alors une créa classique (link_data).
+       */
+      const multiText = titleList.length > 1 || bodyList.length > 1 || descriptions.length > 1;
+      const simpleImage = media.kind === "image" && media.hash && !multiText && !targetDynamic;
+      const creativeBody: Record<string, unknown> = simpleImage
+        ? {
+            name: `${name} · creative`,
+            object_story_spec: {
+              page_id: pageId,
+              ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
+              link_data: {
+                link: website,
+                image_hash: media.hash,
+                message: bodyList[0].trim(),
+                name: titleList[0],
+                ...(descriptions[0] ? { description: descriptions[0] } : {}),
+                call_to_action: { type: cta, value: { link: website } },
+              },
+            },
+          }
+        : {
+            name: `${name} · creative`,
+            object_story_spec: {
+              page_id: pageId,
+              ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
+              // Comme le Gestionnaire Meta : le lien (et l'image) dans la publication elle-même, sinon « Le champ link est requis ».
+              ...(media.kind === "image" && media.hash ? { link_data: { link: website, image_hash: media.hash, call_to_action: { type: cta } } } : {}),
+            },
+            asset_feed_spec: {
+              ad_formats: [media.kind === "video" ? "SINGLE_VIDEO" : "SINGLE_IMAGE"],
+              ...(images.length ? { images } : {}),
+              ...(videos.length ? { videos } : {}),
+              titles: titleList.map((text) => ({ text })),
+              bodies: bodyList.map((text) => ({ text })),
+              ...(descriptions.length ? { descriptions: descriptions.map((text) => ({ text })) } : {}),
+              call_to_action_types: [cta],
+              link_urls: [{ website_url: website, ...(input.displayUrl ? { display_url: input.displayUrl } : {}) }],
+              // Hors créa dynamique, Meta exige ce mode pour plusieurs titres / textes sur une même pub.
+              ...(targetDynamic || !multiText ? {} : { optimization_type: "DEGREES_OF_FREEDOM" }),
+            },
+          };
+      if (Object.keys(featureSpec).length) creativeBody.degrees_of_freedom_spec = { creative_features_spec: featureSpec };
+      if (input.aiGenerated) creativeBody.contextual_multi_ads = { enroll_status: "OPT_IN" };
 
       let creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
       if (creative.error && creativeBody.degrees_of_freedom_spec) {
