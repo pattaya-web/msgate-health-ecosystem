@@ -1,0 +1,18 @@
+# Ce qui ne part jamais dans l'image : dépendances et builds locaux, données du PC (elles vivent sur le disque du serveur), secrets.
+node_modules
+.next
+out
+.git
+.cache
+.vercel
+.claude
+data
+.msgate-cache
+.phoenix-cache
+docs
+*.log
+*.mp4
+*.mov
+.env
+.env.*
+tsconfig.tsbuildinfo

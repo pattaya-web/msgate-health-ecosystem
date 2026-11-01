@@ -34,6 +34,9 @@ function buildId(): string {
 }
 
 const nextConfig: NextConfig = {
+  /** Serveur autonome pour l'image Docker du VPS (Coolify) ; sans effet sur Vercel. */
+  output: "standalone",
+
   env: {
     NEXT_PUBLIC_APP_ENV: appEnv(),
     NEXT_PUBLIC_COMMIT_SHA: commitSha(),
