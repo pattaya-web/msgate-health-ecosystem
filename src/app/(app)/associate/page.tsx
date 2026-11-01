@@ -149,7 +149,7 @@ function AdminSubscribersApproval({ admin, loading }: { admin: AdminSales | null
       <div className="rounded-2xl px-3 py-2.5" style={{ background: "var(--r-accent-soft)" }}>
         <p className="r-label flex items-center gap-1">
           <CreditCard className="h-3 w-3" />
-          Taux d&apos;approbation
+          Taux d&apos;approbation Reign
         </p>
         <p className="mt-1 text-[22px] font-semibold tabular-nums leading-tight" style={{ color: "var(--ink)" }}>
           {approval ? pct(approval.rate) : loading ? "…" : "—"}
@@ -159,7 +159,7 @@ function AdminSubscribersApproval({ admin, loading }: { admin: AdminSales | null
         </p>
       </div>
       <div className="rounded-2xl px-3 py-2.5" style={{ background: "var(--r-accent-soft)" }}>
-        <p className="r-label mb-1.5">Par MID / processeur</p>
+        <p className="r-label mb-1.5">Reign · par MID / processeur</p>
         {admin?.processors.length ? (
           <ul className="space-y-1.5">
             {admin.processors.slice(0, 6).map((row) => (
@@ -179,7 +179,7 @@ function AdminSubscribersApproval({ admin, loading }: { admin: AdminSales | null
             ))}
           </ul>
         ) : (
-          <p className="r-sub">{loading ? "Chargement…" : "Aucune tentative sur la période."}</p>
+          <p className="r-sub">{loading ? "Chargement…" : "Aucune tentative Reign sur la période."}</p>
         )}
       </div>
     </div>

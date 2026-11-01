@@ -88,11 +88,12 @@ export async function buildAdminSales(overview: AssociateOverview): Promise<Admi
         paused: stats.lifetime.pausedSubscriptions,
         cancelled: stats.lifetime.cancelledSubscriptions,
       };
-      const attempts = stats.checkout.processors.reduce((sum, row) => sum + row.attempts, 0);
-      const approved = stats.checkout.processors.reduce((sum, row) => sum + row.approved, 0);
-      approval = { rate: attempts ? (approved / attempts) * 100 : 0, approved, attempts };
-      processors = stats.checkout.processors
-        .filter((row) => row.attempts > 0)
+      // Seulement les MID de Reign : Shopify Payments (vente directe) n'entre pas dans le taux.
+      const reignRows = stats.checkout.processors.filter((row) => row.attempts > 0 && !/shopify/i.test(row.name));
+      const attempts = reignRows.reduce((sum, row) => sum + row.attempts, 0);
+      const approved = reignRows.reduce((sum, row) => sum + row.approved, 0);
+      approval = attempts ? { rate: (approved / attempts) * 100, approved, attempts } : null;
+      processors = reignRows
         .map((row) => ({ name: row.name, attempts: row.attempts, approved: row.approved, approvalRate: row.approvalRate, revenue: round2(row.revenue) }))
         .sort((a, b) => b.attempts - a.attempts);
     }
