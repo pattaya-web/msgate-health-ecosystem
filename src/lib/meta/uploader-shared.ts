@@ -5,6 +5,34 @@ export type PickerCampaign = { id: string; name: string; status: string; objecti
 export type PickerAdset = { id: string; name: string; status: string; campaignId: string; dailyBudget: number };
 export type PickerAd = { id: string; name: string; status: string; adsetId: string; campaignId: string };
 
+/**
+ * Les variables du nom des pubs, comme sur adsuploader.com : on écrit le
+ * modèle (« S {nn} », « {file} · {adset} »…) et chaque pub reçoit son nom.
+ */
+export const AD_NAME_TOKENS = [
+  { token: "{file}", label: "Nom du fichier", example: "venom-girl" },
+  { token: "{nn}", label: "N° du fichier (01, 02…)", example: "01" },
+  { token: "{n}", label: "N° du fichier (1, 2…)", example: "1" },
+  { token: "{adset}", label: "Nom de l'ad set", example: "STATIC 3:4" },
+  { token: "{campaign}", label: "Nom de la campagne", example: "SCALING" },
+  { token: "{date}", label: "Date (JJ-MM)", example: "01-11" },
+] as const;
+
+export function formatAdName(pattern: string, params: { fileName: string; campaign: string; adset: string; index: number; start?: number; date?: Date }) {
+  const number = (params.start && params.start > 0 ? params.start : 1) + params.index;
+  const day = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit" }).format(params.date ?? new Date()).replace("/", "-");
+  const stem = params.fileName.replace(/\.[^.]+$/, "").slice(0, 80);
+  const raw = (pattern || "{file}")
+    .replaceAll("{file}", stem)
+    .replaceAll("{campaign}", params.campaign)
+    .replaceAll("{adset}", params.adset)
+    .replaceAll("{date}", day)
+    .replaceAll("{nn}", String(number).padStart(2, "0"))
+    .replaceAll("{n}", String(number))
+    .trim();
+  return raw.slice(0, 200) || `Ad ${number}`;
+}
+
 export type MediaKind = "image" | "video";
 export type UploadedMedia = { kind: MediaKind; hash?: string; videoId?: string; fileName: string };
 

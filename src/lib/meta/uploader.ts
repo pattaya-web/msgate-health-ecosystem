@@ -3,6 +3,7 @@ import { centsToUnits, graphGet, graphPost, graphPostForm, unitsToCents, type Gr
 import { resolveToken } from "@/lib/meta/token";
 import { invalidateTreeCache } from "@/lib/meta/tree";
 import {
+  formatAdName,
   type PickerAd,
   type PickerAdset,
   type PickerCampaign,
@@ -171,6 +172,8 @@ export type CreateAdsInput = {
   adsetPerUpload: boolean;
   autoDivide: number | null;
   adNamePattern: string;
+  /** Premier numéro pour {n} / {nn} (ex. 6 si l'ad set a déjà S 01 à S 05). */
+  startNumber?: number;
   headlines: string[];
   bodies: string[];
   descriptions: string[];
@@ -211,9 +214,8 @@ function fileStem(name: string) {
   return name.replace(/\.[^.]+$/, "").slice(0, 80);
 }
 
-function adName(pattern: string, fileName: string, campaign: string, adset: string, index: number) {
-  const raw = (pattern || "{file}").replaceAll("{file}", fileStem(fileName)).replaceAll("{campaign}", campaign).replaceAll("{adset}", adset).replaceAll("{n}", String(index + 1));
-  return raw.slice(0, 200) || `Ad ${index + 1}`;
+function adName(pattern: string, fileName: string, campaign: string, adset: string, index: number, start?: number) {
+  return formatAdName(pattern, { fileName, campaign, adset, index, start });
 }
 
 export async function createAdsFromTemplate(input: CreateAdsInput) {
@@ -327,7 +329,7 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
   let index = 0;
   for (let g = 0; g < groups.length; g++) {
     for (const media of groups[g]) {
-      const name = adName(input.adNamePattern, media.fileName, plannedCampaignName, adsetNameOf(g), index);
+      const name = adName(input.adNamePattern, media.fileName, plannedCampaignName, adsetNameOf(g), index, input.startNumber);
       index += 1;
       const images = media.kind === "image" && media.hash ? [{ hash: media.hash }] : [];
       const videos = media.kind === "video" && media.videoId ? [{ video_id: media.videoId }] : [];

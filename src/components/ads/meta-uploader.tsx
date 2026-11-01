@@ -17,6 +17,8 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
+  AD_NAME_TOKENS,
+  formatAdName,
   CAROUSEL_ENHANCEMENTS,
   CTA_OPTIONS,
   IMAGE_ENHANCEMENTS,
@@ -83,7 +85,9 @@ export function MetaUploader() {
   const [productUrl, setProductUrl] = useState("");
   const [enhancements, setEnhancements] = useState<Record<string, boolean>>({});
   const [aiGenerated, setAiGenerated] = useState(false);
-  const [paused, setPaused] = useState(true);
+  // Décochée par défaut : les pubs créées partent en live tout de suite (demande de Mady, 01/11/2026).
+  const [paused, setPaused] = useState(false);
+  const [startNumber, setStartNumber] = useState("1");
   const [busy, setBusy] = useState<string | null>(null);
   const [copyLoaded, setCopyLoaded] = useState(false);
   /** Budget / jour et nom du nouvel ad set, pré-remplis depuis l'ad set modèle. */
@@ -290,6 +294,7 @@ export function MetaUploader() {
           dailyBudget: Number(budget.replace(",", ".")) || null,
           adsetName: newAdsetName.trim() || undefined,
           adNamePattern: useNamePattern ? namePattern : "{file}",
+          startNumber: Math.max(1, Number(startNumber) || 1),
           headlines,
           bodies,
           descriptions,
@@ -591,16 +596,70 @@ export function MetaUploader() {
       <Card title="Ad Name Options">
         <CheckRow label="Use custom ad name pattern" checked={useNamePattern} onChange={setUseNamePattern} />
         {useNamePattern ? (
-          <input
-            value={namePattern}
-            onChange={(e) => setNamePattern(e.target.value)}
-            className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-3 text-[12px]"
-            placeholder="{file} · {adset}"
-          />
+          <div className="mt-2 space-y-2">
+            <div className="flex gap-2">
+              <input
+                value={namePattern}
+                onChange={(e) => setNamePattern(e.target.value)}
+                className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 font-mono text-[13px]"
+                placeholder="S {nn}"
+              />
+              <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-slate-500" title="Premier numéro pour {n} et {nn}">
+                N° de départ
+                <input
+                  inputMode="numeric"
+                  value={startNumber}
+                  onChange={(e) => setStartNumber(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  className="h-10 w-16 rounded-lg border border-slate-200 px-2 text-center text-[13px]"
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {AD_NAME_TOKENS.map((item) => (
+                <button
+                  key={item.token}
+                  type="button"
+                  title={`${item.label} — ex. ${item.example}`}
+                  onClick={() => setNamePattern((current) => `${current}${current && !current.endsWith(" ") ? " " : ""}${item.token}`)}
+                  className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-200"
+                >
+                  <code className="font-mono font-semibold">{item.token}</code>
+                  <span className="text-slate-500">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         ) : null}
       </Card>
       <Card title="Preview">
         <p className="text-[13px] text-slate-600">{preview}</p>
+        {files.length ? (
+          <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100">
+            {files.slice(0, 50).map((file, index) => {
+              const sourceAdset = adsets.find((row) => row.id === adsetId);
+              const sourceCampaign = campaigns.find((row) => row.id === (sourceAdset?.campaignId ?? campaignId));
+              const adsetLabel = createNewAdset || adsetPerUpload ? newAdsetName.trim() || `${sourceAdset?.name ?? "Ad set"} · copy` : sourceAdset?.name ?? "Ad set";
+              const name = formatAdName(useNamePattern ? namePattern : "{file}", {
+                fileName: file.name,
+                campaign: createNewCampaign && sourceCampaign ? `${sourceCampaign.name} · copy` : sourceCampaign?.name ?? "Campaign",
+                adset: adsetLabel,
+                index,
+                start: Math.max(1, Number(startNumber) || 1),
+              });
+              return (
+                <li key={`${file.name}-${index}`} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px]">
+                  <span className="min-w-0 flex-1 truncate text-slate-400" title={file.name}>
+                    {file.name}
+                  </span>
+                  <span className="text-slate-300">→</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold text-slate-800" title={name}>
+                    {name}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
       </Card>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4">
