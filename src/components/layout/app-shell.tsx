@@ -8,7 +8,7 @@ import { GenerationWatcher } from "@/components/layout/generation-watcher";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { NavProgress } from "@/components/layout/nav-progress";
 import { RefreshButton } from "@/components/layout/refresh-button";
-import { Sidebar, currentPage } from "@/components/layout/sidebar";
+import { Sidebar, currentPage, type MenuKind } from "@/components/layout/sidebar";
 import { EnvBadge } from "@/components/layout/env-badge";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { TimezoneClocks } from "@/components/layout/timezone-clocks";
@@ -52,7 +52,7 @@ function initials(name: string | undefined) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAssociate, previewAssociate, setPreviewAssociate } = useAuth();
+  const { user, loading, isAdmin, isAssociate, previewAssociate, setPreviewAssociate } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   // Un associé n'a qu'une page : ailleurs, on le ramène dessus sans rien monter (les autres écrans lui répondraient 403).
@@ -117,12 +117,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <ShellSkeleton />;
   }
 
-  const page = currentPage(pathname ?? "");
+  const menu: MenuKind = isAssociate ? "associate" : isAdmin ? "admin" : "default";
+  const page = currentPage(pathname ?? "", menu);
   const container = wideContent ? "max-w-[100rem]" : "max-w-7xl";
 
   return (
     // Alison (ou l'admin en « Vue Alison ») : la peau rosé, claire ou prune selon le thème.
-    <div className="app-aurora flex min-h-screen" data-skin={isAssociate ? "rose" : undefined}>
+    // L'admin dans sa propre vue : la même peau, en bleu. Les autres rôles gardent le gris.
+    <div className="app-aurora flex min-h-screen" data-skin={menu === "associate" ? "rose" : menu === "admin" ? "blue" : undefined}>
       <div
         className={cn(
           "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] lg:block",
@@ -136,7 +138,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
           style={{ viewTransitionName: "app-sidebar" } as React.CSSProperties}
         >
-          <Sidebar onCollapse={() => setDesktopOpen(false)} />
+          {/* Remontée à chaque changement de vue (admin ↔ Vue Alison) : ses sections dépliées repartent de la bonne barre. */}
+          <Sidebar key={menu} onCollapse={() => setDesktopOpen(false)} />
         </div>
       </div>
 
@@ -147,7 +150,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setMobileOpen(false)}
           />
           <div className="animate-drawer-in safe-drawer absolute left-0 top-0 h-full">
-            <Sidebar onNavigate={() => setMobileOpen(false)} />
+            <Sidebar key={menu} onNavigate={() => setMobileOpen(false)} />
           </div>
         </div>
       ) : null}
@@ -235,7 +238,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={() => {
                 setPreviewAssociate(false);
-                router.push("/phoenix");
+                router.push(ASSOCIATE_HOME);
               }}
               className="ml-auto rounded-full bg-white/15 px-3 py-1 text-[11px] font-medium hover:bg-white/25"
             >

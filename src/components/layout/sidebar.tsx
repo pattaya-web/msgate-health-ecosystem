@@ -61,8 +61,6 @@ export const SECTIONS: NavSection[] = [
       { href: "/profit", label: "Profit calculator", icon: Calculator },
       { href: "/invoices", label: "Facturation", icon: ReceiptText },
       { href: "/factures", label: "Factures fournisseurs", icon: Receipt },
-      // Admin seulement : la page telle qu'un associé la voit (filtrée au rendu, voir Sidebar).
-      { href: "/associate", label: "Vue Associé", icon: Handshake },
     ],
   },
   {
@@ -163,7 +161,63 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
   },
 ];
 
+/**
+ * La barre de l'admin, rangée comme celle d'Alison : Venom d'abord, puis la
+ * comptabilité, le Studio IA, la boutique et l'organisation. Les autres pages
+ * (Stats, Creatives, UGC, Bank pages…) restent ouvertes par leur adresse.
+ */
+const ADMIN_SECTIONS: NavSection[] = [
+  {
+    id: "straight-sale",
+    label: "Venom",
+    items: [
+      { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
+      { href: "/associate/profit", label: "Profit", icon: Calculator },
+      { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
+      { href: "/associate/produits", label: "Produits à lancer", icon: Lightbulb },
+      { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
+      { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
+    ],
+  },
+  {
+    id: "admin-compta",
+    label: "Comptabilité",
+    items: [
+      { href: "/factures", label: "Factures", icon: ReceiptText },
+      { href: "/invoices", label: "Facturation", icon: Receipt },
+    ],
+  },
+  {
+    id: "admin-creation",
+    label: "Création",
+    items: [{ href: "/studio-ia", label: "Studio IA", icon: Clapperboard }],
+  },
+  {
+    id: "admin-shop",
+    label: "Shop & clients",
+    items: [
+      { href: "/drive", label: "Drive commun", icon: HardDrive },
+      { href: "/spyshop", label: "SpyShop", icon: Eye },
+      { href: "/sav", label: "SAV", icon: Mail },
+    ],
+  },
+  {
+    id: "admin-organisation",
+    label: "Organisation",
+    items: [
+      { href: "/process", label: "Process", icon: Workflow },
+      { href: "/ecosystem", label: "Ecosystem", icon: Network },
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
+];
+
+/** Quelle barre s'affiche : celle d'Alison (et de la « Vue Alison »), celle de l'admin, ou la barre réglable des autres rôles. */
+export type MenuKind = "associate" | "admin" | "default";
+
 const SECTIONS_KEY = "msgate-nav-sections";
+/** L'admin garde ses sections dépliées à part : ses identifiants de section ne sont plus ceux de l'ancienne barre. */
+const ADMIN_SECTIONS_KEY = "msgate-nav-sections-admin";
 export const ORDER_KEY = "msgate-nav-order";
 
 /** L'ordre choisi : sections dans l'ordre, et pour chaque section les pages (par href) qu'elle contient. */
@@ -244,11 +298,14 @@ function activeSection(sections: NavSection[], pathname: string) {
 /**
  * Page courante pour le fil d'Ariane du header, dans la section où
  * l'opérateur l'a rangée. « /studio/library » préfixe aussi « /studio » : on
- * garde le href le plus long qui matche.
+ * garde le href le plus long qui matche. La barre affichée passe d'abord ; les
+ * autres servent aux pages qui n'y sont pas (Stats pour l'admin, par exemple).
  */
-export function currentPage(pathname: string): { section: string; label: string } | null {
+export function currentPage(pathname: string, kind: MenuKind = "default"): { section: string; label: string } | null {
   let best: { section: string; label: string; href: string } | null = null;
-  for (const section of [...ASSOCIATE_SECTIONS, ...applyOrder(loadOrder())]) {
+  const custom = applyOrder(loadOrder());
+  const own = kind === "associate" ? ASSOCIATE_SECTIONS : kind === "admin" ? ADMIN_SECTIONS : custom;
+  for (const section of [...own, ...ASSOCIATE_SECTIONS, ...ADMIN_SECTIONS, ...custom]) {
     for (const item of section.items) {
       if (!isActive(item.href, pathname)) continue;
       if (!best || item.href.length > best.href.length) {
@@ -268,10 +325,10 @@ export function currentPage(pathname: string): { section: string; label: string 
  * localStorage : elle ne passe donc jamais par le rendu serveur, et lire le
  * stockage dès l'initialisation ne peut pas décaler l'hydratation.
  */
-function initialOpen(sections: NavSection[], pathname: string): string[] {
+function initialOpen(sections: NavSection[], pathname: string, key: string): string[] {
   let stored: string[] | null = null;
   try {
-    const raw = localStorage.getItem(SECTIONS_KEY);
+    const raw = localStorage.getItem(key);
     if (raw) stored = JSON.parse(raw) as string[];
   } catch {
     // Un stockage illisible n'est pas une panne : on repart tout ouvert.
@@ -332,13 +389,15 @@ export function Sidebar({
   const router = useRouter();
   const { user, logout, isAssociate, isAdmin, previewAssociate, setPreviewAssociate } = useAuth();
   const realAssociate = user?.role === "associate";
+  // Associé, ou admin en « Vue Alison » : le menu de l'associé ; l'admin : le sien, rangé pareil. Ni l'un ni l'autre ne se réordonne.
+  const kind: MenuKind = isAssociate ? "associate" : isAdmin ? "admin" : "default";
+  const fixedMenu = kind !== "default";
+  const openKey = kind === "admin" ? ADMIN_SECTIONS_KEY : SECTIONS_KEY;
   const [sections, setSections] = useState<NavSection[]>(() => (realAssociate ? ASSOCIATE_SECTIONS : applyOrder(loadOrder())));
-  // La « Vue Associé » n'est qu'à l'admin ; les autres rôles ne voient pas le lien (l'API, elle, leur répond déjà).
-  const adminMenu = isAdmin ? sections : sections.map((section) => ({ ...section, items: section.items.filter((item) => item.href !== "/associate") }));
-  // Associé, ou admin en « Vue Alison » : le menu de l'associé, rien d'autre.
-  const visible = isAssociate ? ASSOCIATE_SECTIONS : adminMenu;
+  const visible = kind === "associate" ? ASSOCIATE_SECTIONS : kind === "admin" ? ADMIN_SECTIONS : sections;
   const [custom, setCustom] = useState<boolean>(() => !realAssociate && loadOrder() !== null);
-  const [open, setOpen] = useState<string[]>(() => initialOpen(sections, pathname));
+  // La barre est remontée à chaque changement de vue (clé posée dans AppShell) : les sections dépliées repartent de la bonne liste.
+  const [open, setOpen] = useState<string[]>(() => initialOpen(visible, pathname, openKey));
   const [drag, setDrag] = useState<NavDrag | null>(null);
   // La source du glisser vit aussi dans une ref : dragover/drop peuvent arriver avant que React ait rendu l'état.
   const dragRef = useRef<NavDrag | null>(null);
@@ -348,7 +407,7 @@ export function Sidebar({
     const next = open.includes(id) ? open.filter((item) => item !== id) : [...open, id];
     setOpen(next);
     try {
-      localStorage.setItem(SECTIONS_KEY, JSON.stringify(next));
+      localStorage.setItem(openKey, JSON.stringify(next));
     } catch {
       // Le pli reste valable pour cette session, même sans pouvoir l'écrire.
     }
@@ -375,7 +434,7 @@ export function Sidebar({
   }
 
   function startDrag(event: DragEvent, value: NavDrag) {
-    if (isAssociate) {
+    if (fixedMenu) {
       event.preventDefault();
       return;
     }
@@ -458,14 +517,16 @@ export function Sidebar({
               onDrop={(event) => drop(event, { kind: "section", id: section.id })}
             >
               <div
-                draggable
+                draggable={!fixedMenu}
                 onDragStart={(event) => startDrag(event, { kind: "section", id: section.id })}
                 onDragEnd={endDrag}
                 className="group flex w-full items-center gap-1 rounded-lg px-1 transition-colors hover:bg-slate-900/[0.04] dark:hover:bg-white/5"
-                title="Glisser pour déplacer la section"
+                title={fixedMenu ? undefined : "Glisser pour déplacer la section"}
                 data-section-handle
               >
-                <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing dark:text-slate-600" aria-hidden />
+                {fixedMenu ? null : (
+                  <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing dark:text-slate-600" aria-hidden />
+                )}
                 <button
                   type="button"
                   onClick={() => toggle(section.id)}
@@ -513,13 +574,13 @@ export function Sidebar({
                           tabIndex={expanded ? 0 : -1}
                           data-active={active ? "true" : "false"}
                           data-nav-item={item.href}
-                          draggable
+                          draggable={!fixedMenu}
                           onDragStart={(event) => startDrag(event, { kind: "item", href: item.href })}
                           onDragEnd={endDrag}
                           onDragOver={(event) => dragOver(event, { kind: "item", href: item.href })}
                           onDrop={(event) => drop(event, { kind: "item", href: item.href })}
                           className={cn("side-link", draggingItem ? "opacity-40" : "", sameTarget(over, { kind: "item", href: item.href }) ? DROP_LINE : "")}
-                          title="Glisser pour déplacer la page"
+                          title={fixedMenu ? undefined : "Glisser pour déplacer la page"}
                         >
                           <Icon className="h-3.5 w-3.5 shrink-0" />
                           <span className="min-w-0 truncate">{item.label}</span>
@@ -533,7 +594,7 @@ export function Sidebar({
             </div>
           );
         })}
-        {custom ? (
+        {custom && !fixedMenu ? (
           <button type="button" onClick={resetOrder} className="w-full px-2.5 py-1 text-left text-[10.5px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" data-reset-order>
             Remettre l&apos;ordre par défaut
           </button>
@@ -557,7 +618,8 @@ export function Sidebar({
                   type="button"
                   onClick={() => {
                     setPreviewAssociate(option.on);
-                    router.push(option.on ? "/associate" : "/phoenix");
+                    // Les deux vues ouvrent sur Ventes & Meta Ads : en bleu pour l'admin, en rose comme Alison.
+                    router.push("/associate");
                     onNavigate?.();
                   }}
                   className={cn(

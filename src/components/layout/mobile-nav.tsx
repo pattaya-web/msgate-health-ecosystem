@@ -20,14 +20,21 @@ const associateItems = [
   { href: "/associate/produits", label: "Produits", icon: Lightbulb },
 ];
 
+/** L'admin, rangé comme l'associée : ses ventes, MoneyTalk et le Meta Ads Manager ; le reste passe par « Menu ». */
+const adminItems = [
+  { href: "/associate", label: "Ventes", icon: Handshake },
+  { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
+  { href: "/ads", label: "Ads", icon: Megaphone },
+];
+
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
-  const { isAssociate } = useAuth();
+  const { isAssociate, isAdmin } = useAuth();
 
   return (
     <nav className="mobile-tabbar fixed z-40 lg:hidden">
       <div className="float-header flex items-stretch px-1 py-1">
-        {(isAssociate ? associateItems : items).map((item) => {
+        {(isAssociate ? associateItems : isAdmin ? adminItems : items).map((item) => {
           const active =
             item.href === "/process"
               ? pathname === "/process" ||

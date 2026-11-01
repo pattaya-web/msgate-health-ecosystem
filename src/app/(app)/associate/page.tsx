@@ -4,17 +4,93 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { Area, Bar, CartesianGrid, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertTriangle, BadgeDollarSign, CalendarHeart, Loader2, Megaphone, MousePointerClick, ShoppingBag, Sparkles, Target } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, CalendarHeart, Layers, Loader2, Megaphone, MousePointerClick, ShoppingBag, Sparkles, Target } from "lucide-react";
 import { useAuth } from "@/lib/auth/auth-context";
 import { AssociateHeader, Kpi, ago, pct, ratio, usd, usdShort, useNow } from "@/components/associate/parts";
 import { useAssociateOverview } from "@/components/associate/use-associate-overview";
+import type { AdminSales } from "@/lib/associate/admin-sales";
+import type { OrderCategory } from "@/lib/phoenix/types";
 
 /**
  * Le tableau de bord de l'accès Associé : ventes de la boutique, dépense Meta,
  * ROAS réel et ROAS Meta des campagnes, conversion et ventes en temps réel.
  * Une seule source, /api/associate/overview : le serveur ne lui sert rien
  * d'autre (src/lib/auth/guard.ts), ni processeur, ni abonnement.
+ *
+ * L'admin dans sa propre vue (peau bleue) voit les mêmes cartes, plus le
+ * chiffre d'affaires par catégorie de vente et le ROAS combined, que le
+ * serveur ne sert qu'à une session admin (src/lib/associate/admin-sales.ts).
  */
+
+const CATEGORIES: Array<{ key: OrderCategory; label: string }> = [
+  { key: "direct", label: "Straight sale" },
+  { key: "initial", label: "VIP Initial" },
+  { key: "recurring", label: "Recurring" },
+  { key: "salvage", label: "Salvage" },
+  { key: "upsell", label: "Upsell" },
+];
+
+/** Le bloc de l'admin : une tuile par catégorie (part du CA total en barre) et le ROAS combined. */
+function AdminCategories({ admin, loading }: { admin: AdminSales | null; loading: boolean }) {
+  const total = admin?.total ?? 0;
+  return (
+    <div className="r-card r-rise p-4" style={{ animationDelay: "200ms" }} data-admin-categories>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="r-icon">
+            <Layers className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-[14px] font-semibold" style={{ color: "var(--ink)" }}>
+              Chiffre d&apos;affaires par catégorie
+            </p>
+            <p className="r-sub">mêmes boutiques et même période · ventes approuvées</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="r-chip" style={{ height: 26 }} title="Alison ne voit pas ce bloc">
+            Admin seulement
+          </span>
+          <Link href="/settings" className="r-sub font-medium underline underline-offset-2">
+            Régler le périmètre
+          </Link>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+        {CATEGORIES.map(({ key, label }) => {
+          const entry = admin?.categories[key];
+          const missing = admin != null && entry?.revenue == null;
+          const share = entry?.revenue && total > 0 ? (entry.revenue / total) * 100 : 0;
+          return (
+            <div key={key} className="rounded-2xl px-3 py-2.5" style={{ background: "var(--r-accent-soft)" }}>
+              <p className="r-label">{label}</p>
+              <p className="mt-1 text-[19px] font-semibold tabular-nums leading-tight" style={{ color: missing ? "var(--ink-4)" : "var(--ink)" }}>
+                {entry?.revenue != null ? usdShort(entry.revenue) : "—"}
+              </p>
+              <p className="r-sub mt-0.5 truncate" style={{ fontSize: 10.5 }}>
+                {missing ? "disponible avec Reign" : entry ? `${entry.orders ?? 0} vente(s) · ${pct(share, 0)}` : loading ? "Chargement…" : "—"}
+              </p>
+              <div className="r-bar mt-1.5" style={{ height: 4 }}>
+                <span style={{ width: `${Math.min(100, share)}%` }} />
+              </div>
+            </div>
+          );
+        })}
+        <div className="rounded-2xl px-3 py-2.5" style={{ background: "linear-gradient(135deg, color-mix(in oklab, var(--r-accent) 16%, transparent), var(--r-accent-soft))", border: "1px solid color-mix(in oklab, var(--r-accent) 22%, transparent)" }}>
+          <p className="r-label" style={{ color: "var(--r-accent-ink)" }}>
+            ROAS combined
+          </p>
+          <p className="mt-1 text-[19px] font-semibold tabular-nums leading-tight" style={{ color: "var(--r-accent-ink)" }}>
+            {ratio(admin?.roasCombined)}
+          </p>
+          <p className="r-sub mt-0.5 truncate" style={{ fontSize: 10.5 }} title="Tout le chiffre d'affaires des catégories ÷ dépense Meta">
+            {admin ? `${usdShort(total)} ÷ dépense Meta` : loading ? "Chargement…" : "—"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const shortDay = (date: string) => `${date.slice(8)}/${date.slice(5, 7)}`;
 
@@ -38,7 +114,9 @@ export default function AssociatePage() {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
   const now = useNow();
-  const { range, setRange, overview, loading, error, loadedAt, building, refresh } = useAssociateOverview();
+  const { range, setRange, overview, admin, loading, error, loadedAt, building, refresh } = useAssociateOverview();
+  // L'admin dans sa propre vue : peau bleue et bloc des catégories. En « Vue Alison », exactement la page d'Alison.
+  const adminView = isAdmin && !isAssociate;
 
   const chartData = useMemo(() => (overview?.sales.series ?? []).map((point) => ({ ...point, label: shortDay(point.date) })), [overview]);
 
@@ -48,21 +126,18 @@ export default function AssociatePage() {
   const campaigns = overview?.meta.campaigns ?? [];
   const bestRoas = Math.max(1, ...campaigns.map((campaign) => campaign.roas ?? 0));
 
-  const accent = dark ? "#ff7aa8" : "#e85a8b";
-  const bar = dark ? "rgba(255,176,203,0.28)" : "rgba(232,90,139,0.18)";
-  const grid = dark ? "rgba(255,160,195,0.08)" : "rgba(180,47,96,0.08)";
-  const tick = dark ? "#8a6474" : "#c29fae";
+  // Le graphique suit la peau : Recharts pose ses couleurs en attributs SVG, où les variables CSS ne s'appliquent pas partout.
+  const accent = adminView ? (dark ? "#60a5fa" : "#2563eb") : dark ? "#ff7aa8" : "#e85a8b";
+  const bar = adminView ? (dark ? "rgba(147,197,253,0.26)" : "rgba(37,99,235,0.16)") : dark ? "rgba(255,176,203,0.28)" : "rgba(232,90,139,0.18)";
+  const grid = adminView ? (dark ? "rgba(130,170,255,0.08)" : "rgba(29,78,216,0.08)") : dark ? "rgba(255,160,195,0.08)" : "rgba(180,47,96,0.08)";
+  const tick = adminView ? (dark ? "#64789a" : "#91a3c4") : dark ? "#8a6474" : "#c29fae";
+  const dotRing = adminView ? (dark ? "#0a1222" : "#fff") : dark ? "#150a10" : "#fff";
 
   return (
     <div className="space-y-4">
-      {!isAssociate ? (
+      {!isAssociate && !isAdmin ? (
         <div className="r-chip w-full justify-between" style={{ height: "auto", padding: "8px 14px", borderRadius: 16 }}>
           <span>Vue Associé : exactement ce que voit Alison.</span>
-          {isAdmin ? (
-            <Link href="/settings" className="font-semibold underline underline-offset-2">
-              Régler le périmètre
-            </Link>
-          ) : null}
         </div>
       ) : null}
 
@@ -136,6 +211,8 @@ export default function AssociatePage() {
         />
       </div>
 
+      {adminView ? <AdminCategories admin={admin} loading={loading} /> : null}
+
       <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
         <div className="r-card r-rise p-4" style={{ animationDelay: "220ms" }}>
           <div className="mb-3 flex items-center justify-between gap-2">
@@ -163,7 +240,7 @@ export default function AssociatePage() {
                   <YAxis yAxisId="orders" orientation="right" hide />
                   <Tooltip content={<ChartTooltip />} cursor={{ stroke: accent, strokeOpacity: 0.25 }} />
                   <Bar yAxisId="orders" dataKey="orders" fill={bar} radius={[6, 6, 0, 0]} maxBarSize={18} animationDuration={700} />
-                  <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke={accent} strokeWidth={2.4} fill="url(#rose-rev)" animationDuration={900} activeDot={{ r: 5, fill: accent, stroke: dark ? "#150a10" : "#fff", strokeWidth: 2 }} />
+                  <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke={accent} strokeWidth={2.4} fill="url(#rose-rev)" animationDuration={900} activeDot={{ r: 5, fill: accent, stroke: dotRing, strokeWidth: 2 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (

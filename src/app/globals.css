@@ -1014,6 +1014,211 @@ summary {
   background-color: #2a1520 !important;
 }
 
+/* ---------------------------------------------------------------------------
+   Peau « bleue » de l'admin (data-skin="blue" sur la racine de l'app, hors
+   « Vue Alison »). Construite comme la rose : slate devient un gris bleuté,
+   emerald (l'encre d'accent de l'app) devient un bleu franc autour de
+   #2563eb, et les cartes r-* prennent les mêmes variables. En sombre, un
+   marine profond, jamais un noir brut.
+   --------------------------------------------------------------------------- */
+[data-skin="blue"] {
+  --background: #f5f8ff;
+  --foreground: #142339;
+  --card: #ffffff;
+  --muted: #eaf1fd;
+  --muted-foreground: #6b7f9c;
+  --border: #dbe5f5;
+  --panel: rgba(255, 255, 255, 0.82);
+  --ink: #142339;
+  --ink-2: #3c4f6b;
+  --ink-3: #6b7f9c;
+  --ink-4: #9daecb;
+  --line: #dbe5f5;
+  --line-soft: #edf2fc;
+  --pill: rgba(16, 36, 78, 0.9);
+  --pill-foreground: #f5f8ff;
+  --pill-muted: rgba(232, 240, 255, 0.72);
+
+  --r-accent: #2563eb;
+  --r-accent-2: #7fabf8;
+  --r-accent-soft: #e2ebfe;
+  --r-accent-ink: #1d4ed8;
+  --r-card: rgba(255, 255, 255, 0.86);
+  --r-card-border: rgba(37, 99, 235, 0.12);
+  --r-shadow: 0 1px 2px rgba(20, 45, 98, 0.05), 0 18px 40px -26px rgba(29, 78, 216, 0.35);
+  --r-good: #2f9e6b;
+  --r-warn: #d98a2b;
+  --r-bad: #d64a5f;
+  --r-grid: rgba(29, 78, 216, 0.08);
+
+  --color-slate-50: #f5f8fe;
+  --color-slate-100: #eaf0fb;
+  --color-slate-200: #d8e2f3;
+  --color-slate-300: #bccbe4;
+  --color-slate-400: #91a3c4;
+  --color-slate-500: #6b7f9f;
+  --color-slate-600: #50627f;
+  --color-slate-700: #3a4a65;
+  --color-slate-800: #24324a;
+  --color-slate-900: #142036;
+  --color-slate-950: #0b1424;
+  --color-emerald-50: #eff5ff;
+  --color-emerald-100: #dbe8fe;
+  --color-emerald-200: #bfd5fe;
+  --color-emerald-300: #93b8fd;
+  --color-emerald-400: #609afa;
+  --color-emerald-500: #3b82f6;
+  --color-emerald-600: #2563eb;
+  --color-emerald-700: #1d4ed8;
+  --color-emerald-800: #1e40af;
+  --color-emerald-900: #1e3a8a;
+  --color-emerald-950: #172554;
+}
+
+.dark [data-skin="blue"] {
+  --background: #0a1222;
+  --foreground: #e6eefc;
+  --card: #111c31;
+  --muted: #15213a;
+  --muted-foreground: #8fa3c4;
+  --border: rgba(130, 170, 255, 0.12);
+  --panel: rgba(17, 28, 49, 0.8);
+  --ink: #e6eefc;
+  --ink-2: #c3d1ea;
+  --ink-3: #8fa3c4;
+  --ink-4: #64789a;
+  --line: rgba(130, 170, 255, 0.12);
+  --line-soft: rgba(130, 170, 255, 0.06);
+  --pill: rgba(14, 27, 54, 0.84);
+  --pill-foreground: #eef4ff;
+  --pill-muted: rgba(238, 244, 255, 0.62);
+
+  --r-accent: #60a5fa;
+  --r-accent-2: #93c5fd;
+  --r-accent-soft: rgba(96, 165, 250, 0.13);
+  --r-accent-ink: #93c5fd;
+  --r-card: rgba(16, 27, 48, 0.78);
+  --r-card-border: rgba(120, 165, 255, 0.1);
+  --r-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 24px 48px -28px rgba(0, 0, 0, 0.7);
+  --r-good: #62d39b;
+  --r-warn: #f2b25c;
+  --r-bad: #ff7b8c;
+  --r-grid: rgba(130, 170, 255, 0.08);
+}
+
+[data-skin="blue"].app-aurora {
+  background:
+    radial-gradient(1000px 460px at 12% -10%, rgba(127, 171, 248, 0.3), transparent 60%),
+    radial-gradient(900px 420px at 95% -8%, rgba(191, 213, 254, 0.42), transparent 58%),
+    radial-gradient(800px 500px at 50% 110%, rgba(219, 232, 254, 0.55), transparent 60%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+.dark [data-skin="blue"].app-aurora {
+  background:
+    radial-gradient(1000px 460px at 12% -10%, rgba(37, 99, 235, 0.22), transparent 60%),
+    radial-gradient(900px 420px at 95% -8%, rgba(30, 64, 175, 0.24), transparent 58%),
+    radial-gradient(800px 500px at 50% 110%, rgba(23, 37, 84, 0.3), transparent 60%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+[data-skin="blue"] .side-nav {
+  background: color-mix(in oklab, var(--background) 70%, white);
+  border-right-color: var(--line);
+}
+
+.dark [data-skin="blue"] .side-nav {
+  background: rgba(11, 20, 38, 0.72);
+}
+
+[data-skin="blue"] .side-link[data-active="true"] {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: #fff;
+  box-shadow: 0 10px 24px -12px rgba(37, 99, 235, 0.7);
+}
+
+[data-skin="blue"] .side-link[data-active="true"] svg {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.dark [data-skin="blue"] .side-link[data-active="true"] {
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  color: #06122a;
+}
+
+.dark [data-skin="blue"] .side-link[data-active="true"] svg {
+  color: rgba(6, 18, 42, 0.8);
+}
+
+[data-skin="blue"] .float-header {
+  border-color: rgba(190, 210, 255, 0.16);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 18px 48px -18px rgba(16, 36, 78, 0.55),
+    0 2px 8px rgba(16, 36, 78, 0.12);
+}
+
+[data-skin="blue"] ::selection {
+  background: rgba(37, 99, 235, 0.2);
+}
+
+[data-skin="blue"] .r-tab[data-active="true"] {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  box-shadow: 0 8px 20px -10px rgba(37, 99, 235, 0.75);
+}
+
+.dark [data-skin="blue"] .r-tab[data-active="true"] {
+  color: #06122a;
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+}
+
+/* Les fonds blancs codés en dur restent doux en sombre. */
+.dark [data-skin="blue"] .bg-white,
+.dark [data-skin="blue"] .bg-white\/90 {
+  background-color: #111c31 !important;
+}
+
+.dark [data-skin="blue"] .bg-white\/70,
+.dark [data-skin="blue"] .dark\:bg-slate-900\/50 {
+  background-color: rgba(16, 27, 48, 0.78) !important;
+}
+
+.dark [data-skin="blue"] .bg-slate-50,
+.dark [data-skin="blue"] .bg-slate-50\/50,
+.dark [data-skin="blue"] .bg-slate-50\/70 {
+  background-color: #0d1729 !important;
+}
+
+.dark [data-skin="blue"] .text-slate-900 {
+  color: #e6eefc !important;
+}
+
+.dark [data-skin="blue"] .text-slate-800 {
+  color: #d3dff4 !important;
+}
+
+.dark [data-skin="blue"] .text-slate-700 {
+  color: #c3d1ea !important;
+}
+
+.dark [data-skin="blue"] .text-slate-600,
+.dark [data-skin="blue"] .text-slate-500 {
+  color: #8fa3c4 !important;
+}
+
+.dark [data-skin="blue"] .border-slate-200,
+.dark [data-skin="blue"] .border-slate-200\/80,
+.dark [data-skin="blue"] .border-slate-100 {
+  border-color: rgba(130, 170, 255, 0.12) !important;
+}
+
+.dark [data-skin="blue"] .hover\:bg-slate-50:hover,
+.dark [data-skin="blue"] .hover\:bg-slate-100:hover {
+  background-color: #15213a !important;
+}
+
 /* Les éléments du tableau de bord rosé. */
 .r-card {
   position: relative;

@@ -1,5 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { buildAssociateOverview, type AssociateOverview } from "@/lib/associate/scope";
+import { buildAdminSales } from "@/lib/associate/admin-sales";
+import { sessionFromRequest } from "@/lib/auth/request";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -40,6 +42,10 @@ function monthRange() {
  * Rapide d'abord : une réponse déjà calculée part tout de suite (et se
  * recalcule après coup si elle a plus de 15 s). `force=1` (bouton
  * Synchroniser) attend une relecture complète de Shopify et Meta, sans cache.
+ *
+ * `admin=1` ajoute, pour une session admin seulement (rôle relu dans le
+ * cookie signé, pas dans la requête), le chiffre d'affaires par catégorie et
+ * le ROAS combined. L'associée peut demander `admin=1` : elle n'a rien de plus.
  */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -49,13 +55,17 @@ export async function GET(request: Request) {
   if (start > end) return NextResponse.json({ error: "Période invalide" }, { status: 400 });
   const key = `${start}:${end}`;
   const force = params.get("force") === "1";
+  const withAdmin = params.get("admin") === "1" && sessionFromRequest(request)?.role === "admin";
+  // Une panne du découpage ne doit pas priver l'admin du reste du tableau de bord.
+  const adminFor = async (overview: AssociateOverview) => (withAdmin ? { admin: await buildAdminSales(overview).catch(() => null) } : {});
   try {
     const cached = state.cache.get(key);
     if (!force && cached) {
       if (Date.now() - cached.at > FRESH_MS) after(() => rebuild(key, start, end, false).catch(() => undefined));
-      return NextResponse.json({ ok: true, overview: cached.overview, cachedAt: new Date(cached.at).toISOString() });
+      return NextResponse.json({ ok: true, overview: cached.overview, cachedAt: new Date(cached.at).toISOString(), ...(await adminFor(cached.overview)) });
     }
-    return NextResponse.json({ ok: true, overview: await rebuild(key, start, end, force) });
+    const overview = await rebuild(key, start, end, force);
+    return NextResponse.json({ ok: true, overview, ...(await adminFor(overview)) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Tableau de bord indisponible" }, { status: 502 });
   }

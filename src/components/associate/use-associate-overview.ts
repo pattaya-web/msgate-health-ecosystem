@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AssociateOverview } from "@/lib/associate/scope";
+import type { AdminSales } from "@/lib/associate/admin-sales";
+import { useAuth } from "@/lib/auth/auth-context";
 import type { DateRange } from "@/components/phoenix/date-range-picker";
 import { reportToday } from "@/lib/report-tz";
 
@@ -51,10 +53,17 @@ function writeLast(range: DateRange, overview: AssociateOverview) {
  * (le serveur relit Shopify toutes les 30 s et Meta chaque minute). Le bouton
  * Synchroniser — celui de la page comme celui de l'en-tête — force une
  * relecture immédiate de Shopify et Meta.
+ *
+ * L'admin dans sa propre vue (pas en « Vue Alison ») demande aussi `admin=1` :
+ * le serveur ajoute les catégories de vente et le ROAS combined s'il reconnaît
+ * une session admin. Ces chiffres ne sont pas gardés dans le navigateur.
  */
 export function useAssociateOverview() {
+  const { isAdmin, isAssociate } = useAuth();
+  const withAdmin = isAdmin && !isAssociate;
   const [range, setRangeState] = useState<DateRange>(() => loadRange());
   const [overview, setOverview] = useState<AssociateOverview | null>(null);
+  const [admin, setAdmin] = useState<AdminSales | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
@@ -73,10 +82,11 @@ export function useAssociateOverview() {
   const load = useCallback(async (current: DateRange, force = false) => {
     if (force) setSyncing(true);
     try {
-      const res = await fetch(`/api/associate/overview?start=${current.start}&end=${current.end}${force ? "&force=1" : ""}`, { cache: "no-store" });
-      const body = (await res.json()) as { overview?: AssociateOverview; error?: string };
+      const res = await fetch(`/api/associate/overview?start=${current.start}&end=${current.end}${force ? "&force=1" : ""}${withAdmin ? "&admin=1" : ""}`, { cache: "no-store" });
+      const body = (await res.json()) as { overview?: AssociateOverview; admin?: AdminSales | null; error?: string };
       if (!res.ok || !body.overview) throw new Error(body.error || `HTTP ${res.status}`);
       setOverview(body.overview);
+      setAdmin(withAdmin ? (body.admin ?? null) : null);
       setError(null);
       setLoadedAt(Date.now());
       writeLast(current, body.overview);
@@ -86,7 +96,7 @@ export function useAssociateOverview() {
       setLoading(false);
       if (force) setSyncing(false);
     }
-  }, []);
+  }, [withAdmin]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -120,5 +130,5 @@ export function useAssociateOverview() {
     return () => window.clearInterval(timer);
   }, [range, load, building]);
 
-  return { range, setRange, overview, loading: loading || syncing, error, loadedAt, building, syncing, refresh: () => void load(range, true) };
+  return { range, setRange, overview, admin, loading: loading || syncing, error, loadedAt, building, syncing, refresh: () => void load(range, true) };
 }
