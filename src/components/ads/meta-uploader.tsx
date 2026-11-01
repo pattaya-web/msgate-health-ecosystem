@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   Folder,
   HardDrive,
+  Hash,
   Loader2,
   Plus,
   RefreshCw,
@@ -23,6 +24,7 @@ import {
   CTA_OPTIONS,
   IMAGE_ENHANCEMENTS,
   VIDEO_ENHANCEMENTS,
+  parsePostIds,
   type PickerAd,
   type PickerAdset,
   type PickerCampaign,
@@ -47,6 +49,27 @@ type SavedCopy = {
 
 type TextMode = "all" | "adset" | "ad";
 
+const MEDIA_EXT = /\.(jpe?g|png|webp|gif|mp4|mov|m4v|webm)$/i;
+
+/** Garde les photos et vidéos que Meta accepte ; le reste est signalé. */
+function keepMedia(list: File[]) {
+  const ok = list.filter((file) => /^(image|video)\//.test(file.type) || MEDIA_EXT.test(file.name));
+  const skipped = list.length - ok.length;
+  if (skipped) toast.error(`${skipped} fichier${skipped > 1 ? "s" : ""} ignoré${skipped > 1 ? "s" : ""} : seulement JPG, PNG, WEBP, GIF, MP4, MOV, M4V`);
+  return ok;
+}
+
+/** Une image glissée depuis un autre onglet arrive en lien : on la télécharge pour en faire un fichier. */
+async function fileFromUrl(url: string): Promise<File> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(String(res.status));
+  const blob = await res.blob();
+  if (!/^(image|video)\//.test(blob.type)) throw new Error(blob.type);
+  const base = decodeURIComponent(new URL(url).pathname.split("/").pop() || "image");
+  const ext = blob.type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+  return new File([blob], MEDIA_EXT.test(base) ? base : `${base || "image"}.${ext}`, { type: blob.type });
+}
+
 export function MetaUploader() {
   const [accounts, setAccounts] = useState<UploadAccount[]>([]);
   const [accountId, setAccountId] = useState("");
@@ -66,6 +89,9 @@ export function MetaUploader() {
   const [method, setMethod] = useState<"copy" | "xlsx">("copy");
   const [turbo, setTurbo] = useState(true);
   const [files, setFiles] = useState<File[]>([]);
+  /** Les Post ID collés : chacun devient une pub qui reprend la publication existante. */
+  const [postText, setPostText] = useState("");
+  const [dragging, setDragging] = useState(false);
   const [createNewCampaign, setCreateNewCampaign] = useState(false);
   const [multiCampaigns, setMultiCampaigns] = useState(false);
   const [createNewAdset, setCreateNewAdset] = useState(true);
@@ -127,6 +153,74 @@ export function MetaUploader() {
       // stockage refusé : sans gravité
     }
   }, [copyLoaded, headlines, bodies, descriptions, cta, websiteUrl, displayUrl, productUrl, namePattern]);
+
+  const postIds = useMemo(() => parsePostIds(postText), [postText]);
+
+  // Glisser-déposer sur toute la page, et Ctrl+V d'une image copiée.
+  useEffect(() => {
+    let depth = 0;
+    const hasPayload = (event: DragEvent) => {
+      const types = Array.from(event.dataTransfer?.types ?? []);
+      return types.includes("Files") || types.includes("text/uri-list");
+    };
+    const onEnter = (event: DragEvent) => {
+      if (!hasPayload(event)) return;
+      depth += 1;
+      setDragging(true);
+    };
+    const onOver = (event: DragEvent) => {
+      if (!hasPayload(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const onLeave = (event: DragEvent) => {
+      if (!hasPayload(event)) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) setDragging(false);
+    };
+    const onDrop = (event: DragEvent) => {
+      if (!hasPayload(event)) return;
+      event.preventDefault();
+      depth = 0;
+      setDragging(false);
+      const dropped = Array.from(event.dataTransfer?.files ?? []);
+      if (dropped.length) {
+        const ok = keepMedia(dropped);
+        if (ok.length) setFiles((cur) => [...cur, ...ok]);
+        return;
+      }
+      const url = (event.dataTransfer?.getData("text/uri-list") || "").split(/\r?\n/).find((line) => /^https?:/.test(line));
+      if (!url) return;
+      void fileFromUrl(url)
+        .then((file) => setFiles((cur) => [...cur, file]))
+        .catch(() => toast.error("Ce site ne laisse pas récupérer l'image : enregistre-la puis glisse le fichier."));
+    };
+    const onPaste = (event: ClipboardEvent) => {
+      const pasted = Array.from(event.clipboardData?.files ?? []);
+      if (!pasted.length) return;
+      event.preventDefault();
+      const ok = keepMedia(pasted).map((file, i) =>
+        // Une capture collée s'appelle toujours « image.png » : on la numérote.
+        file.name === "image.png" ? new File([file], `capture-${Date.now()}-${i + 1}.png`, { type: file.type }) : file
+      );
+      if (ok.length) {
+        setFiles((cur) => [...cur, ...ok]);
+        toast.success(`${ok.length} image${ok.length > 1 ? "s" : ""} collée${ok.length > 1 ? "s" : ""}`);
+      }
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("drop", onDrop);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("drop", onDrop);
+      window.removeEventListener("paste", onPaste);
+    };
+  }, []);
 
   // Aperçus des fichiers glissés (images et vidéos), libérés quand la liste change.
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file), video: /^video\//.test(file.type) })), [files]);
@@ -228,12 +322,15 @@ export function MetaUploader() {
       (!onlyActive.ad || row.status === "ACTIVE")
   );
 
-  const adsetCount = adsetPerUpload ? Math.max(files.length, 0) : 1;
-  const preview = `${files.length} ads in ${adsetCount || 1} ad set${adsetCount > 1 ? "s" : ""} will be created`;
+  const itemCount = files.length + postIds.length;
+  const adsetCount = adsetPerUpload ? Math.max(itemCount, 0) : 1;
+  const preview = `${itemCount} ads in ${adsetCount || 1} ad set${adsetCount > 1 ? "s" : ""} will be created`;
+  const postLabel = (id: string) => `Post ${id.split("_").pop()}`;
 
   function addFiles(list: FileList | null) {
     if (!list?.length) return;
-    setFiles((cur) => [...cur, ...Array.from(list)]);
+    const ok = keepMedia(Array.from(list));
+    if (ok.length) setFiles((cur) => [...cur, ...ok]);
   }
 
   async function generateCopy() {
@@ -264,7 +361,7 @@ export function MetaUploader() {
 
   async function createAds() {
     if (!accountId) return toast.error("Choisis un compte");
-    if (!files.length) return toast.error("Upload des médias d’abord");
+    if (!files.length && !postIds.length) return toast.error("Ajoute des photos / vidéos ou des Post ID d’abord");
     if (!adsetId && !campaignId) return toast.error("Sélectionne une campagne / un ad set source");
     setBusy("create");
     try {
@@ -279,6 +376,7 @@ export function MetaUploader() {
         uploaded.push(body.media);
         if (!turbo) await new Promise((r) => setTimeout(r, 250));
       }
+      for (const postId of postIds) uploaded.push({ kind: "post", postId, fileName: postLabel(postId) });
       const res = await fetch("/api/meta/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -312,6 +410,7 @@ export function MetaUploader() {
       if (!res.ok) throw new Error(body.error);
       toast.success(`${body.ads?.length || 0} ads créées`);
       setFiles([]);
+      setPostText("");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Create ads impossible");
     } finally {
@@ -390,19 +489,27 @@ export function MetaUploader() {
         ) : null}
       </label>
 
+      {dragging ? (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#1877F2]/10 backdrop-blur-[1px]">
+          <div className="rounded-2xl border-2 border-dashed border-[#1877F2] bg-white px-10 py-8 text-center shadow-xl">
+            <Upload className="mx-auto h-8 w-8 text-[#1877F2]" />
+            <p className="mt-2 text-[15px] font-semibold text-slate-800">Lâche tes photos / vidéos ici</p>
+            <p className="mt-0.5 text-[12px] text-slate-500">Elles s’ajoutent à l’upload</p>
+          </div>
+        </div>
+      ) : null}
+
       <div
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          addFiles(e.dataTransfer.files);
-        }}
-        className="rounded-xl border-2 border-dashed border-slate-300 bg-white px-6 py-10 text-center"
+        className={cn(
+          "rounded-xl border-2 border-dashed bg-white px-6 py-10 text-center transition-colors",
+          dragging ? "border-[#1877F2] bg-[#e7f0ff]" : "border-slate-300"
+        )}
       >
         <div className="mb-3 flex items-center justify-center gap-4 text-slate-400">
           <HardDrive className="h-8 w-8" />
           <Folder className="h-8 w-8" />
         </div>
-        <p className="text-[14px] font-medium">Drag and drop files here, or browse for files.</p>
+        <p className="text-[14px] font-medium">Glisse tes photos / vidéos n’importe où sur la page, colle-les (Ctrl+V) ou parcours tes fichiers.</p>
         <p className="mt-1 text-[12px] text-slate-400">
           Supported: JPG, PNG, WEBP, GIF, MP4, MOV, M4V. Videos up to 4GB, images up to 30MB.
         </p>
@@ -437,6 +544,36 @@ export function MetaUploader() {
           </div>
         ) : null}
       </div>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="flex items-center gap-1.5 text-[13px] font-semibold">
+          <Hash className="h-3.5 w-3.5 text-[#1877F2]" />
+          Post ID — publications existantes
+        </p>
+        <p className="mt-1 text-[12px] text-slate-500">
+          Colle un ou plusieurs Post ID (bouton « Post ID » de l’Ads Manager), un par ligne. Chaque post devient une pub qui le reprend tel
+          quel : même visuel, même texte, likes et commentaires gardés. Les textes et le lien plus bas ne s’appliquent pas à ces pubs.
+        </p>
+        <textarea
+          value={postText}
+          onChange={(e) => setPostText(e.target.value)}
+          rows={3}
+          placeholder={"123456789012345_987654321098765\n…"}
+          className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-[12px] outline-none"
+        />
+        {postText.trim() ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className={cn("font-medium", postIds.length ? "text-emerald-700" : "text-rose-600")}>
+              {postIds.length ? `${postIds.length} post${postIds.length > 1 ? "s" : ""} reconnu${postIds.length > 1 ? "s" : ""}` : "Aucun Post ID reconnu"}
+            </span>
+            {postIds.map((id) => (
+              <code key={id} className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-600">
+                {id}
+              </code>
+            ))}
+          </div>
+        ) : null}
+      </section>
 
       <div className="flex justify-end">
         <label className="inline-flex items-center gap-2 text-[12px] font-medium">
@@ -633,23 +770,23 @@ export function MetaUploader() {
       </Card>
       <Card title="Preview">
         <p className="text-[13px] text-slate-600">{preview}</p>
-        {files.length ? (
+        {itemCount ? (
           <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100">
-            {files.slice(0, 50).map((file, index) => {
+            {[...files.map((file) => ({ key: file.name, label: file.name })), ...postIds.map((id) => ({ key: id, label: postLabel(id) }))].slice(0, 50).map((file, index) => {
               const sourceAdset = adsets.find((row) => row.id === adsetId);
               const sourceCampaign = campaigns.find((row) => row.id === (sourceAdset?.campaignId ?? campaignId));
               const adsetLabel = createNewAdset || adsetPerUpload ? newAdsetName.trim() || `${sourceAdset?.name ?? "Ad set"} · copy` : sourceAdset?.name ?? "Ad set";
               const name = formatAdName(useNamePattern ? namePattern : "{file}", {
-                fileName: file.name,
+                fileName: file.label,
                 campaign: createNewCampaign && sourceCampaign ? `${sourceCampaign.name} · copy` : sourceCampaign?.name ?? "Campaign",
                 adset: adsetLabel,
                 index,
                 start: Math.max(1, Number(startNumber) || 1),
               });
               return (
-                <li key={`${file.name}-${index}`} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px]">
-                  <span className="min-w-0 flex-1 truncate text-slate-400" title={file.name}>
-                    {file.name}
+                <li key={`${file.key}-${index}`} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px]">
+                  <span className="min-w-0 flex-1 truncate text-slate-400" title={file.key}>
+                    {file.label}
                   </span>
                   <span className="text-slate-300">→</span>
                   <span className="min-w-0 flex-1 truncate font-semibold text-slate-800" title={name}>
@@ -802,13 +939,13 @@ export function MetaUploader() {
         </label>
       </section>
 
-      {!files.length ? (
-        <p className="rounded-lg bg-slate-100 px-3 py-2 text-[13px] text-slate-600">No Media Uploaded. To create ads, first add media above.</p>
+      {!itemCount ? (
+        <p className="rounded-lg bg-slate-100 px-3 py-2 text-[13px] text-slate-600">Aucun média ni Post ID : ajoute des photos / vidéos ou colle des Post ID plus haut.</p>
       ) : null}
 
       <button
         type="button"
-        disabled={busy !== null || !files.length}
+        disabled={busy !== null || !itemCount}
         onClick={() => void createAds()}
         className={cn("h-11 w-full rounded-lg text-[14px] font-semibold disabled:opacity-50", META_BLUE)}
       >

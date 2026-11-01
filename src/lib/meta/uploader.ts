@@ -270,7 +270,11 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
     input.websiteUrl ||
     sourceAd?.creative?.asset_feed_spec?.link_urls?.[0]?.website_url ||
     "";
-  if (!website) throw new Error("Website URL manquante");
+  // Une publication existante garde son propre lien : l'URL n'est exigée que pour les fichiers.
+  if (!website && input.media.some((item) => item.kind !== "post")) throw new Error("Website URL manquante");
+  for (const item of input.media) {
+    if (item.kind === "post" && !/^\d+(_\d+)?$/.test(item.postId ?? "")) throw new Error(`Post ID illisible : « ${item.postId ?? ""} »`);
+  }
 
   const cta =
     input.cta ||
@@ -334,6 +338,28 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
       const images = media.kind === "image" && media.hash ? [{ hash: media.hash }] : [];
       const videos = media.kind === "video" && media.videoId ? [{ video_id: media.videoId }] : [];
       const featureSpec = enroll(input.enhancements);
+      if (media.kind === "post" && media.postId) {
+        // Publication existante : la pub la reprend telle quelle (texte, visuel, likes, commentaires).
+        const storyId = media.postId.includes("_") ? media.postId : `${pageId}_${media.postId}`;
+        const postBody: Record<string, unknown> = {
+          name: `${name} · creative`,
+          object_story_id: storyId,
+          ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
+        };
+        if (Object.keys(featureSpec).length) postBody.degrees_of_freedom_spec = { creative_features_spec: featureSpec };
+        let creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, postBody);
+        // Meta peut refuser les options Advantage+ ou le compte Instagram sur un post existant : on réessaie sans.
+        for (const key of ["degrees_of_freedom_spec", "instagram_user_id"]) {
+          if (!creative.error || !(key in postBody)) continue;
+          delete postBody[key];
+          creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, postBody);
+        }
+        if (creative.error || !creative.id) {
+          throw new Error(`Post ${storyId} refusé par Meta — ${metaMessage(creative.error)} Rien n'a été créé dans le compte.`);
+        }
+        planned.push({ group: g, media, name, creativeId: creative.id });
+        continue;
+      }
       const titleList = headlines.length ? headlines : [fileStem(media.fileName)];
       const bodyList = bodies.length ? bodies : [" "];
       /*

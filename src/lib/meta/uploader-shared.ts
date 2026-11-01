@@ -33,8 +33,28 @@ export function formatAdName(pattern: string, params: { fileName: string; campai
   return raw.slice(0, 200) || `Ad ${number}`;
 }
 
-export type MediaKind = "image" | "video";
-export type UploadedMedia = { kind: MediaKind; hash?: string; videoId?: string; fileName: string };
+export type MediaKind = "image" | "video" | "post";
+/** kind « post » : une publication existante (Post ID), réutilisée telle quelle — likes et commentaires gardés. */
+export type UploadedMedia = { kind: MediaKind; hash?: string; videoId?: string; postId?: string; fileName: string };
+
+/**
+ * Les Post ID collés dans l'uploader : un par ligne (ou séparés par des
+ * virgules / espaces), au format du bouton « Post ID » de l'Ads Manager
+ * (« idPage_idPost ») ou le seul numéro du post. Les liens facebook.com
+ * « …/posts/123 » et « story_fbid=123&id=456 » sont aussi compris.
+ */
+export function parsePostIds(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/[\s,;]+/)) {
+    const token = raw.trim();
+    if (!token) continue;
+    const story = token.match(/story_fbid=(\d+).*?[?&]id=(\d+)/);
+    const path = token.match(/facebook\.com\/(\d+)\/(?:posts|videos|photos)\/(?:[^/]+\/)?(\d+)/);
+    const id = story ? `${story[2]}_${story[1]}` : path ? `${path[1]}_${path[2]}` : /^\d+(_\d+)?$/.test(token) ? token : null;
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
 
 export const IMAGE_ENHANCEMENTS = [
   { key: "video_music", label: "Add music" },
