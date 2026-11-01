@@ -43,7 +43,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 import { TzBadge } from "@/components/phoenix/source-clocks";
 import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
-import { collectAdsAlerts } from "@/components/ads/alerts-rail";
+import { HS_ROAS_MIN, HS_SPEND_MIN, collectAdsAlerts } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
@@ -477,6 +477,124 @@ function CreativeActions({
         <ActionChip label="Retirer" title="Archiver la pub sur Meta (elle ne diffuse plus)" onClick={onArchive}>
           <Archive className="h-2.5 w-2.5" />
         </ActionChip>
+      ) : null}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Promo HS : les stats de la créa jour par jour avant de la passer en HS
+ * ------------------------------------------------------------------ */
+
+type DayStat = { label: string; date: string; metrics: Metrics | null };
+
+/** Un arbre Meta par jour (aujourd'hui, J-1, J-2, J-3), chargé une fois puis gardé 10 min. */
+const dayTrees = new Map<string, { at: number; promise: Promise<Map<string, Metrics>> }>();
+
+function adMetricsOn(date: string): Promise<Map<string, Metrics>> {
+  const cached = dayTrees.get(date);
+  if (cached && Date.now() - cached.at < 10 * 60_000) return cached.promise;
+  const promise = fetch(`/api/meta/tree?start=${date}&end=${date}`)
+    .then((res) => (res.ok ? (res.json() as Promise<AdsTree>) : null))
+    .then((tree) => {
+      const byAd = new Map<string, Metrics>();
+      for (const account of tree?.accounts ?? [])
+        for (const campaign of account.campaigns)
+          for (const adset of campaign.adsets) for (const ad of adset.ads) byAd.set(ad.id, ad.metrics);
+      return byAd;
+    });
+  promise.catch(() => dayTrees.delete(date));
+  dayTrees.set(date, { at: Date.now(), promise });
+  return promise;
+}
+
+const shortDay = (date: string) => {
+  const text = new Date(`${date}T12:00:00Z`).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "numeric", timeZone: "UTC" });
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+function HsBadge({ adId, metrics }: { adId: string; metrics: Metrics }) {
+  const [open, setOpen] = useState(false);
+  const [days, setDays] = useState<DayStat[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const load = () => {
+    setOpen(true);
+    if (days) return;
+    const dates = [0, -1, -2, -3].map((shift) => shiftParis(shift));
+    Promise.all(dates.map(adMetricsOn))
+      .then((maps) =>
+        setDays(
+          dates.map((date, i) => ({
+            label: i === 0 ? "Aujourd'hui" : i === 1 ? "Hier" : shortDay(date),
+            date,
+            metrics: maps[i].get(adId) ?? null,
+          }))
+        )
+      )
+      .catch(() => setFailed(true));
+  };
+
+  const past = days?.slice(1).map((day) => day.metrics).filter(Boolean) as Metrics[] | undefined;
+  const total = past?.length ? sum(past) : null;
+  const row = (label: string, m: Metrics | null, strong?: boolean) => (
+    <tr key={label} className={cn(strong && "border-t border-slate-900/10 font-semibold dark:border-white/10")}>
+      <td className="py-0.5 pr-3 text-left">{label}</td>
+      <td className="py-0.5 pl-2 text-right">{m?.spend ? money(m.spend) : "—"}</td>
+      <td className="py-0.5 pl-2 text-right">{m?.purchases || "—"}</td>
+      <td className={cn("py-0.5 pl-2 text-right font-semibold", roasClass(m?.roas ?? 0))}>{m?.roas ? m.roas.toFixed(2) : "—"}</td>
+      <td className="py-0.5 pl-2 text-right">{m?.cpc ? m.cpc.toFixed(2) : "—"}</td>
+      <td className="py-0.5 pl-2 text-right">{m?.ctr ? `${m.ctr.toFixed(1)}%` : "—"}</td>
+    </tr>
+  );
+
+  return (
+    <span className="relative shrink-0" onMouseEnter={load} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          if (open) setOpen(false);
+          else load();
+        }}
+        className="rounded-md bg-emerald-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white"
+      >
+        Promo HS
+      </button>
+      {open ? (
+        <span
+          onClick={(event) => event.stopPropagation()}
+          className="absolute left-0 top-full z-40 mt-1 block w-[22rem] max-w-[calc(100vw-2rem)] rounded-xl bg-white p-3 text-[11px] text-slate-700 shadow-xl ring-1 ring-slate-900/10 dark:bg-slate-900 dark:text-slate-200 dark:ring-white/10"
+        >
+          <span className="mb-1.5 block font-semibold text-slate-900 dark:text-slate-50">Avant de passer en HS : la créa jour par jour</span>
+          <span className="mb-2 block text-[10px] text-slate-500">
+            HS proposé dès {money(HS_SPEND_MIN)} dépensés et un ROAS ≥ {HS_ROAS_MIN} sur la période affichée (ici {money(metrics.spend)}, ROAS {metrics.roas.toFixed(2)}). Vérifie que ça tient sur 3 jours.
+          </span>
+          {failed ? (
+            <span className="block text-rose-600">Stats Meta indisponibles, réessaie.</span>
+          ) : !days ? (
+            <span className="flex items-center gap-1.5 text-slate-500">
+              <Loader2 className="h-3 w-3 animate-spin" /> Chargement des 3 derniers jours…
+            </span>
+          ) : (
+            <table className="w-full tabular-nums">
+              <thead>
+                <tr className="text-[9px] uppercase tracking-wide text-slate-400">
+                  <th className="pb-1 text-left font-semibold">Jour</th>
+                  <th className="pb-1 pl-2 text-right font-semibold">Dépense</th>
+                  <th className="pb-1 pl-2 text-right font-semibold">Achats</th>
+                  <th className="pb-1 pl-2 text-right font-semibold">ROAS</th>
+                  <th className="pb-1 pl-2 text-right font-semibold">CPC</th>
+                  <th className="pb-1 pl-2 text-right font-semibold">CTR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {days.map((day) => row(day.label, day.metrics))}
+                {row("Total 3 j (sans auj.)", total, true)}
+              </tbody>
+            </table>
+          )}
+        </span>
       ) : null}
     </span>
   );
@@ -2244,14 +2362,7 @@ function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
               Off
             </span>
           ) : null}
-          {hs && !paused ? (
-            <span
-              title={`Potentiel promo HS · ${formatCurrency(m.spend)} · ${m.purchases} vente${m.purchases > 1 ? "s" : ""} · ROAS ${m.roas.toFixed(2)}`}
-              className="shrink-0 rounded-md bg-emerald-600 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white"
-            >
-              Promo HS
-            </span>
-          ) : null}
+          {hs && !paused ? <HsBadge adId={ad.id} metrics={m} /> : null}
           {dead ? (
             <span
               title={`Spend sans vente · ${formatCurrency(m.spend)} · CPC ${m.cpc.toFixed(2)}`}
