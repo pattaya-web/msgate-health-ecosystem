@@ -207,6 +207,7 @@ export function ProfitCalculator({
   alerts = true,
   storageKey = STORAGE_KEY,
   refreshKey = 0,
+  defaults,
 }: {
   /** D'où viennent les chiffres : /api/profit/inputs (tout le compte) ou /api/associate/profit (Straight sale). */
   endpoint?: string;
@@ -216,6 +217,8 @@ export function ProfitCalculator({
   storageKey?: string;
   /** Change pour forcer un rechargement (après une modification des COGS). */
   refreshKey?: number;
+  /** Les taux pré-remplis tant que rien n'a été saisi (ex. frais de paiement du Straight sale). */
+  defaults?: Partial<Record<FieldId, string>>;
 } = {}) {
   const [fields, setFields] = useState<Fields>(EMPTY);
   const [currency, setCurrency] = useState<Currency>("USD");
@@ -226,6 +229,8 @@ export function ProfitCalculator({
   const [restored, setRestored] = useState(false);
 
   const range = days === "custom" ? custom : presetRange(days);
+  // Une clé stable : les taux par défaut arrivent parfois après le premier rendu (réglages chargés ensuite).
+  const defaultsKey = JSON.stringify(defaults ?? {});
 
   // Manual rates survive reloads; the auto fields are always refetched.
   // localStorage cannot be read during the server render, so this has to happen
@@ -235,10 +240,14 @@ export function ProfitCalculator({
       const saved = JSON.parse(localStorage.getItem(storageKey) || "{}") as Partial<Fields> & {
         currency?: Currency;
       };
+      const fallback = JSON.parse(defaultsKey) as Partial<Fields>;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFields((current) => {
         const next = { ...current };
-        for (const id of MANUAL_FIELDS) if (saved[id] != null) next[id] = saved[id] as string;
+        for (const id of MANUAL_FIELDS) {
+          if (saved[id] != null && saved[id] !== "") next[id] = saved[id] as string;
+          else if (fallback[id]) next[id] = fallback[id] as string;
+        }
         return next;
       });
       if (saved.currency && CURRENCIES.includes(saved.currency)) setCurrency(saved.currency);
@@ -246,7 +255,7 @@ export function ProfitCalculator({
       // first visit, nothing stored
     }
     setRestored(true);
-  }, [storageKey]);
+  }, [storageKey, defaultsKey]);
 
   useEffect(() => {
     if (!restored) return;
@@ -636,9 +645,11 @@ export function ProfitCalculator({
                 prefix={symbol}
                 auto={inputs?.cogs != null}
                 hint={
-                  inputs?.cogsDetail
-                    ? `${inputs.cogsDetail.units} unité(s) × coût de base`
-                    : "vide pour du digital"
+                  inputs?.cogsDetail?.grid
+                    ? `grille fournisseur · ${inputs.cogsDetail.grid.orders} commande(s), ${inputs.cogsDetail.units} collier(s)`
+                    : inputs?.cogsDetail
+                      ? `${inputs.cogsDetail.units} unité(s) × coût de base`
+                      : "vide pour du digital"
                 }
               />
               <Field

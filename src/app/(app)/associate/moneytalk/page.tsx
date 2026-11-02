@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CalendarClock, Check, HandCoins, Loader2, Megaphone, PiggyBank, RefreshCw, Undo2 } from "lucide-react";
 import { useAuth } from "@/lib/auth/auth-context";
-import { Kpi, pct, usd } from "@/components/associate/parts";
+import { Kpi, usd } from "@/components/associate/parts";
 import { CogsEditor } from "@/components/phoenix/cogs-editor";
+import { ProfitCalculator } from "@/components/phoenix/profit-calculator";
 import { cn } from "@/lib/utils";
 import type { Frequency, Partner, PartnershipPeriod, PartnershipReport } from "@/lib/associate/partnership";
 
@@ -174,7 +175,22 @@ export default function MoneyTalkPage() {
         />
       </div>
 
-      {current ? <Versions period={current} frequency={frequency} processingRate={report?.processingRate ?? 0} /> : null}
+      {/* Le calculateur du Straight sale (Venom seul) : chiffres de la période pré-remplis, tout se modifie. */}
+      <div className="r-rise space-y-2" style={{ animationDelay: "200ms" }}>
+        <div className="px-1">
+          <p className="r-label">Calculateur de profit · Straight sale</p>
+          <p className="r-sub">
+            Ventes, remboursements, dépense Meta et coût des colliers (grille fournisseur) de la période sont pré-remplis ; change n&apos;importe quel
+            chiffre pour simuler. La paie d&apos;Alison reste celle du tableau ci-dessous.
+          </p>
+        </div>
+        <ProfitCalculator
+          endpoint="/api/associate/profit"
+          alerts={false}
+          storageKey="msgate.profit-calculator.straight"
+          defaults={{ processingRate: String(report?.processingRate ?? 4) }}
+        />
+      </div>
 
       <div className="r-card r-rise overflow-hidden" style={{ animationDelay: "260ms" }}>
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-5 pt-4">
@@ -299,118 +315,6 @@ function PeriodCard({
           </div>
         ))}
       </dl>
-    </div>
-  );
-}
-
-type Step = { label: string; value: number; strong?: boolean; note?: string };
-
-/** Les deux versions côte à côte, sur les chiffres de la période : celle qui s'applique est mise en avant. */
-function Versions({ period, frequency, processingRate }: { period: PartnershipPeriod; frequency: Frequency; processingRate: number }) {
-  const ads = period.adsAlison + period.adsMady;
-  const base = period.revenue - period.refunds - period.cogs - period.fees;
-  const common: Step[] = [
-    { label: `Ventes Straight Sale · ${period.orders} commande(s)`, value: period.revenue, strong: true },
-    ...(period.refunds ? [{ label: "Remboursements", value: -period.refunds }] : []),
-    { label: "Coût produit", value: -period.cogs, note: period.cogsMissing > 0 ? `${period.cogsMissing} pièce(s) sans coût renseigné` : undefined },
-    { label: `Frais de paiement · ${pct(processingRate, 1)}`, value: -period.fees },
-  ];
-  return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      <VersionCard
-        active={period.version === 1}
-        tag="Version 1 · aujourd'hui"
-        title="Alison paie la pub"
-        steps={[...common, { label: "Pub payée par Alison", value: -ads }]}
-        resultLabel="Paie d'Alison · tout le bénéfice"
-        result={period.payV1}
-        note="Tant qu'elle paie la pub de sa poche, tout le bénéfice est pour elle."
-        delay={200}
-        frequency={frequency}
-        period={period}
-      />
-      <VersionCard
-        active={period.version === 2}
-        tag="Version 2 · plus tard"
-        title="Mady paie la pub"
-        steps={[
-          { label: "Ventes − coût produit − frais", value: base, strong: true },
-          { label: "Moitié pour Alison", value: base / 2 },
-          { label: "Moitié de la pub de Mady, retirée de sa paie", value: -ads / 2 },
-        ]}
-        resultLabel="Paie d'Alison · 50/50"
-        result={period.payV2}
-        note="Dès que la pub passe sur le compte agence de Mady : moitié-moitié, et la moitié de la pub qu'il a avancée est retirée de sa paie."
-        delay={240}
-        frequency={frequency}
-        period={period}
-      />
-    </div>
-  );
-}
-
-function VersionCard({
-  active,
-  tag,
-  title,
-  steps,
-  resultLabel,
-  result,
-  note,
-  delay,
-  frequency,
-  period,
-}: {
-  active: boolean;
-  tag: string;
-  title: string;
-  steps: Step[];
-  resultLabel: string;
-  result: number;
-  note: string;
-  delay: number;
-  frequency: Frequency;
-  period: PartnershipPeriod;
-}) {
-  return (
-    <div className={cn("r-card r-rise p-4 sm:p-5", !active && "opacity-70")} style={{ animationDelay: `${delay}ms`, outline: active ? "2px solid var(--r-accent)" : undefined }}>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="r-label">{tag}</p>
-          <p className="mt-0.5 text-[15px] font-semibold" style={{ color: "var(--ink)" }}>
-            {title}
-          </p>
-        </div>
-        <span className="r-chip">
-          {active ? "s'applique maintenant" : "simulation"} · {periodLabel(period, frequency)}
-        </span>
-      </div>
-      <div className="space-y-2.5">
-        {steps.map((step) => (
-          <div key={step.label} className="flex items-baseline justify-between gap-3">
-            <span className="text-[13px]" style={{ color: step.strong ? "var(--ink)" : "var(--ink-2)", fontWeight: step.strong ? 600 : 500 }}>
-              {step.label}
-              {step.note ? (
-                <span className="ml-2 text-[11px]" style={{ color: "var(--r-warn)" }}>
-                  {step.note}
-                </span>
-              ) : null}
-            </span>
-            <span className="shrink-0 whitespace-nowrap text-[13.5px] font-semibold tabular-nums" style={{ color: step.strong ? "var(--ink)" : "var(--ink-2)" }}>
-              {step.value < 0 ? "−" : ""} {usd(Math.abs(step.value))}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 flex items-baseline justify-between gap-3 border-t pt-4" style={{ borderColor: "var(--line)" }}>
-        <span className="text-[14px] font-semibold" style={{ color: "var(--ink)" }}>
-          {resultLabel}
-        </span>
-        <span className="shrink-0 whitespace-nowrap text-[22px] font-semibold tabular-nums" style={{ color: result >= 0 ? "var(--r-good)" : "var(--r-bad)" }}>
-          {usd(result)}
-        </span>
-      </div>
-      <p className="r-sub mt-1.5">{note}</p>
     </div>
   );
 }

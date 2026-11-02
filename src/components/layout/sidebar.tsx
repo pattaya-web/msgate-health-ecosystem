@@ -184,6 +184,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     label: "Comptabilité",
     items: [
       { href: "/tresorerie", label: "Trésorerie", icon: Landmark },
+      { href: "/profit", label: "Profit calculator", icon: Calculator },
       { href: "/grille-fournisseur", label: "Grille fournisseur", icon: Package },
       { href: "/factures", label: "Factures", icon: ReceiptText },
       { href: "/invoices", label: "Facturation", icon: Receipt },
