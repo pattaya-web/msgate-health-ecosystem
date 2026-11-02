@@ -392,8 +392,8 @@ export function MetaUploader() {
           createNewAdset,
           adsetPerUpload,
           autoDivide: autoDivide ? 5 : null,
-          // Dans la devise du compte (euros pour Venom et Badgal), comme chez Meta.
-          dailyBudget: budgetNumber || null,
+          // Dans la devise du compte (euros pour Venom et Badgal), comme chez Meta. Rien en CBO : c'est la campagne qui porte le budget.
+          dailyBudget: cboKept ? null : budgetNumber || null,
           adsetName: newAdsetName.trim() || undefined,
           adNamePattern: useNamePattern ? namePattern : "{file}",
           startNumber: Math.max(1, Number(startNumber) || 1),
@@ -426,6 +426,10 @@ export function MetaUploader() {
   const usdRate = accountCurrency === "USD" ? 1 : fx[accountCurrency] > 0 ? fx[accountCurrency] : null;
   const budgetNumber = Number(budget.replace(",", ".")) || 0;
   const currencySign = accountCurrency === "EUR" ? "€" : accountCurrency === "USD" ? "$" : accountCurrency;
+  /** La campagne où partent les pubs, et si elle porte le budget (CBO) : alors les ad sets n'en ont pas. */
+  const targetCampaign = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
+  const newCampaign = createNewCampaign || multiCampaigns;
+  const cboKept = Boolean(targetCampaign?.dailyBudget) && !newCampaign;
 
   const allEnhanceKeys = useMemo(
     () => [...IMAGE_ENHANCEMENTS, ...VIDEO_ENHANCEMENTS, ...CAROUSEL_ENHANCEMENTS].map((item) => item.key),
@@ -731,8 +735,19 @@ export function MetaUploader() {
                 className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
               />
             </label>
+            {cboKept && targetCampaign ? (
+              <div className="rounded-lg bg-violet-50 px-3 py-2 text-[12px] text-violet-900 ring-1 ring-violet-200">
+                <p className="font-semibold">
+                  Campagne en CBO : {targetCampaign.dailyBudget.toLocaleString("fr-FR")} {currencySign} / jour
+                </p>
+                <p className="mt-0.5 text-[11px] text-violet-700">
+                  C’est la campagne « {targetCampaign.name} » qui porte le budget : Meta le répartit entre ses ad sets, le nouvel ad set n’a
+                  pas de budget à lui. Pour le changer, modifie le budget de la campagne dans l’Ads Manager.
+                </p>
+              </div>
+            ) : (
             <label className="block text-[12px] font-medium text-slate-600">
-              Budget / jour ({currencySign})
+              {targetCampaign?.dailyBudget && newCampaign ? "Budget / jour de la nouvelle campagne (CBO)" : "Budget / jour du nouvel ad set (ABO)"} ({currencySign})
               <input
                 inputMode="decimal"
                 value={budget}
@@ -746,15 +761,12 @@ export function MetaUploader() {
                 </span>
               ) : null}
               <span className="mt-1 block text-[11px] font-normal text-slate-400">
-                {(() => {
-                  const parent = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
-                  if (!parent?.dailyBudget) return "Budget par ad set (ABO) : appliqué à chaque nouvel ad set.";
-                  return createNewCampaign || multiCampaigns
-                    ? "Budget au niveau campagne (CBO) : appliqué à la nouvelle campagne."
-                    : "Cette campagne porte le budget (CBO) : les ad sets n'en ont pas. Coche « Create new campaign » pour lui donner ce budget.";
-                })()}
+                {targetCampaign?.dailyBudget
+                  ? "Budget au niveau campagne (CBO) : appliqué à la nouvelle campagne."
+                  : "Budget par ad set (ABO) : appliqué à chaque nouvel ad set."}
               </span>
             </label>
+            )}
           </div>
         ) : null}
       </Card>
