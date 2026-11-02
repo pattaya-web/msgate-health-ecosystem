@@ -1562,7 +1562,11 @@ export default function AdsPage() {
       </div>
 
       <div className="order-1 lg:sticky lg:top-[72px] lg:z-20 lg:order-1">
-        <ObjectivesBar data={objectives} loading={objectivesLoading} />
+        <ObjectivesBar
+          data={objectives}
+          loading={objectivesLoading}
+          periodLabel={preset === "today" ? "aujourd'hui" : preset === "yesterday" ? "hier" : preset === "last_3d" ? "3 j" : preset === "last_7d" ? "7 j" : preset === "last_30d" ? "30 j" : "période"}
+        />
       </div>
 
       <div
