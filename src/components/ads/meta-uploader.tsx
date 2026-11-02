@@ -702,6 +702,18 @@ export function MetaUploader() {
       <Card title="Campaign Options">
         <CheckRow label="Create new campaign" checked={createNewCampaign} onChange={setCreateNewCampaign} />
         <CheckRow label="Create multiple new campaigns" checked={multiCampaigns} onChange={setMultiCampaigns} />
+        {(() => {
+          // Les pubs créées dans une campagne en pause ne tournent pas (et sont cachées par le filtre « Actifs » de l'Ads Manager).
+          const target = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
+          if (!target || target.status === "ACTIVE" || createNewCampaign || multiCampaigns) return null;
+          return (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800 ring-1 ring-amber-200">
+              La campagne « {target.name} » est <strong>en pause</strong> chez Meta : les pubs créées dedans ne tourneront pas et
+              n’apparaîtront pas dans l’Ads Manager (filtre « Actifs »). Coche « Create new campaign » pour une nouvelle campagne qui
+              part en live, ou rallume celle-ci dans l’Ads Manager.
+            </p>
+          );
+        })()}
       </Card>
       <Card title="Ad Set Options">
         <CheckRow label="Create new ad set" checked={createNewAdset} onChange={setCreateNewAdset} />
