@@ -1,6 +1,35 @@
 import { buildAssociateOverview } from "@/lib/associate/scope";
 import { buildPilotage, type PilotageReport } from "@/lib/pilotage/build";
 import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
+import { getSupplierGrids, gridPicker, parcelCost } from "@/lib/metrics/supplier-grid";
+import { reportToday } from "@/lib/report-tz";
+
+/**
+ * Les produits suivis dans la barre : le BOGO à 29,99 $ (objectifs sur les
+ * vraies ventes des 7 derniers jours) et le test à 39,99 $ (objectifs
+ * calculés : prix − colis de 2 colliers à la grille − frais). `pattern`
+ * repère ses campagnes par leur nom, pour les colorer avec ses seuils.
+ */
+const PRODUCTS = [
+  { id: "bogo-2999", label: "Produit 29,99 $", price: 29.99, pattern: "" },
+  { id: "bogo-3999", label: "Produit 39,99 $", price: 39.99, pattern: "39[.,]?99" },
+];
+
+type Thresholds = { breakeven: number | null; hold: number | null; scale: number | null };
+
+export type ProductObjectives = Thresholds & {
+  id: string;
+  label: string;
+  price: number;
+  /** « ventes 7 j » : calculé sur les vraies commandes ; « grille » : prix − colis de 2 colliers − frais. */
+  source: "ventes 7 j" | "grille";
+  cpaMax: number | null;
+  cpaTarget: number | null;
+  /** Les mêmes seuils ramenés au ROAS Meta (lignes de l'Ads Manager). */
+  meta: Thresholds;
+  /** Repère les campagnes du produit par leur nom ; vide = toutes les autres. */
+  pattern: string;
+};
 
 /**
  * La barre « Objectifs » de l'Ads Manager : le ROAS réel global (ventes ÷
@@ -34,6 +63,8 @@ export type ObjectivesBar = {
   spendCap: number | null;
   budgetsTotal: number;
   cpc: { today: number | null; avg7: number | null };
+  /** Les objectifs de chaque produit (29,99 $ puis 39,99 $). */
+  products: ProductObjectives[];
   builtAt: string;
 };
 
@@ -45,11 +76,16 @@ export async function buildObjectivesBar(start: string, end: string): Promise<Ob
   const key = `${start}_${end}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < 2 * 60_000) return hit.value;
-  const [pilotage, overview, traffic] = await Promise.all([
+  const [pilotage, overview, traffic, grids] = await Promise.all([
     buildPilotage(),
     buildAssociateOverview(start, end),
     isShopifySalesConfigured() ? fetchShopifyTraffic(start, end).catch(() => null) : Promise.resolve(null),
+    getSupplierGrids(),
   ]);
+  const grid = gridPicker(grids, () => null)({ number: Number.MAX_SAFE_INTEGER, day: reportToday() });
+  const factor = pilotage.thresholds.metaFactor;
+  const toMeta = (value: number | null) => (value == null ? null : round2(factor != null ? value * factor : value));
+  const t = pilotage.thresholds;
   const rate = pilotage.objectives.processingRate / 100;
   const revenue = overview.sales.revenue;
   const orders = overview.sales.orders;
@@ -77,6 +113,36 @@ export async function buildObjectivesBar(start: string, end: string): Promise<Ob
     spendCap: pilotage.objectives.spendCap,
     budgetsTotal: pilotage.objectives.budgetsTotal,
     cpc: { today: pilotage.ads.cpcToday, avg7: pilotage.ads.cpc7 },
+    products: PRODUCTS.map((product, index): ProductObjectives => {
+      if (index === 0) {
+        // Le produit actuel : les seuils calculés sur les vraies ventes des 7 derniers jours.
+        return {
+          ...product,
+          source: "ventes 7 j",
+          breakeven: t.breakeven,
+          hold: t.hold,
+          scale: t.scale,
+          cpaMax: pilotage.objectives.cpaMax,
+          cpaTarget: pilotage.objectives.cpaTarget,
+          meta: t.meta,
+        };
+      }
+      // Un nouveau prix : colis de 2 colliers à la grille (BOGO) et frais de paiement, mêmes écarts de paliers.
+      const margin = product.price - parcelCost(grid, 2) - product.price * rate;
+      const breakeven = margin > 0 ? product.price / margin : null;
+      const hold = breakeven != null ? breakeven * (1.8 / 1.62) : null;
+      const scale = breakeven != null ? breakeven * (2.0 / 1.62) : null;
+      return {
+        ...product,
+        source: "grille",
+        breakeven: breakeven != null ? round2(breakeven) : null,
+        hold: hold != null ? round2(hold) : null,
+        scale: scale != null ? round2(scale) : null,
+        cpaMax: margin > 0 ? round2(margin) : null,
+        cpaTarget: margin > 0 ? round2(margin * 0.75) : null,
+        meta: { breakeven: toMeta(breakeven), hold: toMeta(hold), scale: toMeta(scale) },
+      };
+    }),
     builtAt: new Date().toISOString(),
   };
   cache.set(key, { at: Date.now(), value });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
-import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy } from "@/lib/meta/uploader";
+import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy, type UploadProgress } from "@/lib/meta/uploader";
 import { REPORT_CURRENCY, fxRates } from "@/lib/fx";
 import { sessionFromRequest } from "@/lib/auth/request";
 import { appendJournal } from "@/lib/pilotage/journal";
@@ -68,6 +68,39 @@ export async function POST(request: Request) {
       assertAccountInScope(String(body.accountId), scoped);
       // Les modèles (campagne, ad set, pub source) doivent eux aussi venir de ses comptes.
       await assertObjectsInScope([body.sourceCampaignId, body.sourceAdsetId, body.sourceAdId].filter((id): id is string => Boolean(id)), scoped);
+    }
+    // ?stream=1 : la progression étape par étape (une ligne JSON par étape), pour la fenêtre de suivi de l'uploader.
+    if (new URL(request.url).searchParams.get("stream") === "1") {
+      const who = sessionFromRequest(request)?.email ?? "?";
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const send = (event: UploadProgress | Record<string, unknown>) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          try {
+            const result = await createAdsFromTemplate(body, send);
+            await appendJournal({
+              who,
+              action: "create",
+              level: "ad",
+              objectId: null,
+              objectName: `${result.ads.length} pub(s) : ${result.ads.slice(0, 4).map((ad) => ad.name).join(", ")}${result.ads.length > 4 ? "…" : ""}`,
+              campaignId: result.campaignId ?? null,
+              campaignName: "",
+              accountId: String(body.accountId).replace(/^act_/, ""),
+              before: null,
+              after: `${result.ads.length} pub(s) dans ${result.adsetCount} ad set(s)`,
+              currency: null,
+              source: "uploader",
+              note: body.createNewCampaign ? "nouvelle campagne" : "",
+            }).catch(() => null);
+            send({ kind: "done", ...result });
+          } catch (error) {
+            send({ kind: "error", message: error instanceof Error ? error.message : "Création ads impossible" });
+          }
+          controller.close();
+        },
+      });
+      return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
     }
     const result = await createAdsFromTemplate(body);
     // Le journal de la page Pilotage : chaque envoi de l'uploader y est noté.

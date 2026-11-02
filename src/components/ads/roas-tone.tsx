@@ -17,6 +17,9 @@ export type RoasThresholds = { breakeven: number | null; hold: number | null; sc
 
 export const RoasBreakevenContext = createContext<RoasThresholds | null>(null);
 
+/** Les seuils d'un autre produit (ex. 39,99 $) : ses campagnes sont repérées par leur nom (`pattern`). */
+export const ProductThresholdsContext = createContext<Array<{ pattern: string; thresholds: RoasThresholds }>>([]);
+
 export type RoasLevel = "loss" | "hold" | "good" | "scale";
 
 export function roasLevel(roas: number | null | undefined, thresholds: RoasThresholds | null): RoasLevel | null {

@@ -220,7 +220,16 @@ function adName(pattern: string, fileName: string, campaign: string, adset: stri
   return formatAdName(pattern, { fileName, campaign, adset, index, start });
 }
 
-export async function createAdsFromTemplate(input: CreateAdsInput) {
+/**
+ * La progression d'un envoi, étape par étape, pour la fenêtre de suivi de
+ * l'uploader : le plan (combien de créas, d'ad sets, de pubs), puis chaque
+ * créa, la campagne, chaque ad set et chaque pub, réussis ou refusés.
+ */
+export type UploadProgress =
+  | { kind: "plan"; creatives: number; adsets: number; ads: number; newCampaign: boolean }
+  | { kind: "creative" | "campaign" | "adset" | "ad"; label: string; ok: boolean; message?: string };
+
+export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (event: UploadProgress) => void = () => {}) {
   if (!input.media.length) throw new Error("Ajoute au moins un média");
   if (!input.sourceAdsetId && !input.sourceCampaignId) {
     throw new Error("Sélectionne une campagne / un ad set source pour copier les settings");
@@ -336,6 +345,7 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
    * plus d'ad set allumé et vide comme le 01/11/2026.
    */
   const planned: Array<{ group: number; media: UploadedMedia; name: string; creativeId: string }> = [];
+  onProgress({ kind: "plan", creatives: input.media.length, adsets: makesAdsets ? groups.length : 0, ads: input.media.length, newCampaign: input.createNewCampaign });
   let index = 0;
   for (let g = 0; g < groups.length; g++) {
     for (const media of groups[g]) {
@@ -361,9 +371,11 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
           creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, postBody);
         }
         if (creative.error || !creative.id) {
+          onProgress({ kind: "creative", label: name, ok: false, message: metaMessage(creative.error) });
           throw new Error(`Post ${storyId} refusé par Meta — ${metaMessage(creative.error)} Rien n'a été créé dans le compte.`);
         }
         planned.push({ group: g, media, name, creativeId: creative.id });
+        onProgress({ kind: "creative", label: name, ok: true });
         continue;
       }
       const titleList = headlines.length ? headlines : [fileStem(media.fileName)];
@@ -422,9 +434,11 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
       }
       if (creative.error || !creative.id) {
+        onProgress({ kind: "creative", label: name, ok: false, message: metaMessage(creative.error) });
         throw new Error(`Créa refusée par Meta (${media.fileName}) — ${metaMessage(creative.error)} Rien n'a été créé dans le compte.`);
       }
       planned.push({ group: g, media, name, creativeId: creative.id });
+      onProgress({ kind: "creative", label: name, ok: true });
     }
   }
 
@@ -448,7 +462,11 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
       // Campagne ABO (budget sur les ad sets) : Meta exige ce champ depuis fin 2026 ; false = chaque ad set garde son budget.
       ...(!sourceCampaign.daily_budget && !sourceCampaign.lifetime_budget ? { is_adset_budget_sharing_enabled: false } : {}),
     });
-    if (created.error || !created.id) throw new Error(`Campagne refusée par Meta — ${metaMessage(created.error)}`);
+    if (created.error || !created.id) {
+      onProgress({ kind: "campaign", label: plannedCampaignName, ok: false, message: metaMessage(created.error) });
+      throw new Error(`Campagne refusée par Meta — ${metaMessage(created.error)}`);
+    }
+    onProgress({ kind: "campaign", label: plannedCampaignName, ok: true });
     campaignId = created.id;
   }
   if (!campaignId) throw new Error("Campagne cible manquante");
@@ -483,7 +501,11 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         ...(sourceAdset.instagram_actor_id ? { instagram_actor_id: sourceAdset.instagram_actor_id } : {}),
         is_dynamic_creative: targetDynamic,
       });
-      if (created.error || !created.id) throw new Error(`Ad set refusé par Meta — ${metaMessage(created.error)}`);
+      if (created.error || !created.id) {
+        onProgress({ kind: "adset", label: adsetNameOf(g), ok: false, message: metaMessage(created.error) });
+        throw new Error(`Ad set refusé par Meta — ${metaMessage(created.error)}`);
+      }
+      onProgress({ kind: "adset", label: adsetNameOf(g), ok: true });
       adsetId = created.id;
       createdAdsets.push(adsetId);
     }
@@ -496,7 +518,11 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         creative: { creative_id: row.creativeId },
         status,
       });
-      if (ad.error || !ad.id) throw new Error(`Pub refusée par Meta (${row.media.fileName}) — ${metaMessage(ad.error)}`);
+      if (ad.error || !ad.id) {
+        onProgress({ kind: "ad", label: row.name, ok: false, message: metaMessage(ad.error) });
+        throw new Error(`Pub refusée par Meta (${row.media.fileName}) — ${metaMessage(ad.error)}`);
+      }
+      onProgress({ kind: "ad", label: row.name, ok: true });
       createdAds.push({ id: ad.id, name: row.name });
     }
   }

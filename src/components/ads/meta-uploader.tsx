@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { UploadProgress, type ProgressItem, type UploadProgressState } from "@/components/ads/upload-progress";
 import {
   AD_NAME_TOKENS,
   formatAdName,
@@ -115,6 +116,8 @@ export function MetaUploader() {
   const [paused, setPaused] = useState(false);
   const [startNumber, setStartNumber] = useState("1");
   const [busy, setBusy] = useState<string | null>(null);
+  /** La fenêtre de suivi de l'envoi (en bas à droite). */
+  const [progress, setProgress] = useState<UploadProgressState | null>(null);
   const [copyLoaded, setCopyLoaded] = useState(false);
   /** Budget / jour et nom du nouvel ad set, pré-remplis depuis l'ad set modèle. */
   const [budget, setBudget] = useState("");
@@ -369,20 +372,39 @@ export function MetaUploader() {
     if (!files.length && !postIds.length) return toast.error("Ajoute des photos / vidéos ou des Post ID d’abord");
     if (!adsetId && !campaignId) return toast.error("Sélectionne une campagne / un ad set source");
     setBusy("create");
+    // La fenêtre de suivi : d'abord les médias, puis ce que le serveur annonce étape par étape.
+    const count = files.length + postIds.length;
+    const newCamp = createNewCampaign || multiCampaigns;
+    const guessAdsets = adsetPerUpload ? count : autoDivide ? Math.ceil(count / 5) : createNewAdset || newCamp ? 1 : 0;
+    let items: ProgressItem[] = files.map((file, i) => ({ id: `media-${i}`, step: "media", label: file.name, status: "pending" }));
+    let total = files.length + count + (newCamp ? 1 : 0) + guessAdsets + count;
+    const startedAt = Date.now();
+    const show = (patch: Partial<UploadProgressState> = {}) =>
+      setProgress((current) => ({ phase: "running", startedAt, total, items, ...(current?.startedAt === startedAt ? current : {}), ...patch, ...(patch.items ? {} : { items }), ...(patch.total ? {} : { total }) }));
+    const setItem = (id: string, patch: Partial<ProgressItem>) => {
+      items = items.map((item) => (item.id === id ? { ...item, ...patch } : item));
+      show();
+    };
+    show();
     try {
       const uploaded: UploadedMedia[] = [];
-      for (const file of files) {
+      for (const [i, file] of files.entries()) {
+        setItem(`media-${i}`, { status: "running" });
         const form = new FormData();
         form.set("accountId", accountId);
         form.set("file", file);
         const res = await fetch("/api/meta/upload/media", { method: "POST", body: form });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error);
+        const body = await res.json().catch(() => ({ error: `Envoi impossible (${res.status})` }));
+        if (!res.ok) {
+          setItem(`media-${i}`, { status: "error", message: body.error || "Envoi refusé" });
+          throw new Error(`Média refusé (${file.name}) : ${body.error || "envoi impossible"}. Rien n'a été créé dans le compte.`);
+        }
+        setItem(`media-${i}`, { status: "ok" });
         uploaded.push(body.media);
         if (!turbo) await new Promise((r) => setTimeout(r, 250));
       }
       for (const postId of postIds) uploaded.push({ kind: "post", postId, fileName: postLabel(postId) });
-      const res = await fetch("/api/meta/upload", {
+      const res = await fetch("/api/meta/upload?stream=1", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -413,13 +435,51 @@ export function MetaUploader() {
           media: uploaded,
         }),
       });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error);
-      toast.success(`${body.ads?.length || 0} ads créées`);
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({ error: `Erreur ${res.status}` }));
+        throw new Error(body.error || "Création ads impossible");
+      }
+      // Une ligne JSON par étape, au fil de l'eau.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      type Done = { ads?: Array<{ name: string }>; adsetCount?: number };
+      let result: Done | null = null;
+      let failure: string | null = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as { kind: string; label?: string; ok?: boolean; message?: string; creatives?: number; adsets?: number; ads?: unknown; newCampaign?: boolean; adsetCount?: number };
+          if (event.kind === "plan") {
+            total = files.length + (event.creatives ?? 0) + (event.newCampaign ? 1 : 0) + (event.adsets ?? 0) + (typeof event.ads === "number" ? event.ads : 0);
+            show({ total });
+          } else if (event.kind === "done") {
+            result = event as unknown as Done;
+          } else if (event.kind === "error") {
+            failure = event.message ?? "Création ads impossible";
+          } else if (event.label) {
+            items = [...items, { id: `${event.kind}-${items.length}`, step: event.kind as ProgressItem["step"], label: event.label, status: event.ok ? "ok" : "error", message: event.message }];
+            show();
+          }
+        }
+      }
+      if (failure) throw new Error(failure);
+      const finished = result as Done | null;
+      const made = finished?.ads?.length ?? 0;
+      const adsetsMade = finished?.adsetCount ?? 1;
+      setProgress((current) => (current ? { ...current, items, phase: "done", summary: `${made} pub${made > 1 ? "s" : ""} créée${made > 1 ? "s" : ""} dans ${adsetsMade} ad set${adsetsMade > 1 ? "s" : ""}${paused ? " (en pause)" : ""}.` } : current));
+      toast.success(`${made} ads créées`);
       setFiles([]);
       setPostText("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Create ads impossible");
+      const message = error instanceof Error ? error.message : "Create ads impossible";
+      setProgress((current) => (current ? { ...current, items, phase: "error", error: message } : current));
+      toast.error(message);
     } finally {
       setBusy(null);
     }
@@ -1038,6 +1098,7 @@ export function MetaUploader() {
       >
         {busy === "create" ? "Creating ads…" : "Create Ads"}
       </button>
+      {progress ? <UploadProgress state={progress} onClose={() => setProgress(null)} /> : null}
     </div>
   );
 }

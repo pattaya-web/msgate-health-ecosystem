@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- fbcdn URLs are signed and short-lived, the optimizer cannot cache them. */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useContext } from "react";
 import { usePublishHermesContext } from "@/components/ask-hermes/page-context";
 import { createPortal } from "react-dom";
 import {
@@ -45,7 +45,7 @@ import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
 import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type PromoTarget } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
-import { RoasBreakevenContext, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
+import { ProductThresholdsContext, RoasBreakevenContext, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
 import { ObjectivesBar } from "@/components/ads/objectives-bar";
 import type { ObjectivesBar as Objectives } from "@/lib/metrics/objectives";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
@@ -1499,6 +1499,7 @@ export default function AdsPage() {
 
   return (
     <RoasBreakevenContext.Provider value={objectives?.thresholds.meta ?? null}>
+    <ProductThresholdsContext.Provider value={(objectives?.products ?? []).filter((product) => product.pattern).map((product) => ({ pattern: product.pattern, thresholds: product.meta }))}>
     <div className="flex w-full flex-col gap-2.5 pb-8">
       {/* Header: stack on mobile, row on desktop */}
       <div className="order-1 flex flex-col gap-2 lg:order-1 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1570,7 +1571,7 @@ export default function AdsPage() {
         </div>
       </div>
 
-      <div className="order-1 lg:sticky lg:top-[72px] lg:z-20 lg:order-1">
+      <div className="order-1 lg:order-1">
         <ObjectivesBar
           data={objectives}
           loading={objectivesLoading}
@@ -2081,6 +2082,7 @@ export default function AdsPage() {
 
       <CreativePanel adId={panelAd} onOpenChange={(next) => !next && setPanelAd(null)} />
     </div>
+    </ProductThresholdsContext.Provider>
     </RoasBreakevenContext.Provider>
   );
 }
@@ -2142,7 +2144,15 @@ function countAlertsInCampaign(
   return { hs, dead };
 }
 
-function CampaignRow({
+/** Une campagne d'un autre produit (39,99 $…) est colorée avec les seuils de ce produit. */
+function CampaignRow(props: RowShared & { campaign: CampaignNode; account: AccountNode }) {
+  const products = useContext(ProductThresholdsContext);
+  const hit = products.find((product) => new RegExp(product.pattern, "i").test(props.campaign.name));
+  const row = <CampaignRowInner {...props} />;
+  return hit ? <RoasBreakevenContext.Provider value={hit.thresholds}>{row}</RoasBreakevenContext.Provider> : row;
+}
+
+function CampaignRowInner({
   campaign,
   account,
   ...shared
