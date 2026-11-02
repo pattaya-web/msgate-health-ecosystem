@@ -45,8 +45,9 @@ import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
 import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type PromoTarget } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
-import { RoasBreakevenContext, ROAS_ORANGE_BAND, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
-import type { Breakeven } from "@/lib/metrics/breakeven";
+import { RoasBreakevenContext, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
+import { ObjectivesBar } from "@/components/ads/objectives-bar";
+import type { ObjectivesBar as Objectives } from "@/lib/metrics/objectives";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
 
@@ -978,7 +979,8 @@ export default function AdsPage() {
   const [agencyLabel, setAgencyLabel] = useState("");
   const [agencyBusy, setAgencyBusy] = useState(false);
   const [storedTokens, setStoredTokens] = useState<Array<{ id: string; label: string; hint: string }>>([]);
-  const [breakeven, setBreakeven] = useState<Breakeven | null>(null);
+  const [objectives, setObjectives] = useState<Objectives | null>(null);
+  const [objectivesLoading, setObjectivesLoading] = useState(false);
   const [shopify, setShopify] = useState<{
     netSales: number;
     orders: number;
@@ -1111,18 +1113,21 @@ export default function AdsPage() {
     };
   }, [preset, range.start, range.end]);
 
-  // Le ROAS breakeven de la période (page Profit) : il colore le ROAS des campagnes, ad sets et créas.
+  // La barre « Objectifs » : ROAS réel global, CPA, site, CPC, dépense et profit, avec les seuils
+  // recalculés depuis la grille fournisseur. Ses seuils au ROAS Meta colorent les campagnes, ad sets et créas.
   useEffect(() => {
     let cancelled = false;
     const window = frRange(preset, range);
     const timer = setTimeout(() => {
-      void fetch(`/api/metrics/breakeven?start=${window.start}&end=${window.end}`)
+      setObjectivesLoading(true);
+      void fetch(`/api/metrics/objectives?start=${window.start}&end=${window.end}`)
         .then((res) => (res.ok ? res.json() : null))
-        .then((body: { breakeven?: Breakeven | null } | null) => {
-          if (!cancelled) setBreakeven(body?.breakeven ?? null);
+        .then((body: Objectives | null) => {
+          if (!cancelled && body?.thresholds) setObjectives(body);
         })
-        .catch(() => {
-          if (!cancelled) setBreakeven(null);
+        .catch(() => undefined)
+        .finally(() => {
+          if (!cancelled) setObjectivesLoading(false);
         });
     }, 0);
     return () => {
@@ -1484,7 +1489,7 @@ export default function AdsPage() {
   }, [groups]);
 
   return (
-    <RoasBreakevenContext.Provider value={breakeven?.roasBreakeven ?? null}>
+    <RoasBreakevenContext.Provider value={objectives?.thresholds.meta ?? null}>
     <div className="flex w-full flex-col gap-2.5 pb-8">
       {/* Header: stack on mobile, row on desktop */}
       <div className="order-1 flex flex-col gap-2 lg:order-1 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1554,6 +1559,16 @@ export default function AdsPage() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="order-1 lg:sticky lg:top-[72px] lg:z-20 lg:order-1">
+        <ObjectivesBar
+          data={objectives}
+          loading={objectivesLoading}
+          periodLabel={
+            preset === "today" ? "aujourd'hui" : preset === "yesterday" ? "hier" : preset === "last_3d" ? "3 j" : preset === "last_7d" ? "7 j" : preset === "last_30d" ? "30 j" : "période"
+          }
+        />
       </div>
 
       <div
@@ -1666,7 +1681,7 @@ export default function AdsPage() {
           <p
             className={cn(
               "mt-0.5 truncate text-[15px] font-semibold leading-none tracking-tight tabular-nums sm:text-[17px]",
-              !shopify || !metaSpend ? "text-slate-400" : roasToneFor(shopifyRoas, breakeven?.roasBreakeven ?? null)
+              !shopify || !metaSpend ? "text-slate-400" : roasToneFor(shopifyRoas, objectives?.thresholds ?? null)
             )}
           >
             {shopifyLoading || (loading && !tree)
@@ -1675,13 +1690,8 @@ export default function AdsPage() {
                 ? shopifyRoas.toFixed(2)
                 : "—"}
           </p>
-          <p
-            className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400"
-            title={`ROAS breakeven = CA ÷ (CA − coût des articles − frais de paiement). Rouge en dessous, orange jusqu'à +${ROAS_ORANGE_BAND.toFixed(1)}, vert au-dessus.`}
-          >
-            {breakeven?.roasBreakeven != null
-              ? `Breakeven ${breakeven.roasBreakeven.toFixed(2)}${breakeven.cpaMax != null ? ` · CPA max ${formatCurrency(breakeven.cpaMax)}` : ""}`
-              : " "}
+          <p className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400">
+            {objectives?.thresholds.breakeven != null ? `Shopify ÷ spend actifs · breakeven ${objectives.thresholds.breakeven.toFixed(2)}` : " "}
           </p>
         </div>
       </div>

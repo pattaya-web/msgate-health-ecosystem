@@ -22,7 +22,7 @@ import { getLiveShopifySales, reportDay, shopifyDirectMode } from "@/lib/shopify
 export type CogsProductRow = { key: string; name: string; units: number; unitCost: number; cogs: number; fallback: boolean };
 
 /** Une ligne du coût à la grille : les commandes de N colliers chiffrées par une même grille. */
-export type CogsGridRow = { grid: string; quantity: number; orders: number; unitCost: number; cogs: number };
+export type CogsGridRow = { grid: string; quantity: number; orders: number; unitCost: number; cogs: number; revenue: number };
 
 export type CogsGrid = {
   /** Commandes chiffrées à la grille (remboursées en entier comprises, à 0). */
@@ -69,7 +69,7 @@ function gridTally() {
   const byDay: Record<string, number> = {};
   const tally = { orders: 0, refundedOrders: 0, total: 0 };
   return {
-    add(grid: SupplierGrid, quantity: number, refunded: boolean, day: string) {
+    add(grid: SupplierGrid, quantity: number, refunded: boolean, day: string, revenue = 0) {
       tally.orders += 1;
       if (refunded) {
         tally.refundedOrders += 1;
@@ -77,9 +77,10 @@ function gridTally() {
       }
       const cost = parcelCost(grid, quantity);
       const key = `${grid.id}:${quantity}`;
-      const row = rows.get(key) ?? { grid: grid.label, quantity, orders: 0, unitCost: cost, cogs: 0 };
+      const row = rows.get(key) ?? { grid: grid.label, quantity, orders: 0, unitCost: cost, cogs: 0, revenue: 0 };
       row.orders += 1;
       row.cogs += cost;
+      row.revenue += revenue;
       rows.set(key, row);
       tally.total += cost;
       byDay[day] = (byDay[day] ?? 0) + cost;
@@ -91,7 +92,7 @@ function gridTally() {
         orders: tally.orders,
         refundedOrders: tally.refundedOrders,
         total: round(tally.total),
-        rows: [...rows.values()].map((row) => ({ ...row, cogs: round(row.cogs) })).sort((a, b) => a.grid.localeCompare(b.grid) || a.quantity - b.quantity),
+        rows: [...rows.values()].map((row) => ({ ...row, cogs: round(row.cogs), revenue: round(row.revenue) })).sort((a, b) => a.grid.localeCompare(b.grid) || a.quantity - b.quantity),
         byDay: Object.fromEntries(Object.entries(byDay).map(([day, cost]) => [day, round(cost)])),
       };
     },
@@ -207,7 +208,7 @@ export async function buildSalesBreakdown(params: {
         const paid = paidByOrder.get(orderId) ?? 0;
         const refunded = paid > 0 && (refundedByOrder.get(orderId) ?? 0) >= paid - 0.01;
         const grid = pickGrid({ number: orderNumber(order?.shopifyName), day: (order?.createdAt || day).slice(0, 10) });
-        total += gridCost.add(grid, quantity, refunded, day);
+        total += gridCost.add(grid, quantity, refunded, day, paid);
         units += quantity;
         continue;
       }
@@ -291,7 +292,7 @@ async function shopifyBreakdown(params: { start: string; end: string; stores?: s
       const refundedTotal = order.refunds.reduce((sum, refund) => sum + Math.max(0, refund.amount), 0);
       const refunded = order.total > 0 && refundedTotal >= order.total - 0.01;
       const day = reportDay(order.createdAt);
-      total += gridCost.add(pickGrid({ number: orderNumber(order.name), day }), quantity, refunded, day);
+      total += gridCost.add(pickGrid({ number: orderNumber(order.name), day }), quantity, refunded, day, order.total);
       units += quantity;
       continue;
     }

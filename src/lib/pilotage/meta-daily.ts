@@ -3,8 +3,7 @@ import { knownAccounts } from "@/lib/associate/meta-fast";
 /**
  * Meta jour par jour, au niveau de chaque pub, pour la page Pilotage : un
  * appel d'insights par compte (time_increment=1) plutôt qu'un arbre complet
- * par jour. Plus l'historique d'achats de chaque pub (depuis sa création) et
- * son post ID, relus au plus toutes les 30 min.
+ * par jour.
  */
 
 const GRAPH = "https://graph.facebook.com";
@@ -40,8 +39,6 @@ export type AdDay = {
   lpv: number;
 };
 
-export type AdHistory = { purchases: number; spend: number; postId: string | null };
-
 type Paged<T> = { data?: T[]; paging?: { next?: string }; error?: { message: string } };
 
 async function pages<T>(url: string): Promise<T[]> {
@@ -58,8 +55,8 @@ async function pages<T>(url: string): Promise<T[]> {
 }
 
 const state = ((globalThis as typeof globalThis & {
-  __msgatePilotageMeta?: { daily: Map<string, { at: number; rows: AdDay[] }>; history: Map<string, { at: number; map: Map<string, AdHistory> }> };
-}).__msgatePilotageMeta ??= { daily: new Map(), history: new Map() });
+  __msgatePilotageMeta?: { daily: Map<string, { at: number; rows: AdDay[] }> };
+}).__msgatePilotageMeta ??= { daily: new Map() });
 
 async function scopedAccounts(accountIds: string[]) {
   const { list, apiVersion } = await knownAccounts();
@@ -111,34 +108,4 @@ export async function adDailyInsights(accountIds: string[], start: string, end: 
   const rows = perAccount.flat();
   state.daily.set(key, { at: Date.now(), rows });
   return rows;
-}
-
-/** Achats et dépense de chaque pub depuis sa création, et son post ID. Gardés 30 minutes. */
-export async function adHistory(accountIds: string[]): Promise<Map<string, AdHistory>> {
-  const key = accountIds.join(",");
-  const hit = state.history.get(key);
-  if (hit && Date.now() - hit.at < 30 * 60_000) return hit.map;
-  const { apiVersion, accounts } = await scopedAccounts(accountIds);
-  const map = new Map<string, AdHistory>();
-  await Promise.all(
-    accounts.map(async (account) => {
-      const token = `access_token=${encodeURIComponent(account.token)}`;
-      const [lifetime, ads] = await Promise.all([
-        pages<{ ad_id?: string; spend?: string; actions?: ActionRow[] }>(
-          `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?level=ad&date_preset=maximum&fields=ad_id,spend,actions&limit=500&${token}`
-        ),
-        pages<{ id: string; creative?: { effective_object_story_id?: string; object_story_id?: string } }>(
-          `${GRAPH}/${apiVersion}/act_${account.accountId}/ads?fields=id,creative{effective_object_story_id,object_story_id}&limit=500&${token}`
-        ),
-      ]);
-      for (const ad of ads) map.set(ad.id, { purchases: 0, spend: 0, postId: ad.creative?.effective_object_story_id ?? ad.creative?.object_story_id ?? null });
-      for (const row of lifetime) {
-        if (!row.ad_id) continue;
-        const current = map.get(row.ad_id) ?? { purchases: 0, spend: 0, postId: null };
-        map.set(row.ad_id, { ...current, purchases: pick(row.actions, PURCHASE_ACTIONS), spend: Number(row.spend) || 0 });
-      }
-    })
-  );
-  state.history.set(key, { at: Date.now(), map });
-  return map;
 }

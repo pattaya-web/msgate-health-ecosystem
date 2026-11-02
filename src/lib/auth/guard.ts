@@ -63,11 +63,12 @@ const ASSOCIATE_READ = new Set([
   "/api/shopify/daily",
   // Page Profit (tableau jour par jour) et couleurs du ROAS dans l'Ads Manager : son périmètre Venom seulement.
   "/api/associate/spend-daily",
-  "/api/metrics/breakeven",
   // La grille fournisseur en lecture (définition du coût des colliers dans le calculateur) ; la modifier reste réservé à l'admin.
   "/api/accounting/supplier-grid",
   // La page Pilotage (Venom) : décisions du jour, alertes, créas, tests, journal.
   "/api/pilotage",
+  // La barre « Objectifs » de l'Ads Manager.
+  "/api/metrics/objectives",
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",
@@ -79,8 +80,6 @@ const ASSOCIATE_WRITE = new Set([
   "/api/meta/upload",
   "/api/meta/upload/media",
   "/api/meta/upload/copy",
-  "/api/pilotage/journal",
-  "/api/pilotage/tests",
 ]);
 
 /**

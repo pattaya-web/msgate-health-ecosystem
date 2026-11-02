@@ -323,6 +323,14 @@ export function listDisputes(from: string, to: string) {
   return listAll<ReignDispute>("/v1/disputes", { from, to, storeIds: storeIdsParam(config) }, 500);
 }
 
+export type ReignDashboardApproval = { from: string; to: string; approvedCount: number; declinedCount: number; approvalRate: number; declineRate: number };
+
+/** L'approbation par client unique sur les ventes directes (jours de New York) : la « conversion » du checkout Reign. */
+export function getDashboardApproval(from: string, to: string) {
+  const config = getReignConfig()!;
+  return reignFetch<ReignDashboardApproval>("/v1/dashboard/approval", { from, to, storeIds: storeIdsParam(config) });
+}
+
 /** Le chiffre officiel de Reign pour une plage (≤ 365 jours), en USD. */
 export function getDashboardSales(from: string, to: string) {
   const config = getReignConfig()!;

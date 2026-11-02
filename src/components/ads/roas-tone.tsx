@@ -3,25 +3,53 @@
 import { createContext, useContext } from "react";
 
 /**
- * La couleur du ROAS dans l'Ads Manager, calée sur le ROAS breakeven de la
- * période (page Profit : CA ÷ (CA − coût des articles − frais)) :
- * rouge sous le breakeven, orange jusqu'à breakeven + 0,2, vert au-dessus.
- * Tant que le breakeven n'est pas connu, l'ancien repère (1,2) sert.
+ * La couleur du ROAS dans l'Ads Manager, sur 4 paliers recalculés depuis la
+ * grille fournisseur, le panier moyen et les frais (page Pilotage) :
+ *  - rouge sous le breakeven : on perd de l'argent, baisser les budgets ;
+ *  - orange jusqu'au palier « hold » : rentable mais fragile, ne rien toucher ;
+ *  - vert jusqu'au palier « scale » : rentable, +20 % sur un ad set par 48 h ;
+ *  - vert foncé au-delà : on scale, +30 % par 48 h.
+ * Les campagnes, ad sets et créas sont jugés avec les seuils ramenés au ROAS
+ * Meta (fournis par le contexte) ; le ROAS réel global avec les seuils réels.
+ * Tant que les seuils ne sont pas connus, l'ancien repère (1,2) sert.
  */
-export const RoasBreakevenContext = createContext<number | null>(null);
+export type RoasThresholds = { breakeven: number | null; hold: number | null; scale: number | null };
 
-export const ROAS_ORANGE_BAND = 0.2;
+export const RoasBreakevenContext = createContext<RoasThresholds | null>(null);
 
-export function roasToneFor(roas: number, breakeven: number | null) {
-  if (!roas) return "text-slate-400";
-  if (breakeven == null) return roas >= 1.2 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";
-  if (roas < breakeven) return "text-rose-600 dark:text-rose-400";
-  if (roas < breakeven + ROAS_ORANGE_BAND) return "text-amber-600 dark:text-amber-400";
-  return "text-emerald-600 dark:text-emerald-400";
+export type RoasLevel = "loss" | "hold" | "good" | "scale";
+
+export function roasLevel(roas: number | null | undefined, thresholds: RoasThresholds | null): RoasLevel | null {
+  if (!roas || !thresholds?.breakeven) return null;
+  if (roas < thresholds.breakeven) return "loss";
+  if (thresholds.hold != null && roas < thresholds.hold) return "hold";
+  if (thresholds.scale != null && roas < thresholds.scale) return "good";
+  return "scale";
 }
 
-/** La fonction de couleur du ROAS, avec le breakeven de la page. */
+export const ROAS_LEVEL_CLASS: Record<RoasLevel, string> = {
+  loss: "text-rose-600 dark:text-rose-400",
+  hold: "text-amber-600 dark:text-amber-400",
+  good: "text-emerald-500 dark:text-emerald-400",
+  scale: "text-emerald-800 font-bold dark:text-emerald-300",
+};
+
+export const ROAS_LEVEL_TEXT: Record<RoasLevel, string> = {
+  loss: "on perd de l'argent · baisser les budgets",
+  hold: "rentable mais fragile · ne rien toucher",
+  good: "rentable · +20 % sur un ad set par 48 h",
+  scale: "on scale · +30 % par 48 h, la hyper peut monter",
+};
+
+export function roasToneFor(roas: number, thresholds: RoasThresholds | null) {
+  if (!roas) return "text-slate-400";
+  const level = roasLevel(roas, thresholds);
+  if (!level) return roas >= 1.2 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";
+  return ROAS_LEVEL_CLASS[level];
+}
+
+/** La fonction de couleur du ROAS (Meta) des lignes de l'Ads Manager. */
 export function useRoasTone() {
-  const breakeven = useContext(RoasBreakevenContext);
-  return (roas: number) => roasToneFor(roas, breakeven);
+  const thresholds = useContext(RoasBreakevenContext);
+  return (roas: number) => roasToneFor(roas, thresholds);
 }
