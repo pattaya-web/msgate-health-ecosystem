@@ -1435,8 +1435,13 @@ export default function AdsPage() {
     [groups, fx]
   );
   void totals;
+  // La vraie dépense de la période : tous les comptes, campagnes coupées comprises (jamais le seul filtre « Actifs »).
+  const metaSpendTotal = useMemo(
+    () => (tree?.accounts ?? []).reduce((sum, account) => sum + account.metrics.spend * (fx[(account.currency || "USD").toUpperCase()] ?? 1), 0),
+    [tree, fx]
+  );
   const shopifyRevenue = shopify?.netSales ?? 0;
-  const shopifyRoas = metaSpend > 0 && shopify ? shopifyRevenue / metaSpend : 0;
+  const shopifyRoas = metaSpendTotal > 0 && shopify ? shopifyRevenue / metaSpendTotal : 0;
 
   const adsAlerts = useMemo(() => collectAdsAlerts(groups), [groups]);
   const hsAdIds = useMemo(() => new Map(adsAlerts.hs.map((item) => [item.adId, item.target] as const)), [adsAlerts]);
@@ -1654,14 +1659,17 @@ export default function AdsPage() {
         <div className="min-w-0 rounded-xl bg-white px-2 py-1.5 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-white/[0.06]">
           <div className="flex items-center gap-1">
             <p className="truncate text-[9px] font-semibold uppercase tracking-[0.04em] text-slate-500 dark:text-slate-400">
-              {activeOnly ? "Spend Meta · Actifs" : query.trim() ? "Spend Meta · Recherche" : "Spend Meta"}
+              Spend Meta · total
             </p>
             <span className="hidden sm:inline">
               <TzBadge source="meta" />
             </span>
           </div>
           <p className="mt-0.5 truncate text-[15px] font-semibold leading-none tracking-tight tabular-nums text-slate-900 dark:text-slate-50 sm:text-[17px]">
-            {loading && !tree ? "—" : formatCurrency(metaSpend)}
+            {loading && !tree ? "—" : formatCurrency(metaSpendTotal)}
+          </p>
+          <p className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400" title="Toute la dépense des comptes sur la période, campagnes coupées comprises. En dessous : la part des campagnes affichées (filtre Actifs / recherche).">
+            {loading && !tree ? " " : `dont ${activeOnly ? "actifs" : query.trim() ? "recherche" : "affiché"} ${formatCurrency(metaSpend)}`}
           </p>
         </div>
 
@@ -1689,17 +1697,17 @@ export default function AdsPage() {
           <p
             className={cn(
               "mt-0.5 truncate text-[15px] font-semibold leading-none tracking-tight tabular-nums sm:text-[17px]",
-              !shopify || !metaSpend ? "text-slate-400" : roasToneFor(shopifyRoas, objectives?.thresholds ?? null)
+              !shopify || !metaSpendTotal ? "text-slate-400" : roasToneFor(shopifyRoas, objectives?.thresholds ?? null)
             )}
           >
             {shopifyLoading || (loading && !tree)
               ? "—"
-              : shopify && metaSpend
+              : shopify && metaSpendTotal
                 ? shopifyRoas.toFixed(2)
                 : "—"}
           </p>
           <p className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400">
-            {objectives?.thresholds.breakeven != null ? `Shopify ÷ spend actifs · breakeven ${objectives.thresholds.breakeven.toFixed(2)}` : " "}
+            {objectives?.thresholds.breakeven != null ? `ROAS réel : Shopify ÷ spend total · minimum ${objectives.thresholds.breakeven.toFixed(2)}` : " "}
           </p>
         </div>
       </div>
