@@ -17,6 +17,9 @@ import {
   type Accent,
 } from "@/components/phoenix/ui";
 import type { ProfitInputs } from "@/lib/metrics/profit-inputs";
+import type { SupplierGrid, SupplierGridConfig } from "@/lib/metrics/supplier-grid";
+import { useAuth } from "@/lib/auth/auth-context";
+import Link from "next/link";
 
 /**
  * Same model as the VIP Club profit calculator, wired to our own figures.
@@ -348,6 +351,27 @@ export function ProfitCalculator({
   );
 
   const simple = !alerts;
+  const { isAdmin, isAssociate } = useAuth();
+  const [grid, setGrid] = useState<SupplierGrid | null>(null);
+
+  // La grille en vigueur, pour définir le coût des colliers (COGS) sous le champ.
+  useEffect(() => {
+    if (!simple) return;
+    let cancelled = false;
+    void fetch("/api/accounting/supplier-grid", { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<SupplierGridConfig>) : null))
+      .then((config) => {
+        if (cancelled || !config?.grids?.length) return;
+        const latest = [...config.grids].sort(
+          (a, b) => (a.fromOrder ?? -1) - (b.fromOrder ?? -1) || (a.fromDate ?? "").localeCompare(b.fromDate ?? "")
+        );
+        setGrid(latest[latest.length - 1]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [simple]);
 
   const result = useMemo(() => {
     // En mode Straight sale, les champs masqués ne comptent pas.
@@ -686,6 +710,26 @@ export function ProfitCalculator({
                 hint={simple ? "Shopify, applis, agent, échantillons… sur la période" : "équipe, agences, logiciels"}
               />
             </div>
+            {simple ? (
+              <div className="mt-2 rounded-lg bg-white/70 px-2.5 py-2 text-[10.5px] leading-snug text-slate-500 ring-1 ring-slate-900/[0.05] dark:bg-slate-900/40 dark:text-slate-400 dark:ring-white/[0.06]">
+                <p>
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">COGS</span> (coût des marchandises vendues) : ce que coûtent les
+                  colliers expédiés, achat et envoi par le fournisseur. Il est calculé commande par commande avec la grille fournisseur, selon le
+                  nombre de colliers du colis ; une commande remboursée en entier compte 0.
+                </p>
+                {grid ? (
+                  <p className="mt-1 tabular-nums">
+                    {grid.label} : {grid.prices.map((price, index) => `${index + 1} collier${index ? "s" : ""} ${price.toFixed(2).replace(".", ",")} $`).join(" · ")} · 5 et plus :
+                    + {grid.extraPerUnit.toFixed(2).replace(".", ",")} $ par collier en plus.
+                  </p>
+                ) : null}
+                {isAdmin && !isAssociate ? (
+                  <Link href="/grille-fournisseur" className="mt-1 inline-block font-semibold text-slate-700 underline underline-offset-2 dark:text-slate-200">
+                    Modifier la grille fournisseur
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
           </Group>
 
           {simple ? null : (

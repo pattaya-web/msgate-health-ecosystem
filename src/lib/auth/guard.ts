@@ -64,6 +64,8 @@ const ASSOCIATE_READ = new Set([
   // Page Profit (tableau jour par jour) et couleurs du ROAS dans l'Ads Manager : son périmètre Venom seulement.
   "/api/associate/spend-daily",
   "/api/metrics/breakeven",
+  // La grille fournisseur en lecture (définition du coût des colliers dans le calculateur) ; la modifier reste réservé à l'admin.
+  "/api/accounting/supplier-grid",
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",

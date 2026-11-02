@@ -4,9 +4,10 @@ import { deleteSupplierGrid, getSupplierGrids, saveSupplierGrid } from "@/lib/me
 
 export const dynamic = "force-dynamic";
 
-/** La grille fournisseur (coût du colis par nombre de colliers) : réservée à l'admin. */
+/** La grille fournisseur (coût du colis par nombre de colliers) : lisible par l'admin et l'associée, modifiable par l'admin seul. */
 export async function GET(request: Request) {
-  if (sessionFromRequest(request)?.role !== "admin") return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+  const role = sessionFromRequest(request)?.role;
+  if (role !== "admin" && role !== "associate") return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   return NextResponse.json({ ok: true, ...(await getSupplierGrids()) });
 }
 
