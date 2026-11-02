@@ -118,10 +118,8 @@ export function MetaUploader() {
   const [copyLoaded, setCopyLoaded] = useState(false);
   /** Budget / jour et nom du nouvel ad set, pré-remplis depuis l'ad set modèle. */
   const [budget, setBudget] = useState("");
-  /** Taux devise du compte → dollar (le budget se saisit en $). */
+  /** Taux devise du compte → dollar : l'équivalent en $ du budget, à titre indicatif. */
   const [fx, setFx] = useState<Record<string, number>>({});
-  /** Le budget du modèle tel que pré-rempli : inchangé, Meta reprend le montant exact du modèle (pas d'arrondi de conversion). */
-  const [prefilledBudget, setPrefilledBudget] = useState("");
   const [newAdsetName, setNewAdsetName] = useState("");
 
   // L'ad copy de la dernière fois, relu au tick suivant (pas de setState synchrone dans l'effet).
@@ -394,8 +392,8 @@ export function MetaUploader() {
           createNewAdset,
           adsetPerUpload,
           autoDivide: autoDivide ? 5 : null,
-          // Saisi en dollars, envoyé à Meta dans la devise du compte.
-          dailyBudget: budget === prefilledBudget ? null : budgetForMeta || null,
+          // Dans la devise du compte (euros pour Venom et Badgal), comme chez Meta.
+          dailyBudget: budgetNumber || null,
           adsetName: newAdsetName.trim() || undefined,
           adNamePattern: useNamePattern ? namePattern : "{file}",
           startNumber: Math.max(1, Number(startNumber) || 1),
@@ -425,10 +423,9 @@ export function MetaUploader() {
   }
 
   const accountCurrency = (accounts.find((row) => row.id === accountId)?.currency || "USD").toUpperCase();
-  /** null : taux inconnu, le budget reste dans la devise du compte. */
   const usdRate = accountCurrency === "USD" ? 1 : fx[accountCurrency] > 0 ? fx[accountCurrency] : null;
   const budgetNumber = Number(budget.replace(",", ".")) || 0;
-  const budgetForMeta = budgetNumber ? Math.round((usdRate ? budgetNumber / usdRate : budgetNumber) * 100) / 100 : 0;
+  const currencySign = accountCurrency === "EUR" ? "€" : accountCurrency === "USD" ? "$" : accountCurrency;
 
   const allEnhanceKeys = useMemo(
     () => [...IMAGE_ENHANCEMENTS, ...VIDEO_ENHANCEMENTS, ...CAROUSEL_ENHANCEMENTS].map((item) => item.key),
@@ -660,10 +657,7 @@ export function MetaUploader() {
                 const picked = adsets.find((row) => row.id === id);
                 const parent = campaigns.find((row) => row.id === picked?.campaignId);
                 const value = picked?.dailyBudget || parent?.dailyBudget || 0;
-                // Le budget du modèle (devise du compte) montré en dollars.
-                const rate = usdRate ?? 1;
-                setBudget(value ? String(Math.round(value * rate)) : "");
-                setPrefilledBudget(value ? String(Math.round(value * rate)) : "");
+                setBudget(value ? String(value) : "");
                 setNewAdsetName("");
               }}
             />
@@ -726,7 +720,7 @@ export function MetaUploader() {
               />
             </label>
             <label className="block text-[12px] font-medium text-slate-600">
-              Budget / jour ({usdRate ? "$" : accountCurrency})
+              Budget / jour ({currencySign})
               <input
                 inputMode="decimal"
                 value={budget}
@@ -735,8 +729,8 @@ export function MetaUploader() {
                 className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
               />
               {usdRate && usdRate !== 1 && budgetNumber ? (
-                <span className="mt-1 block text-[11px] font-normal text-emerald-700">
-                  = {budgetForMeta.toLocaleString("fr-FR")} {accountCurrency} chez Meta (compte en {accountCurrency}, 1 {accountCurrency} = {usdRate.toFixed(3)} $)
+                <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                  ≈ {Math.round(budgetNumber * usdRate).toLocaleString("fr-FR")} $ (compte en {accountCurrency}, 1 {accountCurrency} = {usdRate.toFixed(3)} $)
                 </span>
               ) : null}
               <span className="mt-1 block text-[11px] font-normal text-slate-400">

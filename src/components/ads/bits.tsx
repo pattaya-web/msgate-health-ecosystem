@@ -14,9 +14,9 @@ import { copyText } from "@/components/ads/creative-panel";
 export const BUDGET_STEPS = [50, 75, 120, 150, 210, 270, 330, 390, 450, 550] as const;
 
 /*
- * Les budgets s'affichent et se choisissent en dollars. Les comptes pub de
- * Mady sont en euros chez Meta : on convertit au taux du jour pour l'affichage
- * et on reconvertit en devise du compte avant d'écrire chez Meta.
+ * Les budgets s'affichent et se choisissent dans la devise du compte pub (en
+ * euros pour Venom et Badgal, comme chez Meta). Le taux vers le dollar ne sert
+ * qu'à montrer l'équivalent en $ au survol.
  */
 const FX_KEY = "msgate-budget-fx";
 let budgetFx: Record<string, number> | null = null;
@@ -335,12 +335,12 @@ export function BudgetCell({
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; w: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-  // En dollars dès que le taux est connu ; sinon dans la devise du compte, sans conversion.
-  const rate = rateToUsd(currency);
-  const shown = rate ? value * rate : value;
-  const symbol = rate ? "$" : currency === "EUR" ? "€" : `${currency} `;
-  const label = value > 0 ? `${symbol}${Math.round(shown)}` : "—";
-  const native = rate && rate !== 1 ? ` (${Math.round(value * 100) / 100} ${currency} chez Meta)` : "";
+  // Dans la devise du compte, comme chez Meta ; l'équivalent en dollars au survol.
+  const code = (currency || "USD").toUpperCase();
+  const rate = rateToUsd(code);
+  const symbol = code === "EUR" ? "€" : code === "USD" ? "$" : `${code} `;
+  const label = value > 0 ? `${symbol}${Math.round(value)}` : "—";
+  const native = rate && rate !== 1 && value > 0 ? ` (≈ ${Math.round(value * rate)} $)` : "";
   const quiet = tone === "quiet";
 
   useEffect(() => {
@@ -375,13 +375,12 @@ export function BudgetCell({
   };
 
   const pick = async (next: number) => {
-    if (next === Math.round(shown)) {
+    if (next === Math.round(value)) {
       setOpen(false);
       return;
     }
     setSaving(true);
-    // Le palier choisi en dollars, écrit chez Meta dans la devise du compte.
-    await onSave(rate ? Math.round((next / rate) * 100) / 100 : next);
+    await onSave(next);
     setSaving(false);
     setOpen(false);
   };
@@ -445,11 +444,10 @@ export function BudgetCell({
             >
               <p className="border-b border-slate-900/[0.06] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-white/[0.06] dark:text-emerald-300">
                 Budget / jour · {symbol.trim()}
-                {native ? <span className="ml-1 font-normal normal-case text-slate-400">converti en {currency} pour Meta</span> : null}
               </p>
               <div className="grid grid-cols-2 gap-1 p-1.5">
                 {BUDGET_STEPS.map((step) => {
-                  const active = Math.round(shown) === step;
+                  const active = Math.round(value) === step;
                   return (
                     <button
                       key={step}
