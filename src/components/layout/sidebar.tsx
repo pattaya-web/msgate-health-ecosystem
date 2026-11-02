@@ -3,39 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  BarChart3,
-  Calculator,
-  Clapperboard,
-  ChevronDown,
-  Download,
-  Eye,
-  FolderOpen,
-  GripVertical,
-  Handshake,
-  HardDrive,
-  ImagePlus,
-  Landmark,
-  Library,
-  Lightbulb,
-  LogOut,
-  type LucideIcon,
-  Mail,
-  Megaphone,
-  Network,
-  Package,
-  PanelLeftClose,
-  Receipt,
-  ReceiptText,
-  HandCoins,
-  Settings,
-  ShieldAlert,
-  ShoppingBag,
-  Sparkles,
-  Upload,
-  Video,
-  Workflow,
-} from "lucide-react";
+import { BarChart3, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { BrandLogo } from "@/components/layout/brand-logo";
@@ -127,6 +95,7 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
     id: "straight-sale",
     label: "Venom",
     items: [
+      { href: "/pilotage", label: "Pilotage", icon: Compass },
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
       { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
@@ -171,6 +140,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     id: "straight-sale",
     label: "Venom",
     items: [
+      { href: "/pilotage", label: "Pilotage", icon: Compass },
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
       { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },

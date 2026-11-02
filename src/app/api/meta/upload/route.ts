@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
 import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy } from "@/lib/meta/uploader";
 import { REPORT_CURRENCY, fxRates } from "@/lib/fx";
+import { sessionFromRequest } from "@/lib/auth/request";
+import { appendJournal } from "@/lib/pilotage/journal";
 import { OutOfScopeError, assertAccountInScope, assertObjectsInScope, associateAccountsFor } from "@/lib/associate/meta-access";
 
 export const dynamic = "force-dynamic";
@@ -68,6 +70,22 @@ export async function POST(request: Request) {
       await assertObjectsInScope([body.sourceCampaignId, body.sourceAdsetId, body.sourceAdId].filter((id): id is string => Boolean(id)), scoped);
     }
     const result = await createAdsFromTemplate(body);
+    // Le journal de la page Pilotage : chaque envoi de l'uploader y est noté.
+    await appendJournal({
+      who: sessionFromRequest(request)?.email ?? "?",
+      action: "create",
+      level: "ad",
+      objectId: null,
+      objectName: `${result.ads.length} pub(s) : ${result.ads.slice(0, 4).map((ad) => ad.name).join(", ")}${result.ads.length > 4 ? "…" : ""}`,
+      campaignId: result.campaignId ?? null,
+      campaignName: "",
+      accountId: String(body.accountId).replace(/^act_/, ""),
+      before: null,
+      after: `${result.ads.length} pub(s) dans ${result.adsetCount} ad set(s)`,
+      currency: null,
+      source: "uploader",
+      note: body.createNewCampaign ? "nouvelle campagne" : "",
+    }).catch(() => null);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     if (error instanceof OutOfScopeError) return NextResponse.json({ error: error.message }, { status: 403 });

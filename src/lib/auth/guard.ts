@@ -66,6 +66,8 @@ const ASSOCIATE_READ = new Set([
   "/api/metrics/breakeven",
   // La grille fournisseur en lecture (définition du coût des colliers dans le calculateur) ; la modifier reste réservé à l'admin.
   "/api/accounting/supplier-grid",
+  // La page Pilotage (Venom) : décisions du jour, alertes, créas, tests, journal.
+  "/api/pilotage",
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",
@@ -77,6 +79,8 @@ const ASSOCIATE_WRITE = new Set([
   "/api/meta/upload",
   "/api/meta/upload/media",
   "/api/meta/upload/copy",
+  "/api/pilotage/journal",
+  "/api/pilotage/tests",
 ]);
 
 /**
