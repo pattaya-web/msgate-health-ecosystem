@@ -180,8 +180,9 @@ export default function MoneyTalkPage() {
         <div className="px-1">
           <p className="r-label">Calculateur de profit · Straight sale</p>
           <p className="r-sub">
-            Ventes, remboursements, dépense Meta et coût des colliers (grille fournisseur) de la période sont pré-remplis ; change n&apos;importe quel
-            chiffre pour simuler. La paie d&apos;Alison reste celle du tableau ci-dessous.
+            Pré-rempli pour la période (champs « auto ») : ventes, remboursements et retours, commandes, pub Meta, colliers (grille fournisseur) et
+            frais de paiement à 4 %. À compléter à la main si besoin : le frais fixe par transaction et les autres coûts (Shopify, applis, agent…).
+            Tout se modifie pour simuler. La paie d&apos;Alison reste celle du tableau ci-dessous.
           </p>
         </div>
         <ProfitCalculator

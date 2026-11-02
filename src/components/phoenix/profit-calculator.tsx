@@ -178,7 +178,7 @@ function SalesStrip({ inputs, money }: { inputs: ProfitInputs; money: (value: nu
           ["Straight sale", money(c.direct), `${c.directSales} vente(s)`],
           ["Dépense Meta", money(inputs.ads)],
           ["ROAS straight sale", roas],
-          ["COGS", inputs.cogs != null ? money(inputs.cogs) : "—", inputs.cogsDetail ? `${inputs.cogsDetail.units} unité(s)` : undefined],
+          ["Colliers", inputs.cogs != null ? money(inputs.cogs) : "—", inputs.cogsDetail ? `${inputs.cogsDetail.units} collier(s) · grille fournisseur` : undefined],
         ]
       : [
           ["Straight sale", money(c.direct), `${c.directSales} vente(s)`],
@@ -211,7 +211,12 @@ export function ProfitCalculator({
 }: {
   /** D'où viennent les chiffres : /api/profit/inputs (tout le compte) ou /api/associate/profit (Straight sale). */
   endpoint?: string;
-  /** Les alertes Disputifier (RDR, Ethoca, CDRN) : seulement pour l'admin. */
+  /**
+   * Les alertes Disputifier (RDR, Ethoca, CDRN) : seulement pour l'admin. Sans
+   * elles, le calculateur passe en mode Straight sale : ventes, remboursements
+   * et retours, frais de paiement, colliers, pub et autres coûts, rien d'autre
+   * (ni CRM, ni chargebacks, ni réserve).
+   */
   alerts?: boolean;
   /** Clé de mémorisation des taux, distincte par vue. */
   storageKey?: string;
@@ -342,8 +347,12 @@ export function ProfitCalculator({
     [currency]
   );
 
+  const simple = !alerts;
+
   const result = useMemo(() => {
-    const val = (id: FieldId) => Math.max(0, Number(fields[id]) || 0);
+    // En mode Straight sale, les champs masqués ne comptent pas.
+    const hidden: FieldId[] = simple ? ["crmRate", "chargebacks", "chargebackFee", "chargebackValue", "reserveRate", "reserveReleased"] : [];
+    const val = (id: FieldId) => (hidden.includes(id) ? 0 : Math.max(0, Number(String(fields[id]).replace(",", ".")) || 0));
 
     const revenue = val("revenue");
     const refunds = val("refunds");
@@ -389,25 +398,26 @@ export function ProfitCalculator({
       roas: ads > 0 ? revenue / ads : 0,
       /** Per-day profit, which is the number worth watching across windows. */
       perDay: inputs?.range.days ? profit / inputs.range.days : 0,
+      perOrder: val("transactions") > 0 ? profit / val("transactions") : 0,
     };
-  }, [fields, inputs]);
+  }, [fields, inputs, simple]);
 
   const costs = useMemo(
     () =>
       [
-        { label: "Remboursements", value: result.refunds },
-        { label: "Frais de traitement", value: result.processing },
+        { label: simple ? "Remboursements et retours" : "Remboursements", value: result.refunds },
+        { label: simple ? "Frais de paiement" : "Frais de traitement", value: result.processing },
         { label: "CRM", value: result.crmFees },
         { label: "Chargebacks", value: result.cbValue + result.cbFees },
         {
           label: "Frais d'alertes",
           value: result.alerts.rdr + result.alerts.ethoca + result.alerts.cdrn,
         },
-        { label: "COGS et livraison", value: result.cogs },
-        { label: "Publicité", value: result.ads },
+        { label: simple ? "Colliers (grille fournisseur)" : "COGS et livraison", value: result.cogs },
+        { label: simple ? "Pub Meta" : "Publicité", value: result.ads },
         { label: "Autres coûts", value: result.other },
       ].filter((cost) => cost.value > 0),
-    [result]
+    [result, simple]
   );
 
   const symbol = SYMBOLS[currency];
@@ -478,6 +488,7 @@ export function ProfitCalculator({
             <RotateCcw className="h-3.5 w-3.5" />
             Vider les taux
           </GhostButton>
+          {simple ? null : (
           <GhostButton
             onClick={() =>
               setFields((current) => ({
@@ -495,6 +506,7 @@ export function ProfitCalculator({
             <Wand2 className="h-3.5 w-3.5" />
             Taux types
           </GhostButton>
+          )}
         </div>
       </div>
 
@@ -513,10 +525,10 @@ export function ProfitCalculator({
       <div className="grid gap-2 lg:grid-cols-[1fr_320px]">
         {/* Inputs */}
         <div className="min-w-0 space-y-2">
-          <Group title="Revenus et remboursements" accent="emerald">
+          <Group title={simple ? "Ventes, remboursements et retours" : "Revenus et remboursements"} accent="emerald">
             <div className="grid grid-cols-2 gap-2">
               <Field
-                label="Revenu total traité"
+                label={simple ? "Ventes Straight sale" : "Revenu total traité"}
                 value={fields.revenue}
                 onChange={set("revenue")}
                 prefix={symbol}
@@ -530,13 +542,15 @@ export function ProfitCalculator({
                 }
               />
               <Field
-                label="Remboursements, alertes incluses"
+                label={simple ? "Remboursements et retours" : "Remboursements, alertes incluses"}
                 value={fields.refunds}
                 onChange={set("refunds")}
                 prefix={symbol}
                 auto
                 hint={
-                  inputs
+                  simple
+                    ? "remboursés chez Reign et dans Shopify sur la période"
+                    : inputs
                     ? inputs.breakdown.shopifyReturns > 0
                       ? `facturation ${Math.round(inputs.breakdown.phoenixRefunds)} + retours Shopify ${Math.round(inputs.breakdown.shopifyReturns)}`
                       : "remboursements de la facturation"
@@ -546,19 +560,21 @@ export function ProfitCalculator({
             </div>
           </Group>
 
-          <Group title="Traitement des paiements" accent="sky">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Group title={simple ? "Frais de paiement" : "Traitement des paiements"} accent="sky">
+            <div className={cn("grid grid-cols-2 gap-2", simple ? "sm:grid-cols-3" : "sm:grid-cols-4")}>
               <Field
-                label="Frais de traitement"
+                label={simple ? "Frais de paiement" : "Frais de traitement"}
                 value={fields.processingRate}
                 onChange={set("processingRate")}
                 suffix="%"
+                hint={simple ? "le % pris par le processeur sur chaque vente" : undefined}
               />
               <Field
                 label="Frais fixe par transaction"
                 value={fields.fixedProcessingFee}
                 onChange={set("fixedProcessingFee")}
                 prefix={symbol}
+                hint={simple ? "s'il y en a un (ex. 0,30 $), sinon vide" : undefined}
               />
               <Field
                 label="Nombre de transactions"
@@ -568,15 +584,16 @@ export function ProfitCalculator({
                 hint={
                   inputs
                     ? inputs.scope === "straight"
-                      ? "ventes straight sale approuvées"
+                      ? "commandes Straight sale de la période"
                       : `${inputs.breakdown.shopifyOrders} ventes + ${inputs.breakdown.phoenixSubscriptionPayments} prélèvements`
                     : undefined
                 }
               />
-              <Field label="Frais CRM" value={fields.crmRate} onChange={set("crmRate")} suffix="%" />
+              {simple ? null : <Field label="Frais CRM" value={fields.crmRate} onChange={set("crmRate")} suffix="%" />}
             </div>
           </Group>
 
+          {simple ? null : (
           <Group title="Chargebacks" accent="rose">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <Field
@@ -600,6 +617,7 @@ export function ProfitCalculator({
               />
             </div>
           </Group>
+          )}
 
           {alerts ? (
           <Group title="Alertes" accent="amber">
@@ -636,10 +654,10 @@ export function ProfitCalculator({
           </Group>
           ) : null}
 
-          <Group title="Coûts opérationnels" accent="indigo">
+          <Group title={simple ? "Colliers, pub et autres coûts" : "Coûts opérationnels"} accent="indigo">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <Field
-                label="COGS et livraison"
+                label={simple ? "Colliers (grille fournisseur)" : "COGS et livraison"}
                 value={fields.cogs}
                 onChange={set("cogs")}
                 prefix={symbol}
@@ -653,23 +671,24 @@ export function ProfitCalculator({
                 }
               />
               <Field
-                label="Dépense publicitaire"
+                label={simple ? "Pub Meta" : "Dépense publicitaire"}
                 value={fields.ads}
                 onChange={set("ads")}
                 prefix={symbol}
                 auto
-                hint="Meta"
+                hint={simple ? "comptes Venom et Badgal, en $" : "Meta"}
               />
               <Field
                 label="Autres coûts"
                 value={fields.otherCosts}
                 onChange={set("otherCosts")}
                 prefix={symbol}
-                hint="équipe, agences, logiciels"
+                hint={simple ? "Shopify, applis, agent, échantillons… sur la période" : "équipe, agences, logiciels"}
               />
             </div>
           </Group>
 
+          {simple ? null : (
           <Group title="Réserve glissante" accent="violet">
             <div className="grid grid-cols-2 gap-2">
               <Field
@@ -689,13 +708,14 @@ export function ProfitCalculator({
               La réserve réduit la trésorerie disponible, pas le profit réellement généré.
             </p>
           </Group>
+          )}
         </div>
 
         {/* Results */}
         <div className="min-w-0 space-y-2 lg:sticky lg:top-16 lg:self-start">
           <Surface accent={result.profit >= 0 ? "emerald" : "rose"} className="p-3.5">
             <PanelTitle accent={result.profit >= 0 ? "emerald" : "rose"}>
-              Profit net avant réserve
+              {simple ? "Profit net Straight sale" : "Profit net avant réserve"}
             </PanelTitle>
             <p
               className={cn(
@@ -709,10 +729,22 @@ export function ProfitCalculator({
             </p>
             <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
               {result.margin.toFixed(2)} % de marge · {money(result.perDay)} par jour
+              {simple && result.perOrder ? ` · ${money(result.perOrder)} par commande` : ""}
             </p>
           </Surface>
 
           <Surface plain className="p-3">
+            {simple ? (
+              <>
+                <Row label="Ventes Straight sale" value={money(result.revenue)} tone="font-semibold" />
+                <Row label="Remboursements et retours" value={`− ${money(result.refunds)}`} />
+                <Row label="Frais de paiement" value={`− ${money(result.processing)}`} />
+                <Row label="Colliers (grille fournisseur)" value={`− ${money(result.cogs)}`} />
+                <Row label="Pub Meta" value={`− ${money(result.ads)}`} />
+                <Row label="Autres coûts" value={`− ${money(result.other)}`} />
+              </>
+            ) : (
+              <>
             <Row label="Revenu brut" value={money(result.revenue)} tone="font-semibold" />
             <Row label="Remboursements" value={`− ${money(result.refunds)}`} />
             <Row label="Frais de traitement" value={`− ${money(result.processing)}`} />
@@ -725,6 +757,8 @@ export function ProfitCalculator({
             <Row label="COGS et livraison" value={`− ${money(result.cogs)}`} />
             <Row label="Publicité" value={`− ${money(result.ads)}`} />
             <Row label="Autres coûts" value={`− ${money(result.other)}`} />
+              </>
+            )}
             <Row
               label="Total des déductions"
               value={money(result.deductions)}
@@ -732,6 +766,7 @@ export function ProfitCalculator({
             />
           </Surface>
 
+          {simple ? null : (
           <Surface plain className="p-3">
             <Row label="Réserve retenue" value={`− ${money(result.reserve)}`} />
             <Row label="Réserve libérée" value={`+ ${money(result.reserveReleased)}`} />
@@ -746,13 +781,21 @@ export function ProfitCalculator({
               )}
             />
           </Surface>
+          )}
 
           <div className="grid grid-cols-3 gap-2">
-            {[
-              ["Taux de remboursement", `${result.refundRate.toFixed(2)} %`],
-              ["Taux de chargeback", `${result.cbRate.toFixed(2)} %`],
-              ["ROAS", `${result.roas.toFixed(2)}×`],
-            ].map(([label, value]) => (
+            {(simple
+              ? [
+                  ["Taux de retour", `${result.refundRate.toFixed(2)} %`],
+                  ["Profit / commande", money(result.perOrder)],
+                  ["ROAS", `${result.roas.toFixed(2)}×`],
+                ]
+              : [
+                  ["Taux de remboursement", `${result.refundRate.toFixed(2)} %`],
+                  ["Taux de chargeback", `${result.cbRate.toFixed(2)} %`],
+                  ["ROAS", `${result.roas.toFixed(2)}×`],
+                ]
+            ).map(([label, value]) => (
               <MiniStat key={label} label={label} value={value} />
             ))}
           </div>
