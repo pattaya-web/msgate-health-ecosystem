@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMounted } from "@/lib/use-mounted";
 import { createPortal } from "react-dom";
 import { ChevronRight, Download, Loader2, Pause, X } from "lucide-react";
+import { useRoasTone } from "@/components/ads/roas-tone";
 import { cn, formatCurrency, formatCreatedFr, formatNumber } from "@/lib/utils";
 import {
   FLOW_HINTS,
@@ -90,6 +91,7 @@ function money(value: number) {
 }
 
 function MiniStats({ metrics }: { metrics: Metrics }) {
+  const roasTone = useRoasTone();
   return (
     <div className="grid grid-cols-5 gap-0.5 text-center tabular-nums">
       <div>
@@ -121,11 +123,7 @@ function MiniStats({ metrics }: { metrics: Metrics }) {
         <p
           className={cn(
             "mt-0.5 text-[10px] font-semibold leading-none",
-            !metrics.roas
-              ? "text-slate-400"
-              : metrics.roas >= 1.2
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-rose-600 dark:text-rose-400"
+            roasTone(metrics.roas)
           )}
         >
           {metrics.roas ? metrics.roas.toFixed(2) : "—"}

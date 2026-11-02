@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMounted } from "@/lib/use-mounted";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Download, EyeOff, Loader2, Pencil, X } from "lucide-react";
+import { useRoasTone } from "@/components/ads/roas-tone";
 import { cn, formatCurrency, formatCreatedFr, formatNumber, shortenCreativeName } from "@/lib/utils";
 import { PHASE_TABS, BUCKET_LABELS, type CampaignBucket, type PhaseTab } from "@/lib/meta/buckets";
 import { isAccountKilled, isCampaignLive } from "@/lib/meta/account-flow";
@@ -32,12 +33,6 @@ const PHASE_CHIP: Record<CampaignBucket, string> = {
   other: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
 };
 
-function roasTone(roas: number) {
-  if (!roas) return "text-slate-400";
-  return roas >= 1.2
-    ? "text-emerald-600 dark:text-emerald-400"
-    : "text-rose-600 dark:text-rose-400";
-}
 
 const money = (value: number) => (value >= 1000 ? formatCurrency(value) : `${value.toFixed(0)}$`);
 
@@ -51,6 +46,7 @@ function StatRow({
   large?: boolean;
   compact?: boolean;
 }) {
+  const roasTone = useRoasTone();
   return (
     <div className="grid grid-cols-5 gap-0.5 text-center tabular-nums">
       {(
@@ -286,6 +282,7 @@ function CenterPop({
   children: React.ReactNode;
   layer?: number;
 }) {
+  const roasTone = useRoasTone();
   const mounted = useMounted();
 
   useEffect(() => {
@@ -364,6 +361,7 @@ function AdPilot({
   onZip: ZipFn;
   onHide?: (adId: string) => void;
 }) {
+  const roasTone = useRoasTone();
   const zipKey = `dl-${ad.id}`;
   const m = ad.metrics;
   const paused = ad.status !== "ACTIVE";
@@ -509,6 +507,7 @@ function AdsetPilotRow({
   onWrite: WriteFn;
   onOpen: () => void;
 }) {
+  const roasTone = useRoasTone();
   const created = formatCreatedFr(adset.createdTime);
   const live = liveCreatives(adset);
   const refill = needsRefill(adset);

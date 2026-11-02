@@ -15,8 +15,9 @@ import { REPORT_CURRENCY, describeConversion, fxRates } from "@/lib/fx";
 import { peekOrders, peekShopifyFeed, refreshShopifyNow } from "@/lib/reign/snapshot";
 import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
 import { getLiveShopifySales, reportDay, shopifyDirectMode } from "@/lib/shopify/live-sales";
-import { fastScopedSpend } from "@/lib/associate/meta-fast";
+import { fastScopedDailySpend, fastScopedSpend } from "@/lib/associate/meta-fast";
 import { STORAGE_ROOT } from "@/lib/storage-root";
+import { breakevenFrom } from "@/lib/metrics/supplier-grid";
 
 /**
  * Le périmètre « Straight Sale » de l'accès Associé.
@@ -84,6 +85,14 @@ export type AssociateOverview = {
     cogsUnits: number;
     /** Unités vendues sans coût de revient renseigné. */
     cogsMissing: number;
+    /** Le coût à la grille fournisseur (par colis) : commandes chiffrées, dont remboursées en entier (à 0). */
+    cogsGrid: { orders: number; refundedOrders: number } | null;
+    /** Le coût des articles par jour de vente, pour le tableau jour par jour. */
+    cogsByDay: Record<string, number>;
+    /** CA ÷ (CA − coût des articles − frais) : le ROAS sous lequel la pub fait perdre de l'argent. */
+    roasBreakeven: number | null;
+    /** (CA − coût des articles − frais) ÷ commandes : le coût d'acquisition maximum par commande. */
+    cpaMax: number | null;
     fees: number;
     ads: number;
     net: number;
@@ -239,6 +248,37 @@ async function scopedRowsFromTree(start: string, end: string, scope: AssociateSc
 async function scopedRowsFast(start: string, end: string, scope: AssociateScope, force: boolean): Promise<ScopedRow[]> {
   const rows = await fastScopedSpend({ start, end, accountIds: scope.metaAccountIds, keyword: scope.campaignKeyword, force });
   return rows.map((row) => ({ accountId: row.account.accountId, name: row.account.name, currency: row.account.currency, spend: row.spend, campaigns: row.campaigns }));
+}
+
+/**
+ * La dépense Meta du périmètre jour par jour, en dollars : mêmes comptes et
+ * même conversion que la dépense de la période, plus les dépenses saisies à la
+ * main réparties sur leurs jours. Pour le tableau jour par jour de la page Profit.
+ */
+export async function scopedDailySpend(start: string, end: string): Promise<{ days: Record<string, number>; error: string | null }> {
+  const scope = await getAssociateScope();
+  const days: Record<string, number> = {};
+  let error: string | null = null;
+  const manual = MANUAL_AD_SPEND.filter((entry) => entry.start <= end && entry.end >= start);
+  try {
+    const rows =
+      getMetaConfig() && (scope.metaAccountIds.length || scope.campaignKeyword)
+        ? await fastScopedDailySpend({ start, end, accountIds: scope.metaAccountIds, keyword: scope.campaignKeyword })
+        : [];
+    const rates = await fxRates([...rows.map((row) => row.account.currency), ...manual.map((entry) => entry.currency)], REPORT_CURRENCY);
+    const rate = (currency: string) => rates.get((currency || REPORT_CURRENCY).toUpperCase())?.rate ?? 1;
+    for (const row of rows) for (const [day, spend] of Object.entries(row.days)) days[day] = (days[day] ?? 0) + spend * rate(row.account.currency);
+    for (const entry of manual) {
+      const perDay = (entry.amount * rate(entry.currency)) / dayCount(entry.start, entry.end);
+      for (let cursor = new Date(`${entry.start}T00:00:00Z`); cursor <= new Date(`${entry.end}T00:00:00Z`); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+        const day = cursor.toISOString().slice(0, 10);
+        if (day >= start && day <= end) days[day] = (days[day] ?? 0) + perDay;
+      }
+    }
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : "Meta indisponible";
+  }
+  return { days: Object.fromEntries(Object.entries(days).map(([day, spend]) => [day, round2(spend)])), error };
 }
 
 /** La dépense Meta du périmètre : comptes retenus en entier (et ceux au mot-clé), plus les dépenses saisies à la main. */
@@ -473,6 +513,9 @@ export async function buildAssociateOverview(start: string, end: string, options
       cogs: round2(cogs),
       cogsUnits: sales?.cogs?.units ?? 0,
       cogsMissing: sales?.cogs && sales.cogs.defaultUnitCost === 0 ? sales.cogs.unitsAtDefault : 0,
+      cogsGrid: sales?.cogs?.grid ? { orders: sales.cogs.grid.orders, refundedOrders: sales.cogs.grid.refundedOrders } : null,
+      cogsByDay: sales?.cogs?.grid?.byDay ?? {},
+      ...breakevenFrom({ revenue, cogs, fees, orders }),
       fees: round2(fees),
       ads: round2(meta.spend),
       net: round2(net),

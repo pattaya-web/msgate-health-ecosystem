@@ -216,7 +216,8 @@ async function computePeriod(start: string, end: string, today: string, settings
   ]);
   const revenue = sales?.revenue.direct ?? 0;
   const refunds = sales?.refunds.amount ?? 0;
-  const cogs = sales?.cogs?.total ?? 0;
+  // La grille fournisseur ne compte pas ici : Mady règle le coût des colliers à part avec Alison (décision du 02/11/2026).
+  const cogs = (sales?.cogs?.total ?? 0) - (sales?.cogs?.grid?.total ?? 0);
   const fees = (revenue * scope.processingRate) / 100;
   let adsMady = 0;
   let adsAlison = 0;

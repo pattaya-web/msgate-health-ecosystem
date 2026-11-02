@@ -45,6 +45,8 @@ import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
 import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type PromoTarget } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
+import { RoasBreakevenContext, ROAS_ORANGE_BAND, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
+import type { Breakeven } from "@/lib/metrics/breakeven";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
 
@@ -191,12 +193,6 @@ function Cell({
   );
 }
 
-function roasClass(roas: number) {
-  if (!roas) return "text-slate-400";
-  return roas >= 1.2
-    ? "text-emerald-600 dark:text-emerald-400"
-    : "text-rose-600 dark:text-rose-400";
-}
 
 /** Right-side metric strip — same widths as ColumnHeader. */
 function MetricsRail({
@@ -208,6 +204,7 @@ function MetricsRail({
   metrics: Metrics;
   actions?: React.ReactNode;
 }) {
+  const roasTone = useRoasTone();
   return (
     <div className="ml-auto flex shrink-0 items-center gap-2">
       <span className={cn("hidden shrink-0 justify-end text-right lg:flex", COL.budget)}>
@@ -221,7 +218,7 @@ function MetricsRail({
       </Cell>
       <Cell width={COL.cpc}>{metrics.cpc ? metrics.cpc.toFixed(2) : "—"}</Cell>
       <Cell width={COL.ctr}>{metrics.ctr ? `${metrics.ctr.toFixed(1)}%` : "—"}</Cell>
-      <Cell width={COL.roas} strong className={roasClass(metrics.roas)}>
+      <Cell width={COL.roas} strong className={roasTone(metrics.roas)}>
         {metrics.roas ? metrics.roas.toFixed(2) : "—"}
       </Cell>
       <span className={cn("flex shrink-0 items-center justify-end", COL.actions)}>
@@ -514,6 +511,7 @@ const shortDay = (date: string) => {
 };
 
 function HsBadge({ adId, metrics, target }: { adId: string; metrics: Metrics; target: PromoTarget }) {
+  const roasTone = useRoasTone();
   const [open, setOpen] = useState(false);
   const [days, setDays] = useState<DayStat[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -542,7 +540,7 @@ function HsBadge({ adId, metrics, target }: { adId: string; metrics: Metrics; ta
       <td className="py-0.5 pr-3 text-left">{label}</td>
       <td className="py-0.5 pl-2 text-right">{m?.spend ? money(m.spend) : "—"}</td>
       <td className="py-0.5 pl-2 text-right">{m?.purchases || "—"}</td>
-      <td className={cn("py-0.5 pl-2 text-right font-semibold", roasClass(m?.roas ?? 0))}>{m?.roas ? m.roas.toFixed(2) : "—"}</td>
+      <td className={cn("py-0.5 pl-2 text-right font-semibold", roasTone(m?.roas ?? 0))}>{m?.roas ? m.roas.toFixed(2) : "—"}</td>
       <td className="py-0.5 pl-2 text-right">{m?.cpc ? m.cpc.toFixed(2) : "—"}</td>
       <td className="py-0.5 pl-2 text-right">{m?.ctr ? `${m.ctr.toFixed(1)}%` : "—"}</td>
     </tr>
@@ -980,6 +978,7 @@ export default function AdsPage() {
   const [agencyLabel, setAgencyLabel] = useState("");
   const [agencyBusy, setAgencyBusy] = useState(false);
   const [storedTokens, setStoredTokens] = useState<Array<{ id: string; label: string; hint: string }>>([]);
+  const [breakeven, setBreakeven] = useState<Breakeven | null>(null);
   const [shopify, setShopify] = useState<{
     netSales: number;
     orders: number;
@@ -1106,6 +1105,26 @@ export default function AdsPage() {
     })();
     }, 0);
 
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [preset, range.start, range.end]);
+
+  // Le ROAS breakeven de la période (page Profit) : il colore le ROAS des campagnes, ad sets et créas.
+  useEffect(() => {
+    let cancelled = false;
+    const window = frRange(preset, range);
+    const timer = setTimeout(() => {
+      void fetch(`/api/metrics/breakeven?start=${window.start}&end=${window.end}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body: { breakeven?: Breakeven | null } | null) => {
+          if (!cancelled) setBreakeven(body?.breakeven ?? null);
+        })
+        .catch(() => {
+          if (!cancelled) setBreakeven(null);
+        });
+    }, 0);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -1465,6 +1484,7 @@ export default function AdsPage() {
   }, [groups]);
 
   return (
+    <RoasBreakevenContext.Provider value={breakeven?.roasBreakeven ?? null}>
     <div className="flex w-full flex-col gap-2.5 pb-8">
       {/* Header: stack on mobile, row on desktop */}
       <div className="order-1 flex flex-col gap-2 lg:order-1 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1646,11 +1666,7 @@ export default function AdsPage() {
           <p
             className={cn(
               "mt-0.5 truncate text-[15px] font-semibold leading-none tracking-tight tabular-nums sm:text-[17px]",
-              !shopify || !metaSpend
-                ? "text-slate-400"
-                : shopifyRoas >= 1.2
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-rose-600 dark:text-rose-400"
+              !shopify || !metaSpend ? "text-slate-400" : roasToneFor(shopifyRoas, breakeven?.roasBreakeven ?? null)
             )}
           >
             {shopifyLoading || (loading && !tree)
@@ -1658,6 +1674,14 @@ export default function AdsPage() {
               : shopify && metaSpend
                 ? shopifyRoas.toFixed(2)
                 : "—"}
+          </p>
+          <p
+            className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400"
+            title={`ROAS breakeven = CA ÷ (CA − coût des articles − frais de paiement). Rouge en dessous, orange jusqu'à +${ROAS_ORANGE_BAND.toFixed(1)}, vert au-dessus.`}
+          >
+            {breakeven?.roasBreakeven != null
+              ? `Breakeven ${breakeven.roasBreakeven.toFixed(2)}${breakeven.cpaMax != null ? ` · CPA max ${formatCurrency(breakeven.cpaMax)}` : ""}`
+              : " "}
           </p>
         </div>
       </div>
@@ -2040,6 +2064,7 @@ export default function AdsPage() {
 
       <CreativePanel adId={panelAd} onOpenChange={(next) => !next && setPanelAd(null)} />
     </div>
+    </RoasBreakevenContext.Provider>
   );
 }
 

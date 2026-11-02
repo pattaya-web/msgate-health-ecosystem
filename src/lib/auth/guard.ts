@@ -61,6 +61,9 @@ const ASSOCIATE_READ = new Set([
   "/api/meta/asset",
   "/api/meta/upload",
   "/api/shopify/daily",
+  // Page Profit (tableau jour par jour) et couleurs du ROAS dans l'Ads Manager : son périmètre Venom seulement.
+  "/api/associate/spend-daily",
+  "/api/metrics/breakeven",
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",

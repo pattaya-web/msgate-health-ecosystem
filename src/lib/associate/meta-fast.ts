@@ -84,14 +84,8 @@ async function accountSpend(account: FastAccount, apiVersion: string, start: str
   return { account, spend: rows.reduce((sum, row) => sum + row.spend, 0), campaigns: rows };
 }
 
-/**
- * La dépense des comptes retenus (et de ceux dont le nom contient le mot-clé)
- * sur la période, par campagne. Gardée une minute ; `force` relit tout de suite.
- */
-export async function fastScopedSpend(params: { start: string; end: string; accountIds: string[]; keyword: string; force?: boolean }): Promise<FastAccountSpend[]> {
-  const key = `${params.start}:${params.end}:${params.accountIds.join(",")}:${params.keyword}`;
-  const hit = state.spend.get(key);
-  if (!params.force && hit && Date.now() - hit.at < SPEND_TTL_MS) return hit.rows;
+/** Les comptes retenus (et ceux dont le nom contient le mot-clé), avec la version d'API. */
+async function scopedAccounts(params: { accountIds: string[]; keyword: string }) {
   let { list, apiVersion, errors } = await knownAccounts();
   // Un compte du périmètre absent de la liste gardée : on la relit tout de suite (jeton débloqué entre-temps…).
   if (params.accountIds.some((id) => !list.some((account) => account.accountId === id))) ({ list, apiVersion, errors } = await knownAccounts(true));
@@ -105,7 +99,45 @@ export async function fastScopedSpend(params: { start: string; end: string; acco
       `Meta n'ouvre plus ${missing.length > 1 ? "les comptes" : "le compte"} ${missing.join(", ")}${blocked ? ` — ${blocked}` : ""}. Le jeton du BM est à remplacer (Ads Manager › Agence · BM).`
     );
   }
+  return { picked, apiVersion };
+}
+
+/**
+ * La dépense des comptes retenus (et de ceux dont le nom contient le mot-clé)
+ * sur la période, par campagne. Gardée une minute ; `force` relit tout de suite.
+ */
+export async function fastScopedSpend(params: { start: string; end: string; accountIds: string[]; keyword: string; force?: boolean }): Promise<FastAccountSpend[]> {
+  const key = `${params.start}:${params.end}:${params.accountIds.join(",")}:${params.keyword}`;
+  const hit = state.spend.get(key);
+  if (!params.force && hit && Date.now() - hit.at < SPEND_TTL_MS) return hit.rows;
+  const { picked, apiVersion } = await scopedAccounts(params);
   const rows = await Promise.all(picked.map((account) => accountSpend(account, apiVersion, params.start, params.end)));
   state.spend.set(key, { at: Date.now(), rows });
+  return rows;
+}
+
+export type FastDailySpend = { account: FastAccount; days: Record<string, number> };
+
+const daily = new Map<string, { at: number; rows: FastDailySpend[] }>();
+
+/** La dépense jour par jour (fuseau du compte) des comptes retenus, dans leur devise. Gardée une minute. */
+export async function fastScopedDailySpend(params: { start: string; end: string; accountIds: string[]; keyword: string }): Promise<FastDailySpend[]> {
+  const key = `${params.start}:${params.end}:${params.accountIds.join(",")}:${params.keyword}`;
+  const hit = daily.get(key);
+  if (hit && Date.now() - hit.at < SPEND_TTL_MS) return hit.rows;
+  const { picked, apiVersion } = await scopedAccounts(params);
+  const range = `time_range=${encodeURIComponent(JSON.stringify({ since: params.start, until: params.end }))}`;
+  const rows = await Promise.all(
+    picked.map(async (account) => {
+      const body = await graphJson<{ data?: Array<{ date_start?: string; spend?: string }> }>(
+        `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?fields=spend&time_increment=1&limit=500&${range}&access_token=${encodeURIComponent(account.token)}`
+      );
+      if (body.error) throw new Error(`Meta (${account.name}) : ${body.error.message}`);
+      const days: Record<string, number> = {};
+      for (const row of body.data ?? []) if (row.date_start) days[row.date_start] = (days[row.date_start] ?? 0) + (Number(row.spend) || 0);
+      return { account, days };
+    })
+  );
+  daily.set(key, { at: Date.now(), rows });
   return rows;
 }
