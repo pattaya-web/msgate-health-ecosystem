@@ -5,10 +5,11 @@ import { sessionFromRequest } from "@/lib/auth/request";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-/** Le partage 50/50 : ventes, pub de chacun, bénéfice et ce que Mady doit à Alison, période par période. */
-export async function GET() {
+/** MoneyTalk : ventes, colliers, frais, pub et bénéfice, sur la période choisie (?from=&to=&view=daily|weekly|monthly). */
+export async function GET(request: Request) {
   try {
-    return NextResponse.json({ ok: true, ...(await buildPartnershipReport()) });
+    const params = new URL(request.url).searchParams;
+    return NextResponse.json({ ok: true, ...(await buildPartnershipReport({ from: params.get("from"), to: params.get("to"), view: params.get("view") })) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Partage indisponible" }, { status: 502 });
   }
@@ -25,5 +26,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Requête illisible" }, { status: 400 });
   }
   await updatePartnership(body, session.role);
-  return NextResponse.json({ ok: true, ...(await buildPartnershipReport()) });
+  const params = new URL(request.url).searchParams;
+  return NextResponse.json({ ok: true, ...(await buildPartnershipReport({ from: params.get("from"), to: params.get("to"), view: params.get("view") })) });
 }

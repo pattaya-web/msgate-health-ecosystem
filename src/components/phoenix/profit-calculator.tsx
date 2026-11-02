@@ -714,7 +714,7 @@ export function ProfitCalculator({
               <div className="mt-2 rounded-lg bg-white/70 px-2.5 py-2 text-[10.5px] leading-snug text-slate-500 ring-1 ring-slate-900/[0.05] dark:bg-slate-900/40 dark:text-slate-400 dark:ring-white/[0.06]">
                 <p>
                   <span className="font-semibold text-slate-700 dark:text-slate-200">COGS</span> (coût des marchandises vendues) : ce que coûtent les
-                  colliers expédiés, achat et envoi par le fournisseur. Il est calculé commande par commande avec la grille fournisseur, selon le
+                  colliers expédiés : achat, emballage et livraison jusqu&apos;au client, tout compris dans le prix du fournisseur. Il est calculé commande par commande avec la grille fournisseur, selon le
                   nombre de colliers du colis ; une commande remboursée en entier compte 0.
                 </p>
                 {grid ? (

@@ -23,6 +23,8 @@ import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export type Partner = "mady" | "alison";
 export type Frequency = "weekly" | "monthly";
+/** Le découpage affiché dans MoneyTalk : par jour, semaine ou mois (choix d'affichage, la Trésorerie garde le rythme de paiement). */
+export type PeriodView = "daily" | Frequency;
 
 export type PartnershipSettings = {
   /** Premier jour compté dans le partage (jour de Paris). */
@@ -77,6 +79,8 @@ export type PartnershipPeriod = {
 
 export type PartnershipReport = {
   settings: PartnershipSettings;
+  /** La période affichée (du … au …) et son découpage. */
+  range: { from: string; to: string; view: PeriodView };
   processingRate: number;
   accounts: Array<{ id: string; name: string; payer: Partner }>;
   periods: PartnershipPeriod[];
@@ -139,13 +143,13 @@ export type PartnershipPatch = {
   markPaid?: { key?: unknown; amount?: unknown; paid?: unknown; method?: unknown; date?: unknown; note?: unknown };
 };
 
-/** L'associée ne règle que son rythme de paiement ; le reste est à l'admin. */
+/** L'associée règle son rythme de paiement et le début du calcul ; le reste est à l'admin. */
 export async function updatePartnership(patch: PartnershipPatch, role: "admin" | "associate"): Promise<PartnershipSettings> {
   const current = await getPartnershipSettings();
   const next: PartnershipSettings = { ...current, payers: { ...current.payers }, paid: { ...current.paid }, updatedAt: new Date().toISOString() };
   if (patch.frequency === "weekly" || patch.frequency === "monthly") next.frequency = patch.frequency;
+  if (isDay(patch.startDate)) next.startDate = patch.startDate;
   if (role === "admin") {
-    if (isDay(patch.startDate)) next.startDate = patch.startDate;
     if (patch.madyPaysFrom === null || patch.madyPaysFrom === "") next.madyPaysFrom = null;
     else if (isDay(patch.madyPaysFrom)) next.madyPaysFrom = patch.madyPaysFrom;
     if (patch.payers && typeof patch.payers === "object") {
@@ -182,13 +186,15 @@ function addDays(day: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
-/** Les périodes du début du partage à aujourd'hui : semaines du lundi au dimanche, ou mois civils. */
-export function periodsBetween(startDate: string, today: string, frequency: Frequency) {
+/** Les périodes du début du partage à aujourd'hui : jours, semaines du lundi au dimanche, ou mois civils. */
+export function periodsBetween(startDate: string, today: string, frequency: PeriodView) {
   const periods: Array<{ start: string; end: string }> = [];
   let cursor = startDate;
-  while (cursor <= today && periods.length < 200) {
+  while (cursor <= today && periods.length < 400) {
     let end: string;
-    if (frequency === "monthly") {
+    if (frequency === "daily") {
+      end = cursor;
+    } else if (frequency === "monthly") {
       const date = new Date(`${cursor}T00:00:00Z`);
       end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
     } else {
@@ -216,8 +222,8 @@ async function computePeriod(start: string, end: string, today: string, settings
   ]);
   const revenue = sales?.revenue.direct ?? 0;
   const refunds = sales?.refunds.amount ?? 0;
-  // La grille fournisseur ne compte pas ici : Mady règle le coût des colliers à part avec Alison (décision du 02/11/2026).
-  const cogs = (sales?.cogs?.total ?? 0) - (sales?.cogs?.grid?.total ?? 0);
+  // Le coût des colliers (grille fournisseur, livraison au client incluse) est déduit du bénéfice (décision du 02/11/2026).
+  const cogs = sales?.cogs?.total ?? 0;
   const fees = (revenue * scope.processingRate) / 100;
   let adsMady = 0;
   let adsAlison = 0;
@@ -253,11 +259,20 @@ async function computePeriod(start: string, end: string, today: string, settings
   return period;
 }
 
-export async function buildPartnershipReport(): Promise<PartnershipReport> {
+/**
+ * Sans option : du début du calcul à aujourd'hui, au rythme de paiement (ce
+ * que lit la Trésorerie). Avec `from` / `to` / `view` : la période choisie dans
+ * MoneyTalk (jamais avant le début du calcul), découpée par jour, semaine ou mois.
+ */
+export async function buildPartnershipReport(options: { from?: string | null; to?: string | null; view?: string | null } = {}): Promise<PartnershipReport> {
   const settings = await getPartnershipSettings();
   const scope = await getAssociateScope();
   const today = reportToday();
-  const ranges = periodsBetween(settings.startDate, today, settings.frequency);
+  const view: PeriodView = options.view === "daily" || options.view === "weekly" || options.view === "monthly" ? options.view : settings.frequency;
+  const from = isDay(options.from) && options.from > settings.startDate ? options.from : settings.startDate;
+  const to = isDay(options.to) && options.to < today ? options.to : today;
+  // La dernière période s'arrête à la date de fin choisie (sinon elle va jusqu'au bout de la semaine ou du mois en cours).
+  const ranges = periodsBetween(from, to, view).map((range) => (isDay(options.to) && range.end > to ? { ...range, end: to } : range));
   const periods: PartnershipPeriod[] = [];
   // Trois à la fois : Meta et Reign n'aiment pas les rafales.
   for (let index = 0; index < ranges.length; index += 3) {
@@ -281,6 +296,7 @@ export async function buildPartnershipReport(): Promise<PartnershipReport> {
   const paid = sum((period) => period.paid?.amount ?? 0);
   return {
     settings,
+    range: { from, to, view },
     processingRate: scope.processingRate,
     accounts,
     periods,
