@@ -322,7 +322,8 @@ export async function buildPilotage(force = false): Promise<PilotageReport> {
   const spendCap = roas3 != null && roas3 >= 2.2 ? null : roas3 != null && roas3 >= 2.0 ? 1000 : 700;
 
   // 1. Le compte : tout s'effondre en même temps → le site d'abord.
-  // Conversion = nos commandes ÷ visites Shopify (le compteur « checkout terminé » de Shopify retarde de plusieurs jours).
+  // Conversion = nos commandes ÷ visites Shopify. Depuis le 31/10/2026, le paiement se fait hors du checkout Shopify : ses compteurs
+  // « checkout atteint / terminé » restent à 0 alors que les commandes arrivent (vérifié le 02/11/2026).
   const convOf = (traffic: typeof tD1, orders: number) => (traffic && traffic.sessions > 0 ? orders / traffic.sessions : null);
   const d2Fig = dayFigures(d2);
   const checkDay =
@@ -713,7 +714,7 @@ function siteDay(date: string, traffic: Awaited<ReturnType<typeof fetchShopifyTr
   return {
     date,
     sessions: traffic.sessions,
-    // Nos commandes ÷ visites : le « checkout terminé » de Shopify retarde.
+    // Nos commandes ÷ visites : le « checkout terminé » de Shopify ne voit plus le paiement (hors Shopify depuis le 31/10/2026).
     conversion: round2((orders / traffic.sessions) * 100),
     cartRate: round2((traffic.cart / traffic.sessions) * 100),
     checkoutRate: round2((traffic.checkout / traffic.sessions) * 100),
