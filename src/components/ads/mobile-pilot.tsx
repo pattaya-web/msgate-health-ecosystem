@@ -36,7 +36,7 @@ const PHASE_CHIP: Record<CampaignBucket, string> = {
 
 const money = (value: number) => (value >= 1000 ? formatCurrency(value) : `${value.toFixed(0)}$`);
 
-/** Same columns as desktop: Spend · Achats · CPC · CTR · ROAS */
+/** Same columns as desktop: Spend · Achats · CPA · CPC · CTR · ROAS */
 function StatRow({
   metrics,
   large,
@@ -48,13 +48,18 @@ function StatRow({
 }) {
   const roasTone = useRoasTone();
   return (
-    <div className="grid grid-cols-5 gap-0.5 text-center tabular-nums">
+    <div className="grid grid-cols-6 gap-0.5 text-center tabular-nums">
       {(
         [
           { label: "Spend", value: money(metrics.spend), className: "text-slate-900 dark:text-slate-50" },
           {
             label: "Achats",
             value: metrics.purchases ? formatNumber(metrics.purchases) : "—",
+            className: "text-slate-900 dark:text-slate-50",
+          },
+          {
+            label: "CPA",
+            value: metrics.purchases > 0 ? (metrics.spend / metrics.purchases).toFixed(2) : "—",
             className: "text-slate-900 dark:text-slate-50",
           },
           {

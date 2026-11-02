@@ -159,6 +159,7 @@ const COL = {
   budget: "w-[5.5rem]",
   spend: "w-[5.25rem]",
   purchases: "w-12",
+  cpa: "w-14",
   cpc: "w-12",
   ctr: "w-12",
   roas: "w-12",
@@ -217,6 +218,7 @@ function MetricsRail({
       <Cell width={COL.purchases}>
         {metrics.purchases ? formatNumber(metrics.purchases) : "—"}
       </Cell>
+      <Cell width={COL.cpa}>{cpaOf(metrics) ? cpaOf(metrics).toFixed(2) : "—"}</Cell>
       <Cell width={COL.cpc}>{metrics.cpc ? metrics.cpc.toFixed(2) : "—"}</Cell>
       <Cell width={COL.ctr}>{metrics.ctr ? `${metrics.ctr.toFixed(1)}%` : "—"}</Cell>
       <Cell width={COL.roas} strong className={roasTone(metrics.roas)}>
@@ -233,7 +235,10 @@ function MetricsRail({
  * Tri par colonne, comme dans le Gestionnaire de publicités Meta
  * ------------------------------------------------------------------ */
 
-type SortKey = "budget" | "spend" | "purchases" | "cpc" | "ctr" | "roas";
+type SortKey = "budget" | "spend" | "purchases" | "cpa" | "cpc" | "ctr" | "roas";
+
+/** CPA = dépense ÷ achats (Meta), dans la devise du compte ; 0 sans achat. */
+const cpaOf = (metrics: Metrics) => (metrics.purchases > 0 ? metrics.spend / metrics.purchases : 0);
 type SortState = { key: SortKey; dir: "desc" | "asc" } | null;
 const SORT_KEY = "msgate-ads-sort";
 
@@ -241,6 +246,7 @@ const SORT_COLUMNS: Array<{ key: SortKey; label: string; width: string; from?: "
   { key: "budget", label: "Budget/j", width: COL.budget, from: "lg" },
   { key: "spend", label: "Dépense", width: COL.spend },
   { key: "purchases", label: "Achats", width: COL.purchases },
+  { key: "cpa", label: "CPA", width: COL.cpa },
   { key: "cpc", label: "CPC", width: COL.cpc },
   { key: "ctr", label: "CTR", width: COL.ctr },
   { key: "roas", label: "ROAS", width: COL.roas },
@@ -257,6 +263,7 @@ function readSort(): SortState {
 
 function sortValue(node: { metrics: Metrics; dailyBudget?: number | null }, key: SortKey) {
   if (key === "budget") return node.dailyBudget || node.metrics.spend;
+  if (key === "cpa") return cpaOf(node.metrics);
   return node.metrics[key];
 }
 
@@ -542,6 +549,7 @@ function HsBadge({ adId, metrics, target }: { adId: string; metrics: Metrics; ta
       <td className="py-0.5 pl-2 text-right">{m?.spend ? money(m.spend) : "—"}</td>
       <td className="py-0.5 pl-2 text-right">{m?.purchases || "—"}</td>
       <td className={cn("py-0.5 pl-2 text-right font-semibold", roasTone(m?.roas ?? 0))}>{m?.roas ? m.roas.toFixed(2) : "—"}</td>
+      <td className="py-0.5 pl-2 text-right">{m && cpaOf(m) ? cpaOf(m).toFixed(2) : "—"}</td>
       <td className="py-0.5 pl-2 text-right">{m?.cpc ? m.cpc.toFixed(2) : "—"}</td>
       <td className="py-0.5 pl-2 text-right">{m?.ctr ? `${m.ctr.toFixed(1)}%` : "—"}</td>
     </tr>
@@ -591,6 +599,7 @@ function HsBadge({ adId, metrics, target }: { adId: string; metrics: Metrics; ta
                   <th className="pb-1 pl-2 text-right font-semibold">Dépense</th>
                   <th className="pb-1 pl-2 text-right font-semibold">Achats</th>
                   <th className="pb-1 pl-2 text-right font-semibold">ROAS</th>
+                  <th className="pb-1 pl-2 text-right font-semibold">CPA</th>
                   <th className="pb-1 pl-2 text-right font-semibold">CPC</th>
                   <th className="pb-1 pl-2 text-right font-semibold">CTR</th>
                 </tr>

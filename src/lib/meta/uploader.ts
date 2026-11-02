@@ -445,6 +445,8 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
         ? { lifetime_budget: sourceCampaign.lifetime_budget }
         : {}),
       ...(sourceCampaign.promoted_object ? { promoted_object: sourceCampaign.promoted_object } : {}),
+      // Campagne ABO (budget sur les ad sets) : Meta exige ce champ depuis fin 2026 ; false = chaque ad set garde son budget.
+      ...(!sourceCampaign.daily_budget && !sourceCampaign.lifetime_budget ? { is_adset_budget_sharing_enabled: false } : {}),
     });
     if (created.error || !created.id) throw new Error(`Campagne refusée par Meta — ${metaMessage(created.error)}`);
     campaignId = created.id;
