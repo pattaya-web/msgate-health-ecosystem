@@ -118,6 +118,10 @@ export function MetaUploader() {
   const [copyLoaded, setCopyLoaded] = useState(false);
   /** Budget / jour et nom du nouvel ad set, pré-remplis depuis l'ad set modèle. */
   const [budget, setBudget] = useState("");
+  /** Taux devise du compte → dollar (le budget se saisit en $). */
+  const [fx, setFx] = useState<Record<string, number>>({});
+  /** Le budget du modèle tel que pré-rempli : inchangé, Meta reprend le montant exact du modèle (pas d'arrondi de conversion). */
+  const [prefilledBudget, setPrefilledBudget] = useState("");
   const [newAdsetName, setNewAdsetName] = useState("");
 
   // L'ad copy de la dernière fois, relu au tick suivant (pas de setState synchrone dans l'effet).
@@ -257,6 +261,7 @@ export function MetaUploader() {
         const body = await res.json();
         if (!res.ok) throw new Error(body.error);
         setAccounts(body.accounts || []);
+        setFx(body.fx || {});
         if (body.accounts?.[0]) setAccountId(body.accounts[0].id);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Comptes Meta indisponibles");
@@ -389,7 +394,8 @@ export function MetaUploader() {
           createNewAdset,
           adsetPerUpload,
           autoDivide: autoDivide ? 5 : null,
-          dailyBudget: Number(budget.replace(",", ".")) || null,
+          // Saisi en dollars, envoyé à Meta dans la devise du compte.
+          dailyBudget: budget === prefilledBudget ? null : budgetForMeta || null,
           adsetName: newAdsetName.trim() || undefined,
           adNamePattern: useNamePattern ? namePattern : "{file}",
           startNumber: Math.max(1, Number(startNumber) || 1),
@@ -417,6 +423,12 @@ export function MetaUploader() {
       setBusy(null);
     }
   }
+
+  const accountCurrency = (accounts.find((row) => row.id === accountId)?.currency || "USD").toUpperCase();
+  /** null : taux inconnu, le budget reste dans la devise du compte. */
+  const usdRate = accountCurrency === "USD" ? 1 : fx[accountCurrency] > 0 ? fx[accountCurrency] : null;
+  const budgetNumber = Number(budget.replace(",", ".")) || 0;
+  const budgetForMeta = budgetNumber ? Math.round((usdRate ? budgetNumber / usdRate : budgetNumber) * 100) / 100 : 0;
 
   const allEnhanceKeys = useMemo(
     () => [...IMAGE_ENHANCEMENTS, ...VIDEO_ENHANCEMENTS, ...CAROUSEL_ENHANCEMENTS].map((item) => item.key),
@@ -648,7 +660,10 @@ export function MetaUploader() {
                 const picked = adsets.find((row) => row.id === id);
                 const parent = campaigns.find((row) => row.id === picked?.campaignId);
                 const value = picked?.dailyBudget || parent?.dailyBudget || 0;
-                setBudget(value ? String(value) : "");
+                // Le budget du modèle (devise du compte) montré en dollars.
+                const rate = usdRate ?? 1;
+                setBudget(value ? String(Math.round(value * rate)) : "");
+                setPrefilledBudget(value ? String(Math.round(value * rate)) : "");
                 setNewAdsetName("");
               }}
             />
@@ -711,7 +726,7 @@ export function MetaUploader() {
               />
             </label>
             <label className="block text-[12px] font-medium text-slate-600">
-              Budget / jour ({accounts.find((row) => row.id === accountId)?.currency || "devise du compte"})
+              Budget / jour ({usdRate ? "$" : accountCurrency})
               <input
                 inputMode="decimal"
                 value={budget}
@@ -719,6 +734,11 @@ export function MetaUploader() {
                 placeholder="même que le modèle"
                 className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
               />
+              {usdRate && usdRate !== 1 && budgetNumber ? (
+                <span className="mt-1 block text-[11px] font-normal text-emerald-700">
+                  = {budgetForMeta.toLocaleString("fr-FR")} {accountCurrency} chez Meta (compte en {accountCurrency}, 1 {accountCurrency} = {usdRate.toFixed(3)} $)
+                </span>
+              ) : null}
               <span className="mt-1 block text-[11px] font-normal text-slate-400">
                 {(() => {
                   const parent = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));

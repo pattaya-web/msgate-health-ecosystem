@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
 import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy } from "@/lib/meta/uploader";
+import { REPORT_CURRENCY, fxRates } from "@/lib/fx";
 import { OutOfScopeError, assertAccountInScope, assertObjectsInScope, associateAccountsFor } from "@/lib/associate/meta-access";
 
 export const dynamic = "force-dynamic";
@@ -32,8 +33,12 @@ export async function GET(request: Request) {
       }
     }
     if (!accountId) {
-      const accounts = await listUploadAccounts();
-      return NextResponse.json({ accounts: scoped ? accounts.filter((account) => scoped.includes(account.accountId)) : accounts });
+      const all = await listUploadAccounts();
+      const accounts = scoped ? all.filter((account) => scoped.includes(account.accountId)) : all;
+      // Les taux vers le dollar : le budget se saisit en $, Meta le reçoit dans la devise du compte.
+      const rates = await fxRates(new Set(accounts.map((account) => account.currency).filter(Boolean)), REPORT_CURRENCY).catch(() => null);
+      const fx = rates ? Object.fromEntries([...rates.entries()].map(([currency, rate]) => [currency, rate.rate])) : {};
+      return NextResponse.json({ accounts, fx });
     }
     if (scoped) assertAccountInScope(accountId, scoped);
     const tree = await listAccountStructure(accountId);
