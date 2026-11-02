@@ -80,6 +80,7 @@ const ASSOCIATE_WRITE = new Set([
   "/api/meta/upload",
   "/api/meta/upload/media",
   "/api/meta/upload/copy",
+  "/api/meta/ad-copy",
 ]);
 
 /**

@@ -121,6 +121,8 @@ export function MetaUploader() {
   /** Taux devise du compte → dollar : l'équivalent en $ du budget, à titre indicatif. */
   const [fx, setFx] = useState<Record<string, number>>({});
   const [newAdsetName, setNewAdsetName] = useState("");
+  /** Nom de la nouvelle campagne (« Create new campaign ») ; vide = « <modèle> · copy ». */
+  const [newCampaignName, setNewCampaignName] = useState("");
 
   // L'ad copy de la dernière fois, relu au tick suivant (pas de setState synchrone dans l'effet).
   useEffect(() => {
@@ -395,6 +397,7 @@ export function MetaUploader() {
           // Dans la devise du compte (euros pour Venom et Badgal), comme chez Meta. Rien en CBO : c'est la campagne qui porte le budget.
           dailyBudget: cboKept ? null : budgetNumber || null,
           adsetName: newAdsetName.trim() || undefined,
+          campaignName: createNewCampaign || multiCampaigns ? newCampaignName.trim() || undefined : undefined,
           adNamePattern: useNamePattern ? namePattern : "{file}",
           startNumber: Math.max(1, Number(startNumber) || 1),
           headlines,
@@ -429,7 +432,13 @@ export function MetaUploader() {
   /** La campagne où partent les pubs, et si elle porte le budget (CBO) : alors les ad sets n'en ont pas. */
   const targetCampaign = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
   const newCampaign = createNewCampaign || multiCampaigns;
-  const cboKept = Boolean(targetCampaign?.dailyBudget) && !newCampaign;
+  /** La campagne modèle porte le budget (CBO) : ses ad sets, et ceux d'une copie, n'en ont pas. */
+  const cbo = Boolean(targetCampaign?.dailyBudget);
+  const cboKept = cbo && !newCampaign;
+  const budgetHint =
+    usdRate && usdRate !== 1 && budgetNumber
+      ? `≈ ${Math.round(budgetNumber * usdRate).toLocaleString("fr-FR")} $ (compte en ${accountCurrency}, 1 ${accountCurrency} = ${usdRate.toFixed(3)} $)`
+      : null;
 
   const allEnhanceKeys = useMemo(
     () => [...IMAGE_ENHANCEMENTS, ...VIDEO_ENHANCEMENTS, ...CAROUSEL_ENHANCEMENTS].map((item) => item.key),
@@ -704,8 +713,55 @@ export function MetaUploader() {
       )}
 
       <Card title="Campaign Options">
-        <CheckRow label="Create new campaign" checked={createNewCampaign} onChange={setCreateNewCampaign} />
-        <CheckRow label="Create multiple new campaigns" checked={multiCampaigns} onChange={setMultiCampaigns} />
+        <CheckRow
+          label="Create new campaign"
+          checked={createNewCampaign}
+          onChange={(value) => {
+            setCreateNewCampaign(value);
+            // Une nouvelle campagne a forcément son propre ad set.
+            if (value) setCreateNewAdset(true);
+          }}
+        />
+        <CheckRow
+          label="Create multiple new campaigns"
+          checked={multiCampaigns}
+          onChange={(value) => {
+            setMultiCampaigns(value);
+            if (value) setCreateNewAdset(true);
+          }}
+        />
+        {newCampaign ? (
+          <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+            <label className="block text-[12px] font-medium text-slate-600">
+              Nom de la nouvelle campagne
+              <input
+                value={newCampaignName}
+                onChange={(e) => setNewCampaignName(e.target.value)}
+                placeholder={targetCampaign ? `${targetCampaign.name} · copy` : "Choisis d'abord une campagne modèle"}
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
+              />
+              <span className="mt-1 block text-[11px] font-normal text-slate-400">
+                Copie des réglages de « {targetCampaign?.name ?? "la campagne modèle"} » (objectif, enchères{cbo ? ", budget CBO" : ""}).
+              </span>
+            </label>
+            {cbo ? (
+              <label className="block text-[12px] font-medium text-slate-600">
+                Budget / jour de la nouvelle campagne · CBO ({currencySign})
+                <input
+                  inputMode="decimal"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  placeholder="même que le modèle"
+                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
+                />
+                {budgetHint ? <span className="mt-1 block text-[11px] font-normal text-slate-500">{budgetHint}</span> : null}
+                <span className="mt-1 block text-[11px] font-normal text-slate-400">Campagne CBO : c&apos;est elle qui porte le budget, ses ad sets n&apos;en ont pas.</span>
+              </label>
+            ) : (
+              <p className="self-end text-[11px] text-slate-400">Campagne ABO : le budget se règle sur chaque ad set, juste en dessous.</p>
+            )}
+          </div>
+        ) : null}
         {(() => {
           // Les pubs créées dans une campagne en pause ne tournent pas (et sont cachées par le filtre « Actifs » de l'Ads Manager).
           const target = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
@@ -724,7 +780,7 @@ export function MetaUploader() {
         <CheckRow label="Create new ad set per upload or group" checked={adsetPerUpload} onChange={setAdsetPerUpload} />
         <CheckRow label="Auto-divide ads into ad sets" checked={autoDivide} onChange={setAutoDivide} />
         <CheckRow label="Build custom ad set configuration" checked={customAdset} onChange={setCustomAdset} />
-        {createNewAdset || adsetPerUpload || autoDivide ? (
+        {createNewAdset || adsetPerUpload || autoDivide || newCampaign ? (
           <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
             <label className="block text-[12px] font-medium text-slate-600">
               Nom du nouvel ad set
@@ -735,37 +791,28 @@ export function MetaUploader() {
                 className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
               />
             </label>
-            {cboKept && targetCampaign ? (
+            {cbo && targetCampaign ? (
               <div className="rounded-lg bg-violet-50 px-3 py-2 text-[12px] text-violet-900 ring-1 ring-violet-200">
-                <p className="font-semibold">
-                  Campagne en CBO : {targetCampaign.dailyBudget.toLocaleString("fr-FR")} {currencySign} / jour
-                </p>
+                <p className="font-semibold">Pas de budget d&apos;ad set : campagne en CBO</p>
                 <p className="mt-0.5 text-[11px] text-violet-700">
-                  C’est la campagne « {targetCampaign.name} » qui porte le budget : Meta le répartit entre ses ad sets, le nouvel ad set n’a
-                  pas de budget à lui. Pour le changer, modifie le budget de la campagne dans l’Ads Manager.
+                  {newCampaign
+                    ? "C'est la nouvelle campagne qui porte le budget (réglé juste au-dessus) : Meta le répartit entre ses ad sets."
+                    : `C'est la campagne « ${targetCampaign.name} » qui porte le budget (${targetCampaign.dailyBudget.toLocaleString("fr-FR")} ${currencySign} / jour) : Meta le répartit entre ses ad sets. Pour le changer, modifie le budget de la campagne dans l'Ads Manager.`}
                 </p>
               </div>
             ) : (
-            <label className="block text-[12px] font-medium text-slate-600">
-              {targetCampaign?.dailyBudget && newCampaign ? "Budget / jour de la nouvelle campagne (CBO)" : "Budget / jour du nouvel ad set (ABO)"} ({currencySign})
-              <input
-                inputMode="decimal"
-                value={budget}
-                onChange={(e) => setBudget(e.target.value)}
-                placeholder="même que le modèle"
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
-              />
-              {usdRate && usdRate !== 1 && budgetNumber ? (
-                <span className="mt-1 block text-[11px] font-normal text-slate-500">
-                  ≈ {Math.round(budgetNumber * usdRate).toLocaleString("fr-FR")} $ (compte en {accountCurrency}, 1 {accountCurrency} = {usdRate.toFixed(3)} $)
-                </span>
-              ) : null}
-              <span className="mt-1 block text-[11px] font-normal text-slate-400">
-                {targetCampaign?.dailyBudget
-                  ? "Budget au niveau campagne (CBO) : appliqué à la nouvelle campagne."
-                  : "Budget par ad set (ABO) : appliqué à chaque nouvel ad set."}
-              </span>
-            </label>
+              <label className="block text-[12px] font-medium text-slate-600">
+                Budget / jour du nouvel ad set · ABO ({currencySign})
+                <input
+                  inputMode="decimal"
+                  value={budget}
+                  onChange={(e) => setBudget(e.target.value)}
+                  placeholder="même que le modèle"
+                  className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]"
+                />
+                {budgetHint ? <span className="mt-1 block text-[11px] font-normal text-slate-500">{budgetHint}</span> : null}
+                <span className="mt-1 block text-[11px] font-normal text-slate-400">Budget par ad set (ABO) : appliqué à chaque nouvel ad set.</span>
+              </label>
             )}
           </div>
         ) : null}
@@ -818,7 +865,7 @@ export function MetaUploader() {
               const adsetLabel = createNewAdset || adsetPerUpload ? newAdsetName.trim() || `${sourceAdset?.name ?? "Ad set"} · copy` : sourceAdset?.name ?? "Ad set";
               const name = formatAdName(useNamePattern ? namePattern : "{file}", {
                 fileName: file.label,
-                campaign: createNewCampaign && sourceCampaign ? `${sourceCampaign.name} · copy` : sourceCampaign?.name ?? "Campaign",
+                campaign: createNewCampaign || multiCampaigns ? newCampaignName.trim() || (sourceCampaign ? `${sourceCampaign.name} · copy` : "Campaign") : sourceCampaign?.name ?? "Campaign",
                 adset: adsetLabel,
                 index,
                 start: Math.max(1, Number(startNumber) || 1),

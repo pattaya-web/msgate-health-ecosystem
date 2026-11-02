@@ -15,7 +15,7 @@ import { STORAGE_ROOT } from "@/lib/storage-root";
  * deux hausses à moins de 48 h ».
  */
 
-export type JournalAction = "budget" | "status" | "rename" | "create" | "note";
+export type JournalAction = "budget" | "status" | "rename" | "create" | "copy" | "note";
 
 export type JournalEntry = {
   id: string;

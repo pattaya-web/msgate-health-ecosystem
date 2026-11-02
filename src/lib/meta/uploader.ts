@@ -189,6 +189,8 @@ export type CreateAdsInput = {
   dailyBudget?: number | null;
   /** Nom du nouvel ad set (« · 2, · 3 » ajoutés s'il y en a plusieurs). Vide = « <modèle> · copy ». */
   adsetName?: string;
+  /** Nom de la nouvelle campagne (avec « Create new campaign »). Vide = « <modèle> · copy ». */
+  campaignName?: string;
 };
 
 function enroll(enhancements: Record<string, boolean>) {
@@ -294,7 +296,10 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
     );
   }
 
-  const plannedCampaignName = input.createNewCampaign && sourceCampaign?.name ? `${sourceCampaign.name} · copy` : sourceCampaign?.name || "Campaign";
+  const chosenCampaignName = input.campaignName?.trim().slice(0, 200);
+  const plannedCampaignName = input.createNewCampaign
+    ? chosenCampaignName || (sourceCampaign?.name ? `${sourceCampaign.name} · copy` : "Campaign")
+    : sourceCampaign?.name || "Campaign";
 
   const headlines = input.headlines.map((t) => t.trim()).filter(Boolean);
   const bodies = input.bodies.map((t) => t.trim()).filter(Boolean);
@@ -304,7 +309,8 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
     : input.autoDivide && input.autoDivide > 0
       ? chunk(input.media, input.autoDivide)
       : [input.media];
-  const makesAdsets = input.createNewAdset || input.adsetPerUpload || groups.length > 1;
+  // Une nouvelle campagne a toujours ses propres ad sets (sinon les pubs partiraient dans l'ad set de l'ancienne).
+  const makesAdsets = input.createNewAdset || input.adsetPerUpload || groups.length > 1 || input.createNewCampaign;
   const chosenName = input.adsetName?.trim().slice(0, 200);
   const adsetNameOf = (g: number) =>
     makesAdsets
@@ -428,7 +434,7 @@ export async function createAdsFromTemplate(input: CreateAdsInput) {
   if (input.createNewCampaign) {
     if (!sourceCampaign?.objective) throw new Error("La campagne source n’a pas d’objective copiable");
     const created = await graphPost<GraphError & { id?: string }>(`${act}/campaigns`, token, {
-      name: `${sourceCampaign.name} · copy`,
+      name: plannedCampaignName,
       objective: sourceCampaign.objective,
       special_ad_categories: sourceCampaign.special_ad_categories || [],
       status,

@@ -10,7 +10,10 @@ import {
   ExternalLink,
   Image as ImageIcon,
   Loader2,
+  Pencil,
   Play,
+  Plus,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -178,6 +181,47 @@ function Media({ asset, name }: { asset: CreativeAsset; name: string }) {
  * Panel
  * ------------------------------------------------------------------ */
 
+type CopyDraft = { bodies: string[]; titles: string[]; descriptions: string[] };
+
+/** Une liste de textes modifiables (un champ par variante), avec ajout et suppression. */
+function EditList({ label, values, onChange, rows }: { label: string; values: string[]; onChange: (next: string[]) => void; rows: number }) {
+  return (
+    <section className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-400">{label}</p>
+        {values.length < 5 ? (
+          <button
+            type="button"
+            onClick={() => onChange([...values, ""])}
+            className="inline-flex h-6 items-center gap-1 rounded-lg px-2 text-[10px] font-medium text-slate-500 ring-1 ring-slate-900/[0.08] hover:bg-slate-50 dark:text-slate-300 dark:ring-white/[0.08] dark:hover:bg-slate-800"
+          >
+            <Plus className="h-3 w-3" /> Ajouter
+          </button>
+        ) : null}
+      </div>
+      {values.map((value, index) => (
+        <div key={index} className="flex gap-1.5">
+          <textarea
+            value={value}
+            rows={rows}
+            onChange={(event) => onChange(values.map((item, i) => (i === index ? event.target.value : item)))}
+            className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] leading-snug text-slate-800 outline-none focus:ring-2 focus:ring-slate-300 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          />
+          <button
+            type="button"
+            title="Retirer"
+            onClick={() => onChange(values.filter((_, i) => i !== index))}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 ring-1 ring-slate-900/[0.08] hover:text-rose-600 dark:ring-white/[0.08]"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      {!values.length ? <p className="text-[11px] text-slate-400">Aucun — « Ajouter » pour en mettre un.</p> : null}
+    </section>
+  );
+}
+
 export function CreativePanel({
   adId,
   onOpenChange,
@@ -189,6 +233,10 @@ export function CreativePanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
+  /** Le mode « Modifier l'ad copy » : les textes en cours de modification. */
+  const [draft, setDraft] = useState<CopyDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!adId) return;
@@ -199,8 +247,9 @@ export function CreativePanel({
       setError(null);
       setCreative(null);
       setIndex(0);
+      setDraft(null);
       try {
-        const res = await fetch(`/api/meta/creatives?ids=${adId}`);
+        const res = await fetch(`/api/meta/creatives?ids=${adId}${reload ? "&refresh=1" : ""}`);
         const body = await res.json();
         if (cancelled) return;
         if (!res.ok) throw new Error(body.error || "Créa indisponible");
@@ -217,7 +266,28 @@ export function CreativePanel({
     return () => {
       cancelled = true;
     };
-  }, [adId]);
+  }, [adId, reload]);
+
+  const saveCopy = useCallback(async () => {
+    if (!creative || !draft) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/meta/ad-copy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adId: creative.adId, headlines: draft.titles, bodies: draft.bodies, descriptions: draft.descriptions }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Modification impossible");
+      toast.success("Ad copy mis à jour : Meta repasse la pub en examen");
+      setDraft(null);
+      setReload((value) => value + 1);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Modification impossible");
+    } finally {
+      setSaving(false);
+    }
+  }, [creative, draft]);
 
   const copyAll = useCallback(() => {
     if (!creative) return;
@@ -346,17 +416,68 @@ export function CreativePanel({
                 ) : null}
                 <button
                   type="button"
+                  onClick={() =>
+                    setDraft(
+                      draft
+                        ? null
+                        : {
+                            bodies: creative.bodies.length ? [...creative.bodies] : [""],
+                            titles: creative.titles.length ? [...creative.titles] : [""],
+                            descriptions: [...creative.descriptions],
+                          }
+                    )
+                  }
+                  className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-xl bg-slate-900 px-2.5 text-[11px] font-medium text-white transition-colors hover:bg-slate-700 dark:bg-slate-100 dark:text-slate-900"
+                >
+                  <Pencil className="h-3 w-3" />
+                  {draft ? "Annuler" : "Modifier l'ad copy"}
+                </button>
+                <button
+                  type="button"
                   onClick={copyAll}
-                  className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-xl bg-white px-2.5 text-[11px] font-medium text-slate-600 ring-1 ring-slate-900/[0.08] transition-colors hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/[0.08]"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-xl bg-white px-2.5 text-[11px] font-medium text-slate-600 ring-1 ring-slate-900/[0.08] transition-colors hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/[0.08]"
                 >
                   <Copy className="h-3 w-3" />
                   Tout copier
                 </button>
               </div>
 
-              <TextBlock label="Texte principal" values={creative.bodies} />
-              <TextBlock label="Titres" values={creative.titles} />
-              <TextBlock label="Descriptions" values={creative.descriptions} />
+              {draft ? (
+                <div className="space-y-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-900/[0.06] dark:bg-slate-800/50 dark:ring-white/[0.06]">
+                  <EditList label="Texte principal" values={draft.bodies} rows={5} onChange={(bodies) => setDraft({ ...draft, bodies })} />
+                  <EditList label="Titres" values={draft.titles} rows={1} onChange={(titles) => setDraft({ ...draft, titles })} />
+                  <EditList label="Descriptions" values={draft.descriptions} rows={2} onChange={(descriptions) => setDraft({ ...draft, descriptions })} />
+                  <p className="text-[10.5px] leading-snug text-slate-500">
+                    Meta ne modifie pas le texte d&apos;une créa : l&apos;outil la recrée avec ces textes (même visuel, même lien) et la remet sur
+                    cette pub. Meta repasse la pub en examen, et les likes et commentaires de l&apos;ancien post ne suivent pas.
+                  </p>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => void saveCopy()}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-slate-900 px-3 text-[12px] font-semibold text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
+                    >
+                      {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      Enregistrer sur la pub
+                    </button>
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => setDraft(null)}
+                      className="inline-flex h-8 items-center rounded-xl px-3 text-[12px] font-medium text-slate-600 ring-1 ring-slate-900/[0.08] dark:text-slate-300 dark:ring-white/[0.08]"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <TextBlock label="Texte principal" values={creative.bodies} />
+                  <TextBlock label="Titres" values={creative.titles} />
+                  <TextBlock label="Descriptions" values={creative.descriptions} />
+                </>
+              )}
 
               <div>
                 {creative.link ? <Field label="Lien" value={creative.link} href={creative.link} /> : null}
