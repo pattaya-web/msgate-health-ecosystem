@@ -387,7 +387,7 @@ export function MetaUploader() {
     return {
       headlines: own?.headline.trim() ? [own.headline.trim()] : clean(headlines),
       bodies: own?.body.trim() ? [own.body.trim()] : clean(bodies),
-      descriptions: own?.description.trim() ? [own.description.trim()] : clean(descriptions),
+      descriptions: [],
     };
   };
   const setOwn = (key: string, field: keyof OwnCopy, value: string) =>
@@ -482,7 +482,8 @@ export function MetaUploader() {
           startNumber: Math.max(1, Number(startNumber) || 1),
           headlines,
           bodies,
-          descriptions,
+          // Pas de ligne grise sous le titre (« Link description » chez Meta) : Mady n'en veut pas.
+          descriptions: [],
           // Textes par ad set ou par pub : un élément par média, dans l'ordre d'envoi.
           copies:
             textMode === "all"
@@ -490,7 +491,7 @@ export function MetaUploader() {
               : uploaded.map((_, index) => {
                   const own = ownCopyFor(index);
                   return own
-                    ? { headlines: own.headline.trim() ? [own.headline] : [], bodies: own.body.trim() ? [own.body] : [], descriptions: own.description.trim() ? [own.description] : [] }
+                    ? { headlines: own.headline.trim() ? [own.headline] : [], bodies: own.body.trim() ? [own.body] : [], descriptions: [] }
                     : null;
                 }),
           websiteUrl,
@@ -1057,7 +1058,7 @@ export function MetaUploader() {
             <Sparkles className="h-3.5 w-3.5 text-sky-700" />
             IA Ad Copy
           </p>
-          <p className="mt-1 text-[12px] text-slate-500">Colle l’URL produit — génération headlines + primary texts style Meta ads.</p>
+          <p className="mt-1 text-[12px] text-slate-500">Colle l’URL produit — génération headlines + descriptions style Meta ads.</p>
           <div className="mt-2 flex gap-2">
             <input
               value={productUrl}
@@ -1087,20 +1088,10 @@ export function MetaUploader() {
           <Line key={`h-${i}`} value={value} onChange={(v) => setHeadlines(patch(headlines, i, v))} onRemove={() => setHeadlines(headlines.filter((_, idx) => idx !== i))} />
         ))}
 
-        <FieldHeader label="Primary Texts" onAdd={() => setBodies((list) => [...list, ""])} />
+        {/* Le texte au-dessus du visuel (« Primary text » chez Meta) : appelé « Description » ici, comme Mady le nomme. */}
+        <FieldHeader label="Descriptions (texte au-dessus du visuel)" onAdd={() => setBodies((list) => [...list, ""])} />
         {bodies.map((value, i) => (
           <Area key={`b-${i}`} value={value} onChange={(v) => setBodies(patch(bodies, i, v))} onRemove={() => setBodies(bodies.filter((_, idx) => idx !== i))} />
-        ))}
-
-        <FieldHeader label="Link Descriptions" onAdd={() => setDescriptions((list) => [...list, ""])} />
-        {descriptions.map((value, i) => (
-          <Line
-            key={`d-${i}`}
-            value={value}
-            placeholder="Enter link description"
-            onChange={(v) => setDescriptions(patch(descriptions, i, v))}
-            onRemove={() => setDescriptions(descriptions.filter((_, idx) => idx !== i))}
-          />
         ))}
 
         <label className="mt-4 block text-[13px] font-medium">
@@ -1284,22 +1275,13 @@ function OwnCopyEditor({
             />
           </label>
           <label className="block text-[12px] font-medium">
-            Primary Text
+            Description (texte au-dessus du visuel)
             <textarea
               value={value.body}
               onChange={(e) => onChange("body", e.target.value)}
-              placeholder={common.bodies[0] ?? "Texte principal"}
+              placeholder={common.bodies[0] ?? "Description"}
               rows={3}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] font-normal"
-            />
-          </label>
-          <label className="block text-[12px] font-medium">
-            Description
-            <input
-              value={value.description}
-              onChange={(e) => onChange("description", e.target.value)}
-              placeholder={common.descriptions[0] ?? "Description"}
-              className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-[13px] font-normal"
             />
           </label>
         </div>
