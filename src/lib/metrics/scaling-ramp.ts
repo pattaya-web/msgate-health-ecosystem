@@ -101,6 +101,9 @@ const SEED: Array<{ id: string; at: string; before: number; after: number }> = [
 
 const iso = (value: string) => new Date(value.replace(/([+-]\d{2})(\d{2})$/, "$1:$2")).toISOString();
 const round2 = (value: number) => Math.round(value * 100) / 100;
+/** 1.35 → « 1,35 », pour les phrases affichées. */
+const fr = (value: number | null) => (value == null ? "—" : value.toFixed(2).replace(".", ","));
+const shortDate = (value: string | number) => new Date(value).toLocaleString("fr-FR", { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const live = (row: { status: string; effectiveStatus?: string }) => row.status === "ACTIVE" && (!row.effectiveStatus || row.effectiveStatus === "ACTIVE");
 
 function addDays(day: string, days: number) {
@@ -269,45 +272,49 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     if (isTest) {
       status = "TEST";
       if (level === "campaign") {
-        reasons.push(`Premier jugement à 400 € dépensés (${Math.round(toEur(lifetimeSpend, currency))} € à ce jour)`);
+        reasons.push(`Nouvelle CBO : on la juge à 400 € dépensés (${Math.round(toEur(lifetimeSpend, currency))} € pour l'instant)`);
         allowedAt = null;
       } else {
-        reasons.push(`Ne pas toucher : moins de 72 h (jusqu'au ${new Date(Date.parse(createdAt) + 72 * HOUR).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})`);
+        reasons.push(`Nouveau : on le laisse tourner 72 h, jusqu'au ${shortDate(Date.parse(createdAt) + 72 * HOUR)}`);
       }
       cutAds = ads
         .map((ad) => ({ ad, agg: adsRecent.get(ad.id) }))
         .filter(({ agg }) => agg && agg.purchases === 0 && toUsd(agg.spend, agg.currency) >= 60)
         .map(({ ad, agg }) => ({ name: ad.name, spend: round2(agg?.spend ?? 0) }));
-      if (cutAds.length) reasons.push(`Créas à couper (0 achat, ≥ 60 $) : ${cutAds.map((ad) => ad.name).join(", ")}`);
+      if (cutAds.length) reasons.push(`Mais coupe ces créas (0 vente pour 60 $ et plus) : ${cutAds.map((ad) => ad.name).join(", ")}`);
     } else if ((roas3 ?? 0) < 1.2 && spendUsd >= 150) {
       status = "COUPER";
       nextBudget = 0;
-      reasons.push(`ROAS 3 j ${roas3 ?? 0} < 1,2 avec ${Math.round(spendUsd)} $ dépensés`);
+      reasons.push(`ROAS ${fr(roas3 ?? 0)} sur 3 jours pour ${Math.round(spendUsd)} $ dépensés : il perd de l'argent`);
     } else if (agg.purchases === 0 && spendUsd >= 100) {
       status = "COUPER";
       nextBudget = 0;
-      reasons.push(`0 achat avec ${Math.round(spendUsd)} $ dépensés sur 3 j`);
+      reasons.push(`Aucune vente en 3 jours pour ${Math.round(spendUsd)} $ dépensés`);
     } else if (minimum != null && roas3 != null && roas3 < minimum && lastChange && hoursSinceChange < 72 && lastChange.before != null && lastChange.after != null && lastChange.after > lastChange.before) {
       status = "REDESCENDRE";
       nextBudget = lastChange.before;
-      reasons.push(`ROAS 3 j ${roas3} sous le minimum ${minimum} après le palier du ${new Date(lastChange.at).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })} : retour à ${lastChange.before} €`);
+      reasons.push(`ROAS retombé à ${fr(roas3)} (minimum ${fr(minimum)}) depuis la hausse du ${shortDate(lastChange.at)} : on revient à ${lastChange.before} €`);
     } else {
       const okRoas = rise != null && roas3 != null && roas3 >= rise;
       const okPurchases = agg.purchases >= 10;
       const okDelay = hoursSinceChange >= 48;
-      if (!okRoas) reasons.push(roas3 == null ? "Pas de dépense sur 3 j" : minimum != null && roas3 < minimum ? `ROAS 3 j ${roas3} sous le minimum ${minimum} : surveiller` : `ROAS 3 j ${roas3} sous le seuil de montée ${rise}`);
-      if (!okPurchases) reasons.push(`${agg.purchases} achat${agg.purchases > 1 ? "s" : ""} sur 3 j (il en faut 10)`);
-      if (!okDelay) reasons.push(`Dernier palier il y a ${Math.round(hoursSinceChange)} h (48 h minimum)`);
+      if (!okDelay && lastChange) reasons.push(`Budget changé il y a ${Math.round(hoursSinceChange)} h : on attend 48 h, jusqu'au ${shortDate(Date.parse(lastChange.at) + 48 * HOUR)}`);
+      if (!okRoas) reasons.push(roas3 == null ? "Pas encore de dépense sur 3 jours" : minimum != null && roas3 < minimum ? `ROAS ${fr(roas3)} sous le minimum ${fr(minimum)} : à surveiller` : `ROAS ${fr(roas3)} correct, mais il faut ${fr(rise)} pour monter`);
+      if (!okPurchases) reasons.push(`Pas assez de ventes : ${agg.purchases} sur 3 jours, il en faut 10`);
       if (okRoas && okPurchases && okDelay) {
         if (campaignChangedToday.has(campaign.id)) {
-          reasons.push("Déjà un changement aujourd'hui dans cette campagne : demain");
+          reasons.push(
+            cap.frozen
+              ? `Bon ROAS (${fr(roas3)}), mais pas de hausse tant que le ROAS global est trop bas`
+              : "Bon ROAS, mais un budget de cette campagne a déjà bougé aujourd'hui : on monte demain"
+          );
           allowedAt = parisMidnight(addDays(today, 1));
         }
         else {
           status = "MONTER";
           nextBudget = nextStep;
           allowedAt = new Date(now).toISOString();
-          reasons.push(`ROAS 3 j ${roas3} ≥ ${rise}, ${agg.purchases} achats : +30 %`);
+          reasons.push(`ROAS ${fr(roas3)} et ${agg.purchases} ventes sur 3 jours : on monte de 30 %`);
         }
       }
     }
@@ -348,7 +355,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
       row.status = "TENIR";
       row.nextBudget = row.budget;
       row.allowedAt = parisMidnight(addDays(today, 1));
-      row.reasons = [...row.reasons, "Un seul palier par campagne et par jour : demain"];
+      row.reasons = ["Bon ROAS, mais un autre ad set de cette campagne monte aujourd'hui : celui-ci demain", ...row.reasons.slice(1)];
     } else campaignsRising.add(row.campaignId);
   }
 
@@ -362,7 +369,11 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
       row.blockedByCap = row.nextBudget - row.budget;
       row.status = "TENIR";
       row.nextBudget = row.budget;
-      row.reasons = [...row.reasons, cap.frozen ? FREEZE : `Bloqué par le cap (${cap.limit} €/j) : aurait monté de +${row.blockedByCap} €`];
+      row.reasons = [
+        cap.frozen
+          ? `Bon ROAS (${fr(row.roas3)}), mais pas de hausse tant que le ROAS global est trop bas (aurait monté de ${row.blockedByCap} €)`
+          : `Bon ROAS (${fr(row.roas3)}), mais le budget total est au plafond de ${cap.limit} €/j (aurait monté de ${row.blockedByCap} €)`,
+      ];
     } else running += delta;
   }
   const afterToday = running;

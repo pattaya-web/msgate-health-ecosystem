@@ -27,14 +27,19 @@ const STATUS_STYLE: Record<RampStatus, { color: string; background: string; labe
   TEST: { color: "#4f46e5", background: "rgba(79, 70, 229, 0.12)", label: "TEST" },
 };
 
+/** Ce qu'il faut faire, en une phrase. */
+const ACTION: Record<RampStatus, (row: RampRow) => string> = {
+  MONTER: (row) => `⬆ Monter le budget à ${eur(row.nextBudget)}`,
+  TENIR: () => "Ne rien toucher",
+  REDESCENDRE: (row) => `⬇ Revenir à ${eur(row.nextBudget)}`,
+  COUPER: () => "✂ Couper (mettre en pause)",
+  TEST: () => "En test : ne pas toucher",
+};
+
 const eur = (value: number) => `${Math.round(value).toLocaleString("fr-FR")} €`;
 const num = (value: number | null | undefined) => (value == null ? "—" : value.toFixed(2).replace(".", ","));
 const when = (value: string) =>
   new Date(value).toLocaleString("fr-FR", { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-const ago = (value: string) => {
-  const hours = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 3_600_000));
-  return hours < 48 ? `il y a ${hours} h` : `il y a ${Math.round(hours / 24)} j`;
-};
 
 function readBool(key: string, fallback: boolean) {
   try {
@@ -60,6 +65,7 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [details, setDetails] = useState(false);
 
   // Les préférences du navigateur, relues au tick suivant (pas de setState synchrone dans l'effet).
   useEffect(() => {
@@ -155,12 +161,12 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
         </button>
         {counts.map((row) => (
           <span key={row.status} className="rounded-md px-1.5 py-0.5 text-[10px] font-bold" style={{ color: STATUS_STYLE[row.status].color, background: STATUS_STYLE[row.status].background }}>
-            {row.count} {STATUS_STYLE[row.status].label}
+            {row.count} à {row.status === "MONTER" ? "monter" : row.status === "COUPER" ? "couper" : "redescendre"}
           </span>
         ))}
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" /> : null}
-        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300" title="ON : on monte dès le seuil « à tenir » (1,80 / 1,58). OFF : seulement au seuil « scaler » (2,00 / 1,75).">
-          Mode agressif
+        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300" title="Allumé : on monte dès un ROAS de 1,80 (1,58 pour le 39,99 $). Éteint : seulement à partir de 2,00 (1,75).">
+          {aggressive ? "Monter dès 1,80" : "Monter dès 2,00"}
           <button
             type="button"
             role="switch"
@@ -179,26 +185,25 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
           {!data && !error ? <p className="py-4 text-center text-[12px] text-slate-500">Calcul de la rampe…</p> : null}
           {data ? (
             <>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
-                <span>
-                  ROAS réel 3 j{" "}
-                  <b className="tabular-nums" style={{ color: data.cap.frozen ? "#e11d48" : data.cap.limit == null ? "#15803d" : "#b45309" }}>
-                    {num(data.realRoas3)}
-                  </b>{" "}
-                  <span className="text-slate-400">
-                    ({data.window.start.slice(8)}/{data.window.start.slice(5, 7)} → {data.window.end.slice(8)}/{data.window.end.slice(5, 7)}, toute la dépense Meta)
-                  </span>
+              <p className="text-[12.5px] text-slate-700 dark:text-slate-200">
+                {data.cap.frozen ? (
+                  <>
+                    <b style={{ color: "#e11d48" }}>Pas de hausse de budget pour l&apos;instant</b> : le ROAS global des 3 derniers jours est à{" "}
+                    <b className="tabular-nums">{num(data.realRoas3)}</b>, il faut au moins {num(data.cap.thresholds.breakeven)}. Les baisses et les coupes restent possibles.
+                  </>
+                ) : data.cap.limit != null ? (
+                  <>
+                    ROAS global 3 jours <b className="tabular-nums">{num(data.realRoas3)}</b> : on peut monter, jusqu&apos;à <b>{eur(data.cap.limit)}/jour</b> au total.
+                  </>
+                ) : (
+                  <>
+                    ROAS global 3 jours <b className="tabular-nums" style={{ color: "#15803d" }}>{num(data.realRoas3)}</b> : on peut monter sans plafond.
+                  </>
+                )}{" "}
+                <span className="text-slate-500">
+                  Budget total {eur(data.totals.now)}/jour{data.totals.afterToday !== data.totals.now ? ` → ${eur(data.totals.afterToday)}/jour si tu fais les actions du jour` : ""}.
                 </span>
-                <span
-                  className="rounded-md px-2 py-0.5 font-semibold"
-                  style={data.cap.frozen ? { color: "#e11d48", background: "rgba(225,29,72,0.1)" } : data.cap.limit == null ? { color: "#15803d", background: "rgba(22,163,74,0.1)" } : { color: "#b45309", background: "rgba(217,119,6,0.1)" }}
-                >
-                  {data.cap.label}
-                </span>
-                <span className="text-slate-600 dark:text-slate-300">
-                  Budget total aujourd&apos;hui <b className="tabular-nums">{eur(data.totals.now)}</b> → après paliers du jour <b className="tabular-nums">{eur(data.totals.afterToday)}</b>
-                </span>
-              </div>
+              </p>
               {data.warnings.map((warning) => (
                 <p key={warning} className="text-[11px] text-amber-700">
                   {warning}
@@ -206,24 +211,20 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
               ))}
 
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] text-[12px]">
+                <table className="w-full min-w-[820px] text-[12px]">
                   <thead>
                     <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
-                      <th className="py-1.5 pr-2 font-semibold">Nom</th>
-                      <th className="px-2 font-semibold">Budget</th>
+                      <th className="py-1.5 pr-2 font-semibold">Ad set</th>
+                      <th className="px-2 font-semibold">Budget / jour</th>
                       <th className="px-2 font-semibold">ROAS 3 j</th>
-                      <th className="px-2 font-semibold">Achats 3 j</th>
-                      <th className="px-2 font-semibold">Dernier palier</th>
-                      <th className="px-2 font-semibold">Statut</th>
-                      <th className="px-2 font-semibold">Prochain budget</th>
-                      <th className="px-2 font-semibold">Autorisé à partir du</th>
+                      <th className="px-2 font-semibold">Ventes 3 j</th>
+                      <th className="px-2 font-semibold">À faire</th>
                       <th className="pl-2" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
                     {data.rows.map((row) => {
                       const style = STATUS_STYLE[row.status];
-                      const actionable = row.status === "MONTER" || row.status === "REDESCENDRE" || row.status === "COUPER";
                       const roasColor =
                         row.roas3 == null || row.thresholds.minimum == null
                           ? undefined
@@ -232,69 +233,53 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
                             : row.thresholds.rise != null && row.roas3 >= row.thresholds.rise
                               ? "#15803d"
                               : "#b45309";
+                      const later = row.status === "TENIR" && !data.cap.frozen && row.allowedAt && Date.parse(row.allowedAt) > Date.parse(data.builtAt) ? row.allowedAt : null;
                       return (
                         <tr key={row.id} className="align-top">
-                          <td className="max-w-[260px] py-1.5 pr-2">
+                          <td className="max-w-[280px] py-2 pr-2">
                             <p className="truncate font-semibold text-slate-900 dark:text-slate-50" title={row.name}>
-                              {row.level === "campaign" ? "CBO · " : ""}
                               {row.name}
+                              {row.level === "campaign" ? <span className="ml-1 text-[10px] font-medium text-slate-400">(CBO)</span> : null}
                             </p>
                             <p className="truncate text-[10.5px] text-slate-400" title={`${row.accountName} › ${row.campaignName}`}>
-                              {row.accountName} › {row.campaignName} · {row.product} · {row.activeAds} créa{row.activeAds > 1 ? "s" : ""}
-                            </p>
-                            <p className="text-[10.5px] leading-snug text-slate-500" title={row.reasons.join("\n")}>
-                              {row.reasons.join(" · ")}
+                              {row.accountName.replace(/^ads - /, "")} › {row.campaignName} · {row.product}
                             </p>
                           </td>
-                          <td className="px-2 py-1.5 tabular-nums">{eur(row.budget)}</td>
-                          <td className="px-2 py-1.5 font-semibold tabular-nums" style={{ color: roasColor }} title={`Minimum ${num(row.thresholds.minimum)} · montée ${num(row.thresholds.rise)} · dépense 3 j ${eur(row.spend3)}`}>
+                          <td className="px-2 py-2 tabular-nums">{eur(row.budget)}</td>
+                          <td className="px-2 py-2 font-semibold tabular-nums" style={{ color: roasColor }} title={`Minimum ${num(row.thresholds.minimum)} · pour monter ${num(row.thresholds.rise)} · dépensé sur 3 j ${eur(row.spend3)}`}>
                             {num(row.roas3)}
                           </td>
-                          <td className="px-2 py-1.5 tabular-nums">{row.purchases3}</td>
-                          <td className="px-2 py-1.5 text-[11px]">
-                            {row.lastChange ? (
-                              <>
-                                <p className="tabular-nums">
-                                  {row.lastChange.before != null ? `${eur(row.lastChange.before)} → ` : ""}
-                                  {row.lastChange.after != null ? eur(row.lastChange.after) : "—"}
-                                </p>
-                                <p className="text-slate-400">
-                                  {when(row.lastChange.at)} · {ago(row.lastChange.at)}
-                                </p>
-                              </>
-                            ) : (
-                              <span className="text-slate-400">aucun</span>
-                            )}
+                          <td className="px-2 py-2 tabular-nums">{row.purchases3}</td>
+                          <td className="px-2 py-2">
+                            <p className="text-[12.5px] font-bold" style={{ color: style.color }}>
+                              {ACTION[row.status](row)}
+                            </p>
+                            <p className="text-[11px] leading-snug text-slate-500" title={row.reasons.join("\n")}>
+                              {row.reasons[0]}
+                            </p>
+                            {row.reasons.slice(1).map((reason) => (
+                              <p key={reason} className="text-[10.5px] leading-snug text-slate-400">
+                                {reason}
+                              </p>
+                            ))}
+                            {later ? (
+                              <p className="text-[10.5px] text-slate-400">
+                                Prochaine hausse possible : {eur(row.nextStep)} à partir du {when(later)}
+                              </p>
+                            ) : null}
                           </td>
-                          <td className="px-2 py-1.5">
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold" style={{ color: style.color, background: style.background }}>
-                              {style.label}
-                            </span>
-                          </td>
-                          <td className="px-2 py-1.5 tabular-nums">
-                            {row.status === "COUPER" ? (
-                              <span style={{ color: "#e11d48" }}>pause</span>
-                            ) : row.nextBudget !== row.budget ? (
-                              <b style={{ color: style.color }}>{eur(row.nextBudget)}</b>
-                            ) : (
-                              <span className="text-slate-500" title="Le prochain palier (+30 %) quand les conditions seront réunies">
-                                {eur(row.nextStep)}
-                                {row.blockedByCap != null ? <span className="ml-1 text-[10px] text-rose-600">(cap)</span> : null}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-2 py-1.5 text-[11px] text-slate-600 dark:text-slate-300">{actionable ? "maintenant" : row.allowedAt ? when(row.allowedAt) : "à 400 € dépensés"}</td>
-                          <td className="py-1.5 pl-2 text-right">
-                            {actionable ? (
+                          <td className="py-2 pl-2 text-right">
+                            {row.status === "MONTER" || row.status === "REDESCENDRE" || row.status === "COUPER" ? (
                               <button
                                 type="button"
                                 disabled={busy !== null}
                                 onClick={() => apply(row)}
-                                className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                                className="inline-flex items-center gap-1 whitespace-nowrap rounded-md px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
                                 style={{ background: style.color }}
+                                title="Fait le changement chez Meta et le note dans le journal"
                               >
                                 {busy === row.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                Appliquer
+                                {row.status === "COUPER" ? "Couper" : row.status === "MONTER" ? `Monter à ${eur(row.nextBudget)}` : `Revenir à ${eur(row.nextBudget)}`}
                               </button>
                             ) : null}
                           </td>
@@ -305,6 +290,12 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
                 </table>
               </div>
 
+              <button type="button" onClick={() => setDetails((current) => !current)} className="flex items-center gap-1 text-[11.5px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !details && "-rotate-90")} />
+                Détails : prévision 10 jours, rampe de référence, journal des budgets
+              </button>
+              {details ? (
+              <>
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-lg bg-slate-50 p-2.5 dark:bg-slate-800/50">
                   <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">Rampe prévisionnelle sur 10 jours</p>
@@ -366,6 +357,8 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
                   <p className="mt-1 text-[11px] text-slate-400">Aucun changement de budget enregistré.</p>
                 )}
               </div>
+              </>
+              ) : null}
             </>
           ) : null}
         </div>
