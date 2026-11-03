@@ -674,7 +674,13 @@ function CampaignSheet({
             </div>
           </div>
 
-          {campaign.adsets.map((adset) => (
+          {[...campaign.adsets]
+            .sort(
+              (a, b) =>
+                Number(b.status === "ACTIVE" && b.effectiveStatus === "ACTIVE") - Number(a.status === "ACTIVE" && a.effectiveStatus === "ACTIVE") ||
+                b.metrics.spend - a.metrics.spend
+            )
+            .map((adset) => (
             <AdsetPilotRow
               key={adset.id}
               adset={adset}

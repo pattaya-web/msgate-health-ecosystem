@@ -278,10 +278,21 @@ function sortRows<T extends { metrics: Metrics; dailyBudget?: number | null }>(r
   });
 }
 
-/** Les créas d'un ad set : les actives d'abord, les off tout en bas ; chaque groupe suit le tri choisi (dépense par défaut). */
+/** Vraiment en diffusion : allumé, et ni sa campagne ni son ad set ne sont coupés. */
+const isLive = (row: { status: string; effectiveStatus?: string }) => row.status === "ACTIVE" && (!row.effectiveStatus || row.effectiveStatus === "ACTIVE");
+
+/**
+ * Campagnes, ad sets ou créas : ce qui tourne d'abord, ce qui est coupé tout en
+ * bas ; chaque groupe suit le tri choisi (la dépense, la plus grosse en haut, par défaut).
+ */
+function liveFirst<T extends { status: string; effectiveStatus?: string; metrics: Metrics; dailyBudget?: number | null }>(rows: T[], sort: SortState): T[] {
+  const sorted = sortRows(rows, sort ?? { key: "spend", dir: "desc" });
+  return [...sorted.filter(isLive), ...sorted.filter((row) => !isLive(row))];
+}
+
+/** Les créas d'un ad set : les actives d'abord, les off tout en bas. */
 function orderAds(ads: AdNode[], sort: SortState): AdNode[] {
-  const sorted = sortRows(ads, sort ?? { key: "spend", dir: "desc" });
-  return [...sorted.filter((ad) => ad.status === "ACTIVE"), ...sorted.filter((ad) => ad.status !== "ACTIVE")];
+  return liveFirst(ads, sort);
 }
 
 function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (key: SortKey) => void }) {
@@ -2021,7 +2032,7 @@ export default function AdsPage() {
                         <ColumnHeader sort={sort} onSort={changeSort} />
                         {sortAccounts(group.accounts, sort).flatMap((account) => [
                           <AccountHeader key={`acc-${account.accountId}`} account={account} />,
-                          ...sortRows(account.campaigns, sort).map((campaign) => (
+                          ...liveFirst(account.campaigns, sort).map((campaign) => (
                             <CampaignRow
                               key={campaign.id}
                               campaign={campaign}
@@ -2060,7 +2071,7 @@ export default function AdsPage() {
                         <ColumnHeader sort={sort} onSort={changeSort} />
                         {sortAccounts(group.accounts, sort).flatMap((account) => [
                           <AccountHeader key={`acc-${account.accountId}`} account={account} />,
-                          ...sortRows(account.campaigns, sort).map((campaign) => (
+                          ...liveFirst(account.campaigns, sort).map((campaign) => (
                             <CampaignRow
                               key={campaign.id}
                               campaign={campaign}
@@ -2256,7 +2267,7 @@ function CampaignRowInner({
       </HoverRow>
 
       {isOpen
-        ? sortRows(campaign.adsets, shared.sort).map((adset) => (
+        ? liveFirst(campaign.adsets, shared.sort).map((adset) => (
             <AdsetRow
               key={adset.id}
               adset={adset}
