@@ -47,6 +47,7 @@ import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type Promo
 import { MobilePilot } from "@/components/ads/mobile-pilot";
 import { ProductThresholdsContext, RoasBreakevenContext, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
 import { ObjectivesBar } from "@/components/ads/objectives-bar";
+import { ScalingRamp } from "@/components/ads/scaling-ramp";
 import type { ObjectivesBar as Objectives } from "@/lib/metrics/objectives";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
@@ -1593,6 +1594,14 @@ export default function AdsPage() {
           loading={objectivesLoading}
           periodLabel={preset === "today" ? "aujourd'hui" : preset === "yesterday" ? "hier" : preset === "last_3d" ? "3 j" : preset === "last_7d" ? "7 j" : preset === "last_30d" ? "30 j" : "période"}
         />
+        <div className="mt-1.5">
+          <ScalingRamp
+            onApplied={(level, id, patch) => {
+              if (tree) setTree(patchTree(tree, level, id, patch));
+              rememberPending(level, id, patch);
+            }}
+          />
+        </div>
       </div>
 
       <div

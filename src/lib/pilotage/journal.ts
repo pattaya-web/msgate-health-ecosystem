@@ -33,7 +33,8 @@ export type JournalEntry = {
   before: string | number | null;
   after: string | number | null;
   currency: string | null;
-  source: "ads" | "pilotage" | "uploader" | "manuel";
+  /** « rampe » : bouton « Appliquer » de la rampe de scaling (Ads Manager). */
+  source: "ads" | "pilotage" | "uploader" | "manuel" | "rampe";
   note: string;
 };
 

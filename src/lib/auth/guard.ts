@@ -69,6 +69,8 @@ const ASSOCIATE_READ = new Set([
   "/api/pilotage",
   // La barre « Objectifs » de l'Ads Manager.
   "/api/metrics/objectives",
+  // La rampe de scaling de l'Ads Manager (lecture ; « Appliquer » passe par /api/meta/entity).
+  "/api/metrics/scaling-ramp",
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",
