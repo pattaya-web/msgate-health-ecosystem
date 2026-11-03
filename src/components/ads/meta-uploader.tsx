@@ -104,7 +104,8 @@ export function MetaUploader() {
   const [dragging, setDragging] = useState(false);
   const [createNewCampaign, setCreateNewCampaign] = useState(false);
   const [multiCampaigns, setMultiCampaigns] = useState(false);
-  const [createNewAdset, setCreateNewAdset] = useState(true);
+  // Par défaut, les pubs vont dans l'ad set choisi : rien n'est copié (demande de Mady, 03/11/2026).
+  const [createNewAdset, setCreateNewAdset] = useState(false);
   const [adsetPerUpload, setAdsetPerUpload] = useState(false);
   const [autoDivide, setAutoDivide] = useState(false);
   const [customAdset, setCustomAdset] = useState(false);
@@ -345,7 +346,24 @@ export function MetaUploader() {
 
   const itemCount = files.length + postIds.length;
   const adsetCount = adsetPerUpload ? Math.max(itemCount, 0) : 1;
-  const preview = `${itemCount} ads in ${adsetCount || 1} ad set${adsetCount > 1 ? "s" : ""} will be created`;
+  /** Où vont les pubs : dans l'ad set choisi, dans un nouvel ad set (copie), ou dans une nouvelle campagne. */
+  const target: "existing" | "adset" | "campaign" = createNewCampaign || multiCampaigns ? "campaign" : createNewAdset || adsetPerUpload || autoDivide ? "adset" : "existing";
+  const chooseTarget = (next: "existing" | "adset" | "campaign") => {
+    setCreateNewCampaign(next === "campaign");
+    setMultiCampaigns(false);
+    setCreateNewAdset(next !== "existing");
+    if (next === "existing") {
+      setAdsetPerUpload(false);
+      setAutoDivide(false);
+    }
+  };
+  const chosenAdsetName = adsets.find((row) => row.id === adsetId)?.name;
+  const preview =
+    target === "existing"
+      ? chosenAdsetName
+        ? `${itemCount} pub${itemCount > 1 ? "s" : ""} ajoutée${itemCount > 1 ? "s" : ""} dans l'ad set existant « ${chosenAdsetName} »`
+        : "Choisis l'ad set où ajouter les pubs"
+      : `${itemCount} ads in ${adsetCount || 1} new ad set${adsetCount > 1 ? "s" : ""} will be created`;
   const postLabel = (id: string) => `Post ${id.split("_").pop()}`;
 
   // Les pubs à créer, dans l'ordre d'envoi (fichiers puis Post ID), avec leur nom final.
@@ -429,6 +447,7 @@ export function MetaUploader() {
     if (!accountId) return toast.error("Choisis un compte");
     if (!files.length && !postIds.length) return toast.error("Ajoute des photos / vidéos ou des Post ID d’abord");
     if (!adsetId && !campaignId) return toast.error("Sélectionne une campagne / un ad set source");
+    if (target === "existing" && !adsetId) return toast.error("Choisis l'ad set où ajouter les pubs (colonne Ad Sets)");
     setBusy("create");
     // La fenêtre de suivi : d'abord les médias, puis ce que le serveur annonce étape par étape.
     const count = files.length + postIds.length;
@@ -841,6 +860,37 @@ export function MetaUploader() {
         </label>
       )}
 
+      <section className="rounded-xl border-2 border-[#1877F2]/30 bg-white p-4">
+        <h3 className="text-[14px] font-semibold">Où mettre les pubs ?</h3>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          {(
+            [
+              { id: "existing", title: "Dans l'ad set choisi", text: chosenAdsetName ? `Ajoutées dans « ${chosenAdsetName} ». Rien n'est copié.` : "Choisis un ad set dans la colonne Ad Sets. Rien n'est copié." },
+              { id: "adset", title: "Nouvel ad set", text: "Copie de l'ad set choisi (ciblage, budget), avec les pubs dedans." },
+              { id: "campaign", title: "Nouvelle campagne", text: "Copie de la campagne et de l'ad set choisis, avec les pubs dedans." },
+            ] as const
+          ).map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => chooseTarget(option.id)}
+              className={cn(
+                "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                target === option.id ? "border-[#1877F2] bg-[#e7f0ff]" : "border-slate-200 hover:bg-slate-50"
+              )}
+            >
+              <span className="flex items-center gap-2 text-[13px] font-semibold">
+                <span className={cn("grid h-4 w-4 place-items-center rounded-full border", target === option.id ? "border-[#1877F2] bg-[#1877F2]" : "border-slate-300")}>
+                  {target === option.id ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+                </span>
+                {option.title}
+              </span>
+              <span className="mt-1 block text-[11.5px] leading-snug text-slate-500">{option.text}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <Card title="Campaign Options">
         <CheckRow
           label="Create new campaign"
@@ -893,11 +943,11 @@ export function MetaUploader() {
         ) : null}
         {(() => {
           // Les pubs créées dans une campagne en pause ne tournent pas (et sont cachées par le filtre « Actifs » de l'Ads Manager).
-          const target = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
-          if (!target || target.status === "ACTIVE" || createNewCampaign || multiCampaigns) return null;
+          const pausedCampaign = campaigns.find((row) => row.id === (adsets.find((s) => s.id === adsetId)?.campaignId ?? campaignId));
+          if (!pausedCampaign || pausedCampaign.status === "ACTIVE" || createNewCampaign || multiCampaigns) return null;
           return (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800 ring-1 ring-amber-200">
-              La campagne « {target.name} » est <strong>en pause</strong> chez Meta : les pubs créées dedans ne tourneront pas et
+              La campagne « {pausedCampaign.name} » est <strong>en pause</strong> chez Meta : les pubs créées dedans ne tourneront pas et
               n’apparaîtront pas dans l’Ads Manager (filtre « Actifs »). Coche « Create new campaign » pour une nouvelle campagne qui
               part en live, ou rallume celle-ci dans l’Ads Manager.
             </p>
@@ -1185,7 +1235,7 @@ export function MetaUploader() {
         onClick={() => void createAds()}
         className={cn("h-11 w-full rounded-lg text-[14px] font-semibold disabled:opacity-50", META_BLUE)}
       >
-        {busy === "create" ? "Creating ads…" : "Create Ads"}
+        {busy === "create" ? "Creating ads…" : target === "existing" ? `Ajouter ${itemCount || ""} pub${itemCount > 1 ? "s" : ""} dans l'ad set` : "Create Ads"}
       </button>
       {progress ? <UploadProgress state={progress} onClose={() => setProgress(null)} /> : null}
       {previewIndex != null && adItems[previewIndex] ? (
