@@ -476,9 +476,42 @@ export async function buildAdsTree(params: {
         })
       );
 
+      // Ad sets refusés au niveau du compte (Meta répond parfois « User request limit reached » sur
+      // cette seule requête) : on les redemande campagne par campagne, des requêtes plus légères.
+      await Promise.all(
+        accounts.map(async (account) => {
+          const id = account.account_id;
+          const campaigns = campaignsByAccount.get(id);
+          if (adsetsByAccount.has(id) || !campaigns || !requests.some((request) => request.key === `adsets:${id}`)) return;
+          const perCampaign = await Promise.all(
+            campaigns.map(async (campaign) => {
+              const body = await graphGet<Paged<RawAdset>>(
+                `${campaign.id}/adsets?fields=id,name,status,effective_status,created_time,campaign_id,daily_budget,lifetime_budget&limit=100&filtering=${liveFilter}`,
+                token
+              ).catch(() => null);
+              return body && !body.error ? followPages(body) : null;
+            })
+          );
+          if (!perCampaign.every(Boolean)) return;
+          adsetsByAccount.set(id, perCampaign.flatMap((rows) => rows ?? []));
+          const failed = errors.findIndex((error) => error.startsWith(`${id} (adsets)`));
+          if (failed >= 0) errors.splice(failed, 1);
+        })
+      );
+
       // Persist freshly fetched structure for the next date switch.
       for (const account of accounts) {
         const id = account.account_id;
+        // Meta a refusé une partie (limite de requêtes…) : on garde la dernière structure connue
+        // plutôt qu'afficher des campagnes vides, et on ne la remet pas en cache comme fraîche.
+        const stale = state.structure.get(id);
+        const partial = !campaignsByAccount.has(id) || !adsetsByAccount.has(id) || !adsByAccount.has(id);
+        if (partial && stale) {
+          if (!campaignsByAccount.has(id)) campaignsByAccount.set(id, stale.campaigns);
+          if (!adsetsByAccount.has(id)) adsetsByAccount.set(id, stale.adsets);
+          if (!adsByAccount.has(id)) adsByAccount.set(id, stale.ads);
+          continue;
+        }
         if (campaignsByAccount.has(id) && adsetsByAccount.has(id) && adsByAccount.has(id)) {
           if ((state.generation ?? 0) === generation) state.structure.set(id, {
             at: Date.now(),
