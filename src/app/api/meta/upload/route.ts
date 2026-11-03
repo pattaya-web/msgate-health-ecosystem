@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isMetaConfigured } from "@/lib/meta/client";
-import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy, type UploadProgress } from "@/lib/meta/uploader";
+import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy, readAdsetSetup, type UploadProgress } from "@/lib/meta/uploader";
 import { REPORT_CURRENCY, fxRates } from "@/lib/fx";
 import { sessionFromRequest } from "@/lib/auth/request";
 import { appendJournal } from "@/lib/pilotage/journal";
@@ -22,6 +22,12 @@ export async function GET(request: Request) {
     if (adId) {
       if (scoped) await assertObjectsInScope([adId], scoped);
       return NextResponse.json({ copy: await readAdCopy(adId) });
+    }
+    // ?adsetId= : placements, pays et audience de l'ad set modèle (récap avant création).
+    const adsetId = params.get("adsetId")?.trim();
+    if (adsetId) {
+      if (scoped) await assertObjectsInScope([adsetId], scoped);
+      return NextResponse.json({ setup: await readAdsetSetup(adsetId) });
     }
     // ?postId=&accountId= : l'aperçu Meta d'une publication existante, avant d'en faire une pub.
     const postId = params.get("postId")?.trim();

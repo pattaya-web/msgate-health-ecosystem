@@ -592,6 +592,96 @@ export async function readAdCopy(adId: string) {
   };
 }
 
+type AdsetTargeting = GraphError & {
+  name?: string;
+  optimization_goal?: string;
+  targeting?: {
+    geo_locations?: { countries?: string[]; regions?: Array<{ name?: string }>; cities?: Array<{ name?: string }>; zips?: unknown[] };
+    excluded_geo_locations?: { countries?: string[]; regions?: Array<{ name?: string }>; cities?: Array<{ name?: string }> };
+    age_min?: number;
+    age_max?: number;
+    genders?: number[];
+    publisher_platforms?: string[];
+    facebook_positions?: string[];
+    instagram_positions?: string[];
+    messenger_positions?: string[];
+    audience_network_positions?: string[];
+    targeting_automation?: { advantage_audience?: number };
+  };
+};
+
+const POSITION_LABEL: Record<string, string> = {
+  feed: "Fil",
+  stream: "Fil",
+  story: "Stories",
+  facebook_reels: "Reels",
+  reels: "Reels",
+  marketplace: "Marketplace",
+  video_feeds: "Vidéos",
+  right_hand_column: "Colonne de droite",
+  search: "Recherche",
+  instream_video: "In-stream",
+  explore: "Explorer",
+  explore_home: "Explorer",
+  profile_feed: "Profil",
+  profile_reels: "Reels du profil",
+  ig_search: "Recherche",
+  notification: "Notifications",
+};
+const PLATFORM_LABEL: Record<string, string> = { facebook: "Facebook", instagram: "Instagram", messenger: "Messenger", audience_network: "Audience Network", threads: "Threads" };
+
+/**
+ * Le ciblage d'un ad set en quelques mots, pour le récap de l'uploader :
+ * placements, pays / régions, âge, sexe. Lecture seule.
+ */
+export async function readAdsetSetup(adsetId: string) {
+  const token = await resolveToken(adsetId);
+  const body = await graphGet<AdsetTargeting>(`${adsetId}?fields=name,optimization_goal,targeting`, token);
+  if (body.error) throw new Error(body.error.message);
+  const t = body.targeting ?? {};
+  const regionNames = new Intl.DisplayNames(["fr"], { type: "region" });
+  const country = (code: string) => {
+    try {
+      return regionNames.of(code) ?? code;
+    } catch {
+      return code;
+    }
+  };
+  const places = (geo?: { countries?: string[]; regions?: Array<{ name?: string }>; cities?: Array<{ name?: string }> }) => [
+    ...(geo?.countries ?? []).map(country),
+    ...(geo?.regions ?? []).map((row) => row.name ?? ""),
+    ...(geo?.cities ?? []).map((row) => row.name ?? ""),
+  ].filter(Boolean);
+  const included = places(t.geo_locations);
+  const excluded = places(t.excluded_geo_locations);
+  const geo = `${included.length ? included.join(", ") : "Monde entier"}${excluded.length ? ` (sauf ${excluded.join(", ")})` : ""}`;
+
+  const positionsOf: Record<string, string[] | undefined> = {
+    facebook: t.facebook_positions,
+    instagram: t.instagram_positions,
+    messenger: t.messenger_positions,
+    audience_network: t.audience_network_positions,
+  };
+  const placements = t.publisher_platforms?.length
+    ? t.publisher_platforms
+        .map((platform) => {
+          const positions = [...new Set((positionsOf[platform] ?? []).map((position) => POSITION_LABEL[position] ?? position))];
+          return `${PLATFORM_LABEL[platform] ?? platform}${positions.length ? ` (${positions.join(", ")})` : " (tout)"}`;
+        })
+        .join(" · ")
+    : "Advantage+ (automatiques : Facebook, Instagram, Messenger, Audience Network)";
+
+  const genders = t.genders?.length === 1 ? (t.genders[0] === 1 ? "Hommes" : "Femmes") : "Hommes et femmes";
+  const age = `${t.age_min ?? 18}-${t.age_max && t.age_max < 65 ? t.age_max : "65+"} ans`;
+  return {
+    name: body.name ?? "",
+    placements,
+    geo,
+    audience: `${age} · ${genders}${t.targeting_automation?.advantage_audience ? " · Advantage+ audience" : ""}`,
+    optimization: body.optimization_goal ?? "",
+  };
+}
+
 /**
  * L'aperçu Meta d'une publication existante (Post ID), tel qu'il sortira en
  * pub dans le fil mobile : de quoi vérifier qu'on a collé le bon post avant

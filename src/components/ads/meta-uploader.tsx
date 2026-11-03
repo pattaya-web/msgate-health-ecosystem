@@ -116,6 +116,8 @@ export function MetaUploader() {
   const [ownCopy, setOwnCopy] = useState<Record<string, OwnCopy>>({});
   /** La pub ouverte dans le panneau d'aperçu (index dans la liste des pubs). */
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  /** Placements, pays et audience de l'ad set modèle, pour le récap avant création. */
+  const [setup, setSetup] = useState<{ id: string; placements: string; geo: string; audience: string } | null>(null);
   const [flexible, setFlexible] = useState(true);
   const [headlines, setHeadlines] = useState(["", ""]);
   const [bodies, setBodies] = useState(["", "", "", "", ""]);
@@ -176,6 +178,24 @@ export function MetaUploader() {
   }, [copyLoaded, headlines, bodies, descriptions, cta, websiteUrl, displayUrl, productUrl, namePattern]);
 
   const postIds = useMemo(() => parsePostIds(postText), [postText]);
+
+  // Le ciblage de l'ad set choisi (placements, géo), relu à chaque changement d'ad set.
+  useEffect(() => {
+    if (!adsetId) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void fetch(`/api/meta/upload?adsetId=${encodeURIComponent(adsetId)}`)
+        .then((res) => res.json())
+        .then((body: { setup?: { placements: string; geo: string; audience: string } }) => {
+          if (!cancelled && body.setup) setSetup({ id: adsetId, ...body.setup });
+        })
+        .catch(() => {});
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [adsetId]);
 
   // Glisser-déposer sur toute la page, et Ctrl+V d'une image copiée.
   useEffect(() => {
@@ -1224,6 +1244,66 @@ export function MetaUploader() {
           </span>
         </label>
       </section>
+
+      {(() => {
+        // Le récap avant de lancer : la structure en un coup d'œil.
+        const sourceAdsetRow = adsets.find((row) => row.id === adsetId);
+        if (!targetCampaign && !sourceAdsetRow) return null;
+        const money = (value: number) => `${Math.round(value).toLocaleString("fr-FR")} ${currencySign}/j`;
+        const campaignBudget = cbo ? (newCampaign && budgetNumber ? budgetNumber : targetCampaign?.dailyBudget ?? 0) : 0;
+        const adsetBudget = cbo ? 0 : target === "existing" ? sourceAdsetRow?.dailyBudget ?? 0 : budgetNumber || sourceAdsetRow?.dailyBudget || 0;
+        const adsetsMade = target === "existing" ? 0 : Math.max(1, groupCount);
+        const known = setup && setup.id === adsetId ? setup : null;
+        const rows: Array<[string, React.ReactNode]> = [
+          [
+            "Campagne",
+            <>
+              <b className={cn("mr-1.5 rounded px-1.5 py-0.5 text-[10.5px]", cbo ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700")}>{cbo ? "CBO" : "ABO"}</b>
+              {newCampaign ? "Nouvelle : " : ""}« {newCampaign ? newCampaignName.trim() || `${targetCampaign?.name ?? "Campagne"} · copy` : targetCampaign?.name ?? "—"} »
+              {cbo ? <span className="text-slate-500"> · budget {money(campaignBudget)}</span> : null}
+            </>,
+          ],
+          [
+            "Ad sets",
+            target === "existing" ? (
+              <>
+                Existant : « {sourceAdsetRow?.name ?? "choisis un ad set"} »{!cbo && adsetBudget ? <span className="text-slate-500"> · {money(adsetBudget)}</span> : null}
+              </>
+            ) : (
+              <>
+                {adsetsMade} nouvel{adsetsMade > 1 ? "s" : ""} ad set{adsetsMade > 1 ? "s" : ""} « {newAdsetName.trim() || `${sourceAdsetRow?.name ?? "Ad set"}${adsetsMade > 1 ? " · 1, 2…" : " · copy"}`} »
+                <span className="text-slate-500"> · {cbo ? "budget géré par la campagne" : `${money(adsetBudget)}${adsetsMade > 1 ? " chacun" : ""}`}</span>
+              </>
+            ),
+          ],
+          [
+            "Pubs",
+            <>
+              {itemCount} pub{itemCount > 1 ? "s" : ""}
+              <span className="text-slate-500">
+                {" "}
+                ({files.length} visuel{files.length > 1 ? "s" : ""}
+                {postIds.length ? `, ${postIds.length} Post ID` : ""}) · {paused ? "créées en pause" : "partent en live"}
+              </span>
+            </>,
+          ],
+          ["Placements", known ? known.placements : <span className="text-slate-400">lecture chez Meta…</span>],
+          ["Géo", known ? <>{known.geo}<span className="text-slate-500"> · {known.audience}</span></> : <span className="text-slate-400">lecture chez Meta…</span>],
+        ];
+        return (
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <h3 className="text-[13px] font-semibold">Récap avant de lancer</h3>
+            <dl className="mt-1.5 space-y-1 text-[12.5px]">
+              {rows.map(([label, value]) => (
+                <div key={label} className="flex gap-2">
+                  <dt className="w-[78px] shrink-0 text-slate-400">{label}</dt>
+                  <dd className="min-w-0 text-slate-800">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        );
+      })()}
 
       {!itemCount ? (
         <p className="rounded-lg bg-slate-100 px-3 py-2 text-[13px] text-slate-600">Aucun média ni Post ID : ajoute des photos / vidéos ou colle des Post ID plus haut.</p>
