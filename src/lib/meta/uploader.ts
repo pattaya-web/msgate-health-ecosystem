@@ -185,6 +185,11 @@ export type CreateAdsInput = {
   aiGenerated: boolean;
   enhancements: Record<string, boolean>;
   media: UploadedMedia[];
+  /**
+   * Les textes propres à une pub (« texte par ad set » ou « par pub ») : un
+   * élément par média, dans l'ordre de `media`. Une liste vide reprend les textes communs.
+   */
+  copies?: Array<{ headlines?: string[]; bodies?: string[]; descriptions?: string[] } | null>;
   /** Budget journalier (devise du compte) du ou des nouveaux ad sets — ou de la nouvelle campagne si elle porte le budget (CBO). Vide = celui du modèle. */
   dailyBudget?: number | null;
   /** Nom du nouvel ad set (« · 2, · 3 » ajoutés s'il y en a plusieurs). Vide = « <modèle> · copy ». */
@@ -310,9 +315,9 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
     ? chosenCampaignName || (sourceCampaign?.name ? `${sourceCampaign.name} · copy` : "Campaign")
     : sourceCampaign?.name || "Campaign";
 
-  const headlines = input.headlines.map((t) => t.trim()).filter(Boolean);
-  const bodies = input.bodies.map((t) => t.trim()).filter(Boolean);
-  const descriptions = input.descriptions.map((t) => t.trim()).filter(Boolean);
+  const commonHeadlines = input.headlines.map((t) => t.trim()).filter(Boolean);
+  const commonBodies = input.bodies.map((t) => t.trim()).filter(Boolean);
+  const commonDescriptions = input.descriptions.map((t) => t.trim()).filter(Boolean);
   const groups: UploadedMedia[][] = input.adsetPerUpload
     ? input.media.map((item) => [item])
     : input.autoDivide && input.autoDivide > 0
@@ -350,7 +355,12 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
   for (let g = 0; g < groups.length; g++) {
     for (const media of groups[g]) {
       const name = adName(input.adNamePattern, media.fileName, plannedCampaignName, adsetNameOf(g), index, input.startNumber);
+      const own = input.copies?.[index];
       index += 1;
+      const clean = (list?: string[]) => (list ?? []).map((t) => t.trim()).filter(Boolean);
+      const headlines = clean(own?.headlines).length ? clean(own?.headlines) : commonHeadlines;
+      const bodies = clean(own?.bodies).length ? clean(own?.bodies) : commonBodies;
+      const descriptions = clean(own?.descriptions).length ? clean(own?.descriptions) : commonDescriptions;
       const images = media.kind === "image" && media.hash ? [{ hash: media.hash }] : [];
       const videos = media.kind === "video" && media.videoId ? [{ video_id: media.videoId }] : [];
       const featureSpec = enroll(input.enhancements);

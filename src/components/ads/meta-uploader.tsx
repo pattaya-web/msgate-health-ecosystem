@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Check,
+  Eye,
   FileSpreadsheet,
   Folder,
   HardDrive,
@@ -18,6 +19,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { UploadProgress, type ProgressItem, type UploadProgressState } from "@/components/ads/upload-progress";
+import { AdPreviewPanel, type PreviewCopy, type PreviewItem } from "@/components/ads/ad-preview-panel";
 import {
   AD_NAME_TOKENS,
   formatAdName,
@@ -49,6 +51,13 @@ type SavedCopy = {
 };
 
 type TextMode = "all" | "adset" | "ad";
+
+/** Les textes propres à un ad set ou à une pub ; un champ vide reprend le texte commun. */
+type OwnCopy = { headline: string; body: string; description: string };
+const EMPTY_COPY: OwnCopy = { headline: "", body: "", description: "" };
+
+/** Une clé stable par fichier, pour garder ses textes même si on en retire un autre. */
+const fileKey = (file: File) => `f:${file.name}:${file.size}:${file.lastModified}`;
 
 const MEDIA_EXT = /\.(jpe?g|png|webp|gif|mp4|mov|m4v|webm)$/i;
 
@@ -102,6 +111,10 @@ export function MetaUploader() {
   const [useNamePattern, setUseNamePattern] = useState(true);
   const [namePattern, setNamePattern] = useState("{file}");
   const [textMode, setTextMode] = useState<TextMode>("all");
+  /** Textes par ad set (« adset:<n> ») ou par pub (clé du fichier / « p:<post> »). */
+  const [ownCopy, setOwnCopy] = useState<Record<string, OwnCopy>>({});
+  /** La pub ouverte dans le panneau d'aperçu (index dans la liste des pubs). */
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [flexible, setFlexible] = useState(true);
   const [headlines, setHeadlines] = useState(["", ""]);
   const [bodies, setBodies] = useState(["", "", "", "", ""]);
@@ -335,6 +348,51 @@ export function MetaUploader() {
   const preview = `${itemCount} ads in ${adsetCount || 1} ad set${adsetCount > 1 ? "s" : ""} will be created`;
   const postLabel = (id: string) => `Post ${id.split("_").pop()}`;
 
+  // Les pubs à créer, dans l'ordre d'envoi (fichiers puis Post ID), avec leur nom final.
+  const sourceAdsetRow = adsets.find((row) => row.id === adsetId);
+  const sourceCampaignRow = campaigns.find((row) => row.id === (sourceAdsetRow?.campaignId ?? campaignId));
+  const groupOf = (index: number) => (adsetPerUpload ? index : autoDivide ? Math.floor(index / 5) : 0);
+  const adsetLabelOf = (group: number, groups: number) => {
+    if (!(createNewAdset || adsetPerUpload || autoDivide || createNewCampaign || multiCampaigns)) return sourceAdsetRow?.name ?? "Ad set";
+    const base = newAdsetName.trim() || `${sourceAdsetRow?.name ?? "Ad set"}`;
+    return groups > 1 ? `${base} · ${group + 1}` : newAdsetName.trim() || `${base} · copy`;
+  };
+  const adItems: PreviewItem[] = (() => {
+    const raw = [
+      ...previews.map((item) => ({ key: fileKey(item.file), label: item.file.name, url: item.url, video: item.video })),
+      ...postIds.map((id) => ({ key: `p:${id}`, label: postLabel(id), postId: id })),
+    ];
+    const groups = raw.length ? groupOf(raw.length - 1) + 1 : 0;
+    return raw.map((item, index) => ({
+      ...item,
+      name: formatAdName(useNamePattern ? namePattern : "{file}", {
+        fileName: item.label,
+        campaign: createNewCampaign || multiCampaigns ? newCampaignName.trim() || (sourceCampaignRow ? `${sourceCampaignRow.name} · copy` : "Campaign") : sourceCampaignRow?.name ?? "Campaign",
+        adset: adsetLabelOf(groupOf(index), groups),
+        index,
+        start: Math.max(1, Number(startNumber) || 1),
+      }),
+    }));
+  })();
+  const groupCount = adItems.length ? groupOf(adItems.length - 1) + 1 : 0;
+  /** Les textes propres à la pub n° index selon le mode choisi (null = textes communs). */
+  const ownCopyFor = (index: number): OwnCopy | null => {
+    if (textMode === "adset") return ownCopy[`adset:${groupOf(index)}`] ?? null;
+    if (textMode === "ad") return adItems[index] ? ownCopy[adItems[index].key] ?? null : null;
+    return null;
+  };
+  const copyFor = (index: number): PreviewCopy => {
+    const own = ownCopyFor(index);
+    const clean = (list: string[]) => list.map((text) => text.trim()).filter(Boolean);
+    return {
+      headlines: own?.headline.trim() ? [own.headline.trim()] : clean(headlines),
+      bodies: own?.body.trim() ? [own.body.trim()] : clean(bodies),
+      descriptions: own?.description.trim() ? [own.description.trim()] : clean(descriptions),
+    };
+  };
+  const setOwn = (key: string, field: keyof OwnCopy, value: string) =>
+    setOwnCopy((current) => ({ ...current, [key]: { ...(current[key] ?? EMPTY_COPY), [field]: value } }));
+
   function addFiles(list: FileList | null) {
     if (!list?.length) return;
     const ok = keepMedia(Array.from(list));
@@ -425,6 +483,16 @@ export function MetaUploader() {
           headlines,
           bodies,
           descriptions,
+          // Textes par ad set ou par pub : un élément par média, dans l'ordre d'envoi.
+          copies:
+            textMode === "all"
+              ? undefined
+              : uploaded.map((_, index) => {
+                  const own = ownCopyFor(index);
+                  return own
+                    ? { headlines: own.headline.trim() ? [own.headline] : [], bodies: own.body.trim() ? [own.body] : [], descriptions: own.description.trim() ? [own.description] : [] }
+                    : null;
+                }),
           websiteUrl,
           displayUrl,
           cta,
@@ -919,29 +987,18 @@ export function MetaUploader() {
         <p className="text-[13px] text-slate-600">{preview}</p>
         {itemCount ? (
           <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100">
-            {[...files.map((file) => ({ key: file.name, label: file.name })), ...postIds.map((id) => ({ key: id, label: postLabel(id) }))].slice(0, 50).map((file, index) => {
-              const sourceAdset = adsets.find((row) => row.id === adsetId);
-              const sourceCampaign = campaigns.find((row) => row.id === (sourceAdset?.campaignId ?? campaignId));
-              const adsetLabel = createNewAdset || adsetPerUpload ? newAdsetName.trim() || `${sourceAdset?.name ?? "Ad set"} · copy` : sourceAdset?.name ?? "Ad set";
-              const name = formatAdName(useNamePattern ? namePattern : "{file}", {
-                fileName: file.label,
-                campaign: createNewCampaign || multiCampaigns ? newCampaignName.trim() || (sourceCampaign ? `${sourceCampaign.name} · copy` : "Campaign") : sourceCampaign?.name ?? "Campaign",
-                adset: adsetLabel,
-                index,
-                start: Math.max(1, Number(startNumber) || 1),
-              });
-              return (
-                <li key={`${file.key}-${index}`} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px]">
-                  <span className="min-w-0 flex-1 truncate text-slate-400" title={file.key}>
-                    {file.label}
-                  </span>
-                  <span className="text-slate-300">→</span>
-                  <span className="min-w-0 flex-1 truncate font-semibold text-slate-800" title={name}>
-                    {name}
-                  </span>
-                </li>
-              );
-            })}
+            {adItems.slice(0, 50).map((item, index) => (
+              <li key={`${item.key}-${index}`} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px]">
+                <span className="min-w-0 flex-1 truncate text-slate-400" title={item.label}>
+                  {item.label}
+                </span>
+                <span className="text-slate-300">→</span>
+                <span className="min-w-0 flex-1 truncate font-semibold text-slate-800" title={item.name}>
+                  {item.name}
+                </span>
+                <PreviewButton onClick={() => setPreviewIndex(index)} />
+              </li>
+            ))}
           </ul>
         ) : null}
       </Card>
@@ -953,6 +1010,47 @@ export function MetaUploader() {
           <CheckRow label="Write unique ad text per ad set." checked={textMode === "adset"} onChange={() => setTextMode("adset")} />
           <CheckRow label="Write unique ad text for each ad." checked={textMode === "ad"} onChange={() => setTextMode("ad")} />
         </div>
+        {textMode !== "all" ? (
+          <div className="mt-3 space-y-2">
+            <p className="text-[12px] text-slate-500">
+              {textMode === "adset" ? "Un texte par ad set" : "Un texte par pub"} : laisse un champ vide pour reprendre le texte commun (plus bas).
+            </p>
+            {!adItems.length ? (
+              <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] text-slate-500">Ajoute d&apos;abord tes photos / vidéos ou tes Post ID.</p>
+            ) : textMode === "adset" ? (
+              Array.from({ length: groupCount }, (_, group) => {
+                const first = adItems.findIndex((_, index) => groupOf(index) === group);
+                const count = adItems.filter((_, index) => groupOf(index) === group).length;
+                return (
+                  <OwnCopyEditor
+                    key={`adset-${group}`}
+                    title={adsetLabelOf(group, groupCount)}
+                    subtitle={`${count} pub${count > 1 ? "s" : ""}`}
+                    value={ownCopy[`adset:${group}`] ?? EMPTY_COPY}
+                    common={copyFor(-1)}
+                    onChange={(field, value) => setOwn(`adset:${group}`, field, value)}
+                    onPreview={() => setPreviewIndex(first)}
+                  />
+                );
+              })
+            ) : (
+              adItems.map((item, index) => (
+                <OwnCopyEditor
+                  key={item.key}
+                  title={item.name}
+                  subtitle={item.label}
+                  thumb={item.url}
+                  video={item.video}
+                  locked={Boolean(item.postId)}
+                  value={ownCopy[item.key] ?? EMPTY_COPY}
+                  common={copyFor(-1)}
+                  onChange={(field, value) => setOwn(item.key, field, value)}
+                  onPreview={() => setPreviewIndex(index)}
+                />
+              ))
+            )}
+          </div>
+        ) : null}
 
         <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50/70 p-3">
           <p className="flex items-center gap-1.5 text-[13px] font-semibold">
@@ -1099,6 +1197,113 @@ export function MetaUploader() {
         {busy === "create" ? "Creating ads…" : "Create Ads"}
       </button>
       {progress ? <UploadProgress state={progress} onClose={() => setProgress(null)} /> : null}
+      {previewIndex != null && adItems[previewIndex] ? (
+        <AdPreviewPanel
+          items={adItems}
+          index={previewIndex}
+          onIndex={setPreviewIndex}
+          onClose={() => setPreviewIndex(null)}
+          copyFor={copyFor}
+          cta={cta}
+          websiteUrl={websiteUrl}
+          displayUrl={displayUrl}
+          pageName={accounts.find((row) => row.id === accountId || row.accountId === accountId)?.name ?? ""}
+          renderPost={(postId) => <PostPreview accountId={accountId} postId={postId} onRemove={() => setPostText((text) => removePostId(text, postId))} />}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function PreviewButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#e7f0ff] px-2 py-1 text-[11px] font-semibold text-[#1877F2] hover:bg-[#d8e6ff]"
+      title="Voir la pub sur iPhone : Facebook, Instagram, Stories, Reels"
+    >
+      <Eye className="h-3.5 w-3.5" />
+      Aperçu
+    </button>
+  );
+}
+
+/** Les textes d'un ad set ou d'une pub : titre, texte principal, description (vide = texte commun). */
+function OwnCopyEditor({
+  title,
+  subtitle,
+  thumb,
+  video,
+  locked,
+  value,
+  common,
+  onChange,
+  onPreview,
+}: {
+  title: string;
+  subtitle: string;
+  thumb?: string;
+  video?: boolean;
+  locked?: boolean;
+  value: OwnCopy;
+  common: PreviewCopy;
+  onChange: (field: keyof OwnCopy, value: string) => void;
+  onPreview: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 p-3">
+      <div className="flex items-center gap-2">
+        {thumb ? (
+          video ? (
+            <video src={thumb} className="h-10 w-10 shrink-0 rounded-md object-cover" muted />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={thumb} alt="" className="h-10 w-10 shrink-0 rounded-md object-cover" />
+          )
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold" title={title}>
+            {title}
+          </p>
+          <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
+        </div>
+        <PreviewButton onClick={onPreview} />
+      </div>
+      {locked ? (
+        <p className="mt-2 text-[12px] text-slate-500">Publication existante : elle garde son propre texte.</p>
+      ) : (
+        <div className="mt-2 space-y-2">
+          <label className="block text-[12px] font-medium">
+            Headline
+            <input
+              value={value.headline}
+              onChange={(e) => onChange("headline", e.target.value)}
+              placeholder={common.headlines[0] ?? "Titre"}
+              className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-[13px] font-normal"
+            />
+          </label>
+          <label className="block text-[12px] font-medium">
+            Primary Text
+            <textarea
+              value={value.body}
+              onChange={(e) => onChange("body", e.target.value)}
+              placeholder={common.bodies[0] ?? "Texte principal"}
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] font-normal"
+            />
+          </label>
+          <label className="block text-[12px] font-medium">
+            Description
+            <input
+              value={value.description}
+              onChange={(e) => onChange("description", e.target.value)}
+              placeholder={common.descriptions[0] ?? "Description"}
+              className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-[13px] font-normal"
+            />
+          </label>
+        </div>
+      )}
     </div>
   );
 }
