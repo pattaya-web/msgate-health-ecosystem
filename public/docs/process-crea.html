@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline créa Meta</title>
+<style>
+  :root{
+    --bg:#f6f4ef; --card:#ffffff; --ink:#1b1b1f; --muted:#5d5d66; --line:#e3e0d8;
+    --accent:#b4232a; --accent-soft:#fbe9ea; --green:#1f7a4d; --green-soft:#e6f4ec;
+    --amber:#9a6400; --amber-soft:#fff3d6; --blue:#1f4e9c; --blue-soft:#e7eefb;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#141416; --card:#1e1e22; --ink:#f1efe9; --muted:#a9a7a0; --line:#2e2e34;
+      --accent:#ff6b70; --accent-soft:#3a1d1f; --green:#5ad08e; --green-soft:#17301f;
+      --amber:#f3c25c; --amber-soft:#3a2d12; --blue:#7ea6ea; --blue-soft:#182840;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#141416; --card:#1e1e22; --ink:#f1efe9; --muted:#a9a7a0; --line:#2e2e34;
+    --accent:#ff6b70; --accent-soft:#3a1d1f; --green:#5ad08e; --green-soft:#17301f;
+    --amber:#f3c25c; --amber-soft:#3a2d12; --blue:#7ea6ea; --blue-soft:#182840;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;padding:16px}
+  main{max-width:900px;margin:0 auto}
+  header{padding:24px 0 8px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 4px}
+  h2{font-size:21px;margin:36px 0 12px;padding-top:8px;border-top:2px solid var(--line)}
+  h3{font-size:16px;margin:18px 0 6px}
+  p{margin:8px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:12px 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:15px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12.5px;font-weight:600}
+  .red{background:var(--accent-soft);color:var(--accent)}
+  .green{background:var(--green-soft);color:var(--green)}
+  .amber{background:var(--amber-soft);color:var(--amber)}
+  .blue{background:var(--blue-soft);color:var(--blue)}
+  .rule{border-left:4px solid var(--accent);padding:10px 14px;background:var(--accent-soft);border-radius:8px;margin:12px 0}
+  .ok{border-left:4px solid var(--green);background:var(--green-soft)}
+  .note{border-left:4px solid var(--blue);background:var(--blue-soft)}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px}
+  pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto;white-space:pre-wrap}
+  ul,ol{padding-left:20px;margin:6px 0}
+  li{margin:5px 0}
+  .muted{color:var(--muted)}
+  @media (max-width:600px){h1{font-size:24px} table{font-size:14px} th,td{padding:7px 6px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Pipeline créa Meta</h1>
+  <p class="sub">L'ABO teste, la CBO scale, les BidCap et CostCap sécurisent la marge. Même méthode sur tous nos shops.</p>
+  <p class="sub muted">Version 4 · novembre 2026 · les heures sont celles du compte publicitaire (Paris). Dubaï = Paris + 3 h.</p>
+</header>
+
+<h2>1. L'idée</h2>
+<div class="card">
+  <table>
+    <tr><th>Campagne</th><th>Rôle</th><th>Qui pilote</th></tr>
+    <tr><td><span class="tag red">TEST</span> ABO</td><td>Tester chaque batch de créas avec un budget propre par ad set, pour avoir la data créa par créa</td><td>Alison upload, Mady coupe</td></tr>
+    <tr><td><span class="tag green">MAIN</span> CBO</td><td>Scaler les créas validées. C'est elle qui porte le volume.</td><td>Mady</td></tr>
+    <tr><td><span class="tag amber">BIDCAP / COSTCAP</span></td><td>À 3-5 k/jour stable : presser les winners et sécuriser la marge</td><td>Mady</td></tr>
+  </table>
+  <p>Une créa fait le chemin <b>TEST → MAIN → BidCap ou CostCap</b>. Elle monte quand ses chiffres le prouvent sur 7 jours. Chaque semaine, par shop, on sort <b>15 à 25 créas</b> : 80 % d'itérations des winners, 20 % de concepts neufs.</p>
+  <p>Toutes les décisions se lisent dans le CRM, sur 2, 3 et 7 jours. Jamais au feeling, jamais sur la journée en cours, jamais en vocal.</p>
+</div>
+
+<h2>2. Qui fait quoi</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Alison</h3>
+    <ul>
+      <li>Produit les créas à partir des briefs.</li>
+      <li>Vérifie chaque image (chapitre 9).</li>
+      <li>Upload le jeudi : les nouveaux ad sets TEST.</li>
+      <li>Lit l'onglet Matin le vendredi et le dimanche, note pour Mady ce que l'écran propose.</li>
+      <li>Prépare en brouillon l'ad set MAIN des winners de la semaine.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Mady</h3>
+    <ul>
+      <li>Écrit les briefs du lundi.</li>
+      <li>Valide les créas le mercredi.</li>
+      <li>Tous les budgets, toutes les enchères, toutes les coupes, toutes les campagnes.</li>
+      <li>Gère les fournisseurs, paie les factures fournisseurs et les ads.</li>
+    </ul>
+  </div>
+</div>
+<div class="rule ok"><b>Règle d'or :</b> une décision par campagne tous les 2 jours, le matin, sur les chiffres de la veille. Alison ne modifie jamais un budget.</div>
+
+<h2>3. Les chiffres</h2>
+<div class="card">
+  <table>
+    <tr><th>Indicateur</th><th>C'est quoi</th><th>Usage</th></tr>
+    <tr><td><b>Marge nette</b></td><td>CA − colis − frais − dépense pub, en % du CA</td><td>La seule mesure qui compte pour monter ou couper</td></tr>
+    <tr><td><b>Objectif scaling</b></td><td>Marge nette <b>≥ 15 %</b> sur 7 jours</td><td>Au-dessus : on monte. En dessous : on ne touche pas.</td></tr>
+    <tr><td><b>Seuil « bonne »</b></td><td>Marge <b>7,5 à 15 %</b></td><td>Rentable. Une créa TEST à ≥ 7,5 % passe en MAIN.</td></tr>
+    <tr><td><b>Break-even (BE)</b></td><td>Marge 0 %</td><td>En dessous : on coupe</td></tr>
+    <tr><td><b>CPA 20 %</b></td><td>Coût par achat qui laisse 20 % de marge</td><td>Enchère de départ du BidCap</td></tr>
+    <tr><td><b>CPA 15 %</b></td><td>Coût par achat qui laisse 15 % de marge</td><td>Enchère de départ du CostCap</td></tr>
+  </table>
+  <p class="muted">Le CRM calcule tout ça depuis la grille fournisseur. ROAS réel = CA boutique ÷ dépense Meta totale.</p>
+</div>
+
+<h2>4. TEST : l'ABO de testing</h2>
+<div class="card">
+  <h3>Structure</h3>
+  <ul>
+    <li><b>Une campagne ABO</b> <code>TEST - [PRODUIT]</code>, objectif Ventes, optimisation Achat. Budget au niveau de l'ad set, jamais de la campagne.</li>
+    <li>Chaque jeudi, <b>5 nouveaux ad sets</b> <code>TEST - S[semaine] - MIX 1</code> à <code>MIX 5</code>, <b>50 €/jour chacun</b>, <b>3 à 5 créas par ad set</b>. Un ad set = un concept et ses variantes.</li>
+    <li>Audience large : pays, 18-65+, aucun centre d'intérêt. Placements Advantage+.</li>
+  </ul>
+  <h3>Les 7 jours d'un ad set TEST</h3>
+  <table>
+    <tr><th>Quand</th><th>Constat</th><th>Décision</th></tr>
+    <tr><td><b>J1</b></td><td>0 vente, peu d'ajouts au panier, CTR bas</td><td><b>Couper l'ad set.</b> On ne s'acharne pas.</td></tr>
+    <tr><td><b>J1</b></td><td>0 vente mais beaucoup d'ajouts au panier, CTR haut, CPC bas</td><td>Un jour de plus. J2 toujours 0 vente → couper.</td></tr>
+    <tr><td><b>J1 à J7</b></td><td>Des ventes</td><td>On laisse tourner 7 jours sans rien toucher.</td></tr>
+    <tr><td><b>J7</b></td><td>Marge 7 j ≥ 7,5 % sur une créa</td><td>Elle est <b>validée</b> : son post ID part en MAIN (chapitre 5).</td></tr>
+    <tr><td><b>J7</b></td><td>Marge 7 j ≥ 15 % et beaucoup de ventes</td><td>Validée, et en plus on peut <b>scaler l'ad set TEST lui-même</b> +25 % / 2 jours.</td></tr>
+    <tr><td><b>J7</b></td><td>Marge 7 j &lt; 7,5 %</td><td>Couper l'ad set. L'idée revient sous un nouveau nom si elle méritait mieux.</td></tr>
+  </table>
+  <h3>Lancement d'un nouveau shop : go ou no-go</h3>
+  <p>La première semaine, on regarde aussi l'ABO entière. 0 ajout au panier sur tous les ad sets après 100 $ : on vérifie le setup (pixel, page, panier, checkout, offre, prix), on laisse une demi-journée, et si c'est toujours mort on coupe tout et on change de produit. Des ventes autour du break-even : une semaine d'itération 80/20, puis on tranche.</p>
+</div>
+<div class="rule"><b>On ne coupe jamais une créa dans l'ABO parce qu'elle est passée en MAIN.</b> Le chevauchement n'est pas un problème. Les deux tournent en parallèle, chacune jugée sur ses propres chiffres.</div>
+
+<h2>5. MAIN : la CBO de scaling</h2>
+<div class="card">
+  <h3>Structure</h3>
+  <ul>
+    <li><b>Une campagne CBO</b> <code>MAIN - [PRODUIT]</code>, objectif Ventes, optimisation Achat, budget au niveau de la campagne. Départ 100 à 150 €/jour.</li>
+    <li>Chaque semaine, les créas validées en TEST entrent dans <b>un nouvel ad set</b> <code>MAIN - S[semaine]</code>, via leur <b>post ID</b> (la pub garde ses likes et commentaires). Tout le batch validé de la semaine dans le même ad set.</li>
+    <li>On n'ajoute jamais de pub dans un ad set MAIN existant. Une semaine = un ad set neuf. Les anciens ad sets restent tant qu'ils dépensent et sont rentables.</li>
+  </ul>
+  <h3>La rampe</h3>
+  <table>
+    <tr><th>Règle</th><th>Détail</th></tr>
+    <tr><td><b>+25 % tous les 2 jours</b></td><td>Tant que la marge 7 j de la CBO est ≥ 15 %. 150 → 190 → 240 → 300… sur le budget de la campagne.</td></tr>
+    <tr><td><b>Règle des 2 jours</b></td><td>Après une hausse, 2 jours complets avant de juger. Un mauvais lendemain n'est pas un signal.</td></tr>
+    <tr><td><b>Dérive</b></td><td>Si après 2 jours la marge est sous 7,5 %, retour au palier précédent.</td></tr>
+    <tr><td><b>Surf scaling</b> (Mady)</td><td>Les très bons jours, souvent le week-end : on surfe sur la journée, on monte le budget toutes les heures tant que le ROAS reste très haut (200 → 400 → 800). Le lendemain on repart du palier atteint.</td></tr>
+  </table>
+  <h3>Quand une créa est à la fois en TEST et en MAIN</h3>
+  <ul>
+    <li>Elle <b>dépense et vend en MAIN</b> → on la coupe dans l'ABO. On ne scale pas la même créa sur deux campagnes.</li>
+    <li>Elle <b>ne dépense pas en MAIN</b> (la CBO préfère d'autres pubs) → on la laisse en MAIN et on la <b>scale dans l'ABO</b>, +25 % / 2 jours sur son ad set TEST. Après 7 jours, elle part en BidCap ou CostCap.</li>
+  </ul>
+  <h3>Nourrir la machine</h3>
+  <ul>
+    <li><b>15 à 25 créas par semaine</b> minimum. Sans créas neuves, une CBO meurt en 2 à 3 semaines.</li>
+    <li><b>80 % d'itérations</b> des winners, <b>20 % de concepts neufs</b>. Après le premier pic, 50/50 ou 60/40.</li>
+    <li>Itérer = changer une chose : hook (vidéo), script sur le même angle, headline, visuel, avatar.</li>
+  </ul>
+</div>
+
+<h2>6. BidCap et CostCap (à 3-5 k/jour stable)</h2>
+<div class="card">
+  <p>Deux campagnes en plus de la MAIN, en enchère manuelle. On donne à Meta notre coût par achat et il ne dépense que s'il le trouve.</p>
+  <table>
+    <tr><th></th><th>BidCap (limite d'enchère)</th><th>CostCap (objectif de coût par résultat)</th></tr>
+    <tr><td><b>Pour quelles créas</b></td><td>Les <b>meilleures</b> : marge &gt; 15 % avec une vraie dépense derrière</td><td>Les <b>bonnes</b> : marge 7,5 à 15 %</td></tr>
+    <tr><td><b>Enchère de départ</b></td><td>CPA qui laisse <b>20 %</b> de marge</td><td>CPA qui laisse <b>15 %</b> de marge</td></tr>
+    <tr><td><b>Budget</b></td><td>500 à 1 000 $/jour. Il ne sera jamais dépensé d'un coup, c'est voulu.</td><td>500 $/jour</td></tr>
+    <tr><td><b>Comportement</b></td><td>Strict : ne dépasse jamais le CPA. Dépense peu les mauvais jours, beaucoup les bons.</td><td>Souple : peut dépasser de 20-25 %. Pousse le volume.</td></tr>
+    <tr><td><b>Structure</b></td><td colspan="2">CBO, 1 ad set au départ avec toutes les créas éligibles (post IDs). Ensuite un nouvel ad set par semaine.</td></tr>
+  </table>
+  <p>Les créas entre 0 et 7,5 % restent dans la MAIN et ne vont nulle part ailleurs.</p>
+  <h3>Les 3 premiers jours : on ne touche à rien, sauf l'enchère</h3>
+  <ol>
+    <li>J1 : 0 dépense ? Normal. On laisse.</li>
+    <li>J2 et suivants : tant que ça ne dépense pas, on monte l'enchère de <b>1 $ par jour</b>.</li>
+    <li>Dès que ça dépense, on <b>fige l'enchère</b>.</li>
+    <li>Quand la dépense approche le budget, on <b>double le budget</b>. Un BidCap ne sur-dépense pas.</li>
+  </ol>
+  <p><b>Chaque lundi</b> : analyse de la MAIN, les créas &gt; 15 % vont dans le BidCap, celles entre 7,5 et 15 % dans le CostCap, via un nouvel ad set à chaque fois. La créa continue de tourner dans la MAIN.</p>
+</div>
+<div class="rule">Un BidCap avec des créas moyennes et une enchère gonflée perd de l'argent. BidCap = winners prouvés uniquement.</div>
+
+<h2>7. Pas à pas dans le Gestionnaire de pubs</h2>
+<div class="card">
+  <h3>A. L'ABO de test, chaque jeudi (Alison)</h3>
+  <ol>
+    <li>Campagne <code>TEST - [PRODUIT]</code> (créée une fois : objectif Ventes, campagne de ventes manuelle, <b>budget de campagne Advantage+ DÉSACTIVÉ</b>).</li>
+    <li><b>Créer un ad set</b> : nom <code>TEST - S[semaine] - MIX n</code>. Conversion Site web → pixel du shop → événement <b>Achat</b>. <b>Budget quotidien 50 €</b>. Démarrage au prochain 00:00, heure du compte, pas de date de fin.</li>
+    <li>Audience : pays du shop, 18-65+, aucun centre d'intérêt. Placements Advantage+.</li>
+    <li>3 à 5 pubs : page et compte Instagram du shop, image unique ou vidéo unique, <b>nom de la pub = nom de la créa dans le pipeline</b>, texte et titre du brief copiés tels quels, URL copiée d'une pub existante du shop, bouton Acheter.</li>
+    <li><b>Publier</b>. Statut UPLOADÉE dans le pipeline avec le nom de l'ad set. Recommencer pour les 5 ad sets.</li>
+  </ol>
+  <h3>B. La CBO MAIN (créée une fois, Mady)</h3>
+  <ol>
+    <li><b>Créer</b> → Ventes → campagne de ventes manuelle. Nom <code>MAIN - [PRODUIT]</code>. <b>Budget de campagne Advantage+ ACTIVÉ</b>, budget quotidien de départ.</li>
+    <li>Démarrage au prochain 00:00, heure du compte. Pas de date de fin.</li>
+  </ol>
+  <h3>C. Passer les validées de la semaine en MAIN (Alison prépare, Mady publie)</h3>
+  <ol>
+    <li>Dans le CRM, copier le <b>post ID</b> de chaque créa validée (colonne Post ID). Il ressemble à <code>123456_789012</code>.</li>
+    <li>Dans la MAIN, <b>Créer un ad set</b> : nom <code>MAIN - S[semaine]</code>, mêmes réglages qu'un ad set TEST, <b>sans budget propre</b>.</li>
+    <li>Une pub par créa validée : <b>Utiliser une publication existante</b> → onglet Identifiant de publication → coller le post ID. La pub d'origine doit apparaître avec ses likes et commentaires.</li>
+    <li>Laisser en <b>brouillon</b>, prévenir Mady. Mady vérifie et publie. On ne touche pas à l'ad set TEST.</li>
+  </ol>
+  <h3>D. Déplacer une créa vers un BidCap ou un CostCap (Mady)</h3>
+  <p>Même méthode que C, dans la campagne BidCap ou CostCap, ad set <code>S[semaine]</code>. La créa continue en MAIN.</p>
+</div>
+<div class="rule">Une fois publiée, on ne touche ni au texte, ni à l'image, ni à l'URL d'une pub. Si quelque chose est faux, on la coupe et on en recrée une avec un nouveau nom.</div>
+
+<h2>8. La semaine</h2>
+<table>
+  <tr><th>Jour</th><th>Qui</th><th>Quoi</th></tr>
+  <tr><td><b>Lundi</b></td><td>Mady</td><td>Analyse : créas TEST validées → ad set MAIN de la semaine ; créas MAIN → BidCap / CostCap (quand ils existent). Écrit 15 à 20 briefs.</td></tr>
+  <tr><td><b>Mardi, mercredi</b></td><td>Alison</td><td>Produit les créas. Vérifie chaque image. Statut PRÊTE.</td></tr>
+  <tr><td><b>Mercredi 18h</b></td><td>Mady</td><td>Valide ou renvoie avec un commentaire.</td></tr>
+  <tr><td><b>Jeudi</b></td><td>Alison</td><td>5 nouveaux ad sets TEST. Démarrage à 00:00.</td></tr>
+  <tr><td><b>Vendredi 10h</b></td><td>Alison</td><td>Check J1 des ad sets TEST dans l'onglet Matin. Signale à Mady ce qui est à couper.</td></tr>
+  <tr><td><b>Week-end</b></td><td>Mady</td><td>Palier +25 % sur la MAIN si la marge le permet, surf scaling si la journée est très bonne.</td></tr>
+  <tr><td><b>Dimanche soir</b></td><td>Alison puis Mady</td><td>Les KPI de la semaine. Mady prépare les briefs du lundi.</td></tr>
+</table>
+
+<h2>9. Avant de passer une créa en PRÊTE</h2>
+<div class="card">
+  <ul>
+    <li>Le produit est celui des photos de référence : couleur, matière, proportions.</li>
+    <li>Le packaging est celui du shop, jamais un carton générique.</li>
+    <li>Si le produit apparaît deux fois (offre 2 pour 1) : exactement la même taille et la même couleur.</li>
+    <li>Le prix et l'offre sont ceux de la page de vente, au centime.</li>
+    <li>Texte lisible sur téléphone, sans faute, rien dans les 12 % du haut et du bas.</li>
+    <li>Formats : 3:4 (1080×1440) et 1:1 (1080×1080). Vidéos : 9:16 et 4:5.</li>
+  </ul>
+</div>
+
+<h2>10. Le brief</h2>
+<p>Un brief = une créa à produire. Mady en écrit 15 à 20 chaque lundi dans le pipeline. Alison produit exactement ce qui est écrit.</p>
+<pre>Créa ID      : S_CONCEPT_MÉTHODE_vN        ex. S_BUNDLE_HEADLINE_v3
+Type         : Itération (hook / script / headline / visuel / avatar) de [créa source] ou Nouveau concept
+Angle        : pain point, preuve sociale, cadeau, démo, prix…
+Headline     : texte exact
+Badge        : un seul
+Visuel       : 2-3 lignes : fond, mise en scène, produit
+Prix affiché : prix · offre · prix barré
+Ad set       : TEST - S[semaine] - MIX n
+Deadline     : mercredi 18h validé · jeudi uploadé</pre>
+<p class="muted"><code>S</code> = statique, <code>V</code> = vidéo. Même nom dans le pipeline et dans le Gestionnaire de pubs.</p>
+
+<h2>11. Les erreurs qui tuent un shop</h2>
+<div class="rule">
+  <ul>
+    <li>S'acharner sur un ad set mort : J1 sans vente et sans ajouts au panier, on coupe.</li>
+    <li>Scaler trop vite : pas de doublement au jour 2. +25 % tous les 2 jours.</li>
+    <li>Couper une créa dans l'ABO parce qu'elle est passée en MAIN.</li>
+    <li>Mettre des créas moyennes dans un BidCap et gonfler l'enchère.</li>
+    <li>Arrêter de produire des créas parce qu'on a « un winner ». La CBO meurt en 3 semaines.</li>
+    <li>Ajouter des pubs dans un ad set qui tourne. Une semaine = un ad set neuf.</li>
+    <li>Décider en vocal. Si ce n'est pas écrit dans le pipeline, ça n'a pas eu lieu.</li>
+  </ul>
+</div>
+
+</main>
+</body>
+</html>

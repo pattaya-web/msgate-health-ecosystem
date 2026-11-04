@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { apiGuard } from "@/lib/auth/guard";
-import { getAuthSecret, SESSION_COOKIE } from "@/lib/auth/session";
+import { getAuthSecret, SESSION_COOKIE, verifySession } from "@/lib/auth/session";
 import { getBankPageByDomain } from "@/lib/bank-pages/store";
 import { getEcomSiteByDomain } from "@/lib/ecom-sites/store";
 
@@ -56,6 +56,14 @@ export async function proxy(request: NextRequest) {
       fallbackProtocol: request.nextUrl.protocol.replace(/:$/, ""),
     });
     if (decision.kind === "deny") return NextResponse.json({ error: decision.message }, { status: decision.status });
+  }
+
+  // Les documents internes (public/docs, ex. le process créa) : réservés aux comptes connectés.
+  if (request.nextUrl.pathname.startsWith("/docs/") && !verifySession(request.cookies.get(SESSION_COOKIE)?.value ?? null, getAuthSecret())) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "";
+    return NextResponse.redirect(url);
   }
 
   if (isAppHost(host)) return NextResponse.next();

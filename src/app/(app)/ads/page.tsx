@@ -50,6 +50,7 @@ import { ObjectivesBar } from "@/components/ads/objectives-bar";
 import { ScalingRamp } from "@/components/ads/scaling-ramp";
 import { CreativePipeline } from "@/components/ads/creative-pipeline";
 import { MorningView } from "@/components/ads/morning-view";
+import { ProcessDoc } from "@/components/ads/process-doc";
 import type { ObjectivesBar as Objectives } from "@/lib/metrics/objectives";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
@@ -1008,19 +1009,20 @@ export default function AdsPage() {
   const [agencyBusy, setAgencyBusy] = useState(false);
   const [storedTokens, setStoredTokens] = useState<Array<{ id: string; label: string; hint: string }>>([]);
   const [objectives, setObjectives] = useState<Objectives | null>(null);
-  /** L'onglet du haut : « Matin » (ce qu'il faut faire aujourd'hui) ou l'Ads Manager complet. Le dernier choix est retenu. */
-  const [view, setView] = useState<"matin" | "tout">("matin");
+  /** L'onglet du haut : « Matin » (ce qu'il faut faire aujourd'hui), l'Ads Manager complet ou le document « Process ». Le dernier choix est retenu. */
+  const [view, setView] = useState<"matin" | "tout" | "process">("matin");
   useEffect(() => {
     const timer = setTimeout(() => {
       try {
-        if (localStorage.getItem("msgate-ads-view") === "tout") setView("tout");
+        const saved = localStorage.getItem("msgate-ads-view");
+        if (saved === "tout" || saved === "process") setView(saved);
       } catch {
         // stockage refusé : sans gravité
       }
     }, 0);
     return () => clearTimeout(timer);
   }, []);
-  const chooseView = (next: "matin" | "tout") => {
+  const chooseView = (next: "matin" | "tout" | "process") => {
     setView(next);
     try {
       localStorage.setItem("msgate-ads-view", next);
@@ -1539,6 +1541,7 @@ export default function AdsPage() {
         [
           ["matin", "Matin"],
           ["tout", "Ads Manager"],
+          ["process", "Process"],
         ] as const
       ).map(([id, label]) => (
         <button
@@ -1562,7 +1565,8 @@ export default function AdsPage() {
         }}
       />
     ) : null}
-    <div className={cn("flex w-full flex-col gap-2.5 pb-8", view === "matin" && "hidden")}>
+    {view === "process" ? <ProcessDoc /> : null}
+    <div className={cn("flex w-full flex-col gap-2.5 pb-8", view !== "tout" && "hidden")}>
       {/* Header: stack on mobile, row on desktop */}
       <div className="order-1 flex flex-col gap-2 lg:order-1 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="min-w-0">
