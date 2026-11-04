@@ -9,10 +9,10 @@ import { reportToday } from "@/lib/report-tz";
  * L'onglet « Matin » de l'Ads Manager : ce qu'il faut faire aujourd'hui, sur
  * un écran. Le ROAS réel et le bénéfice réel des 3 derniers jours complets,
  * l'approbation Reign sur 7 jours, l'état des hausses ; les actions de la
- * rampe qui ont un bouton ; les créas du pipeline à couper (CUT avec au moins
- * 10 ventes, hors ad set dont le budget a bougé il y a moins de 72 h) ou à
- * mettre dans le HYPER (BEST avec au moins 20 ventes) ; et le rappel du jeudi
- * ou du dimanche.
+ * rampe qui ont un bouton ; les créas que le pipeline, en lecture 3 j
+ * (quotidienne), dit de couper (coupes d'urgence : jamais de passage en MAIN
+ * sur 3 j, ça se décide dans la vue 7 j) ; et le rappel du jeudi ou du
+ * dimanche.
  */
 
 export type MorningCreative = {
@@ -21,14 +21,13 @@ export type MorningCreative = {
   adsetName: string;
   accountId: string;
   postId: string | null;
-  action: "Couper" | "Mettre dans le HYPER";
+  action: "Couper";
   badge: string;
   sales: number;
   liveAdIds: string[];
+  /** Le verdict en clair et la phrase de justification. */
+  label: string;
   why: string;
-  /** Remplace le bouton quand l'action est impossible (aucun HYPER actif…). */
-  blocked: string | null;
-  targets: Array<{ adsetId: string; adsetName: string; campaignId: string; campaignName: string }>;
 };
 
 export type Morning = {
@@ -53,7 +52,7 @@ export async function buildMorning(options: { aggressive: boolean }): Promise<Mo
   const today = reportToday();
   const [ramp, pipeline, last3, pilotage, store] = await Promise.all([
     buildScalingRamp(options),
-    buildPipeline(7),
+    buildPipeline(3),
     buildObjectivesBar(addDays(today, -3), addDays(today, -1)).catch(() => null),
     buildPilotage().catch(() => null),
     readStore(),
@@ -63,25 +62,20 @@ export async function buildMorning(options: { aggressive: boolean }): Promise<Mo
   for (const row of pipeline.creatives) {
     for (const place of row.placements) {
       if (!place.live) continue;
+      if (place.todo !== "Couper") continue;
       const m = place.margins[7];
-      const cut = place.todo === "Couper" && m.badge === "CUT" && m.sales >= 10;
-      const hyper = place.todo === "Post ID dans le HYPER" && m.badge === "BEST" && m.sales >= 20;
-      if (!cut && !hyper) continue;
       creatives.push({
         key: `${row.key}|${place.adsetId}`,
         name: row.name,
         adsetName: place.adsetName,
         accountId: row.accountId,
         postId: row.postId,
-        action: cut ? "Couper" : "Mettre dans le HYPER",
+        action: "Couper",
         badge: m.badge,
         sales: m.sales,
         liveAdIds: place.liveAdIds,
+        label: place.label,
         why: place.why,
-        blocked: place.blocked,
-        targets: pipeline.targets
-          .filter((target) => target.accountId === row.accountId && target.status === "HYPER")
-          .map((target) => ({ adsetId: target.adsetId, adsetName: target.adsetName, campaignId: target.campaignId, campaignName: target.campaignName })),
       });
     }
   }

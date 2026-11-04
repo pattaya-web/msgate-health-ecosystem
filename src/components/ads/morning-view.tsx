@@ -8,14 +8,13 @@ import type { RampRow } from "@/lib/metrics/scaling-ramp";
 
 /**
  * L'onglet « Matin » de l'Ads Manager : une ligne de chiffres, les actions de
- * la rampe qui ont un bouton, les créas à couper ou à mettre dans le HYPER, le
- * rappel du jour. Tient sur un écran ; le reste est dans l'onglet Ads Manager.
+ * la rampe qui ont un bouton, les créas à couper (lecture 3 j), le rappel du
+ * jour. Tient sur un écran ; le reste est dans l'onglet Ads Manager.
  */
 
 const GREEN = "#15803d";
 const ORANGE = "#b45309";
 const RED = "#e11d48";
-const PURPLE = "#7c3aed";
 
 const eur = (value: number) => `${Math.round(value).toLocaleString("fr-FR")} €`;
 const usd = (value: number | null) => (value == null ? "—" : `${value < 0 ? "−" : ""}${Math.round(Math.abs(value)).toLocaleString("fr-FR")} $`);
@@ -82,62 +81,22 @@ export function MorningView({ onApplied }: { onApplied?: (level: "campaign" | "a
       row.id,
       cut ? `Couper (mettre en pause) « ${row.name} » ?\n${row.reasons[0] ?? ""}` : `« ${row.name} » : ${eur(row.budget)} → ${eur(row.nextBudget)} ?`,
       async () => {
-        await entity(row.id, row.level, patch, "rampe", `Rampe : ${row.status} · ROAS 3 j ${num(row.roas3)}`);
+        await entity(row.id, row.level, patch, "rampe", `Rampe : ${row.surf ? "SURF (pour la journée)" : row.verdict?.startsWith("Fin du surf") ? "fin du surf" : row.status} · ROAS 3 j ${num(row.roas3)}`);
         onApplied?.(row.level, row.id, patch);
       },
       cut ? `${row.name} coupé` : `${row.name} : ${eur(row.nextBudget)}`
     );
   };
 
-  const applyCreative = (row: MorningCreative, targetId?: string) => {
-    if (row.action === "Couper") {
-      void run(
-        row.key,
-        `Couper « ${row.name} » dans « ${row.adsetName} » ?\n${row.why}`,
-        async () => {
-          for (const id of row.liveAdIds) await entity(id, "ad", { status: "PAUSED" }, "pipeline", `Matin : Couper · ${row.why}`);
-          await log(`Couper « ${row.name} » dans « ${row.adsetName} » (Matin) · ${row.why}`);
-        },
-        `${row.name} coupée`
-      );
-      return;
-    }
-    const target = row.targets.find((item) => item.adsetId === targetId) ?? row.targets[0];
-    if (!target || !row.postId) return;
+  const applyCreative = (row: MorningCreative) => {
     void run(
       row.key,
-      `Mettre « ${row.name} » (post ID) dans « ${target.adsetName} » (${target.campaignName}) ? La pub part en live.`,
+      `Couper « ${row.name} » dans « ${row.adsetName} » ?\n${row.label}\n${row.why}`,
       async () => {
-        const res = await fetch("/api/meta/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accountId: row.accountId,
-            sourceCampaignId: target.campaignId,
-            sourceAdsetId: target.adsetId,
-            createNewCampaign: false,
-            createNewAdset: false,
-            adsetPerUpload: false,
-            autoDivide: null,
-            adNamePattern: "{file}",
-            headlines: [],
-            bodies: [],
-            descriptions: [],
-            websiteUrl: "",
-            displayUrl: "",
-            cta: "",
-            flexible: false,
-            paused: false,
-            aiGenerated: false,
-            enhancements: {},
-            media: [{ kind: "post", postId: row.postId, fileName: row.name }],
-          }),
-        });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || "Meta a refusé la pub");
-        await log(`Promouvoir « ${row.name} » → HYPER « ${target.adsetName} » (Matin)`);
+        for (const id of row.liveAdIds) await entity(id, "ad", { status: "PAUSED" }, "pipeline", `Matin : ${row.label}`);
+        await log(`Couper « ${row.name} » dans « ${row.adsetName} » (Matin) · ${row.label}`);
       },
-      `${row.name} ajoutée dans ${target.adsetName}`
+      `${row.name} coupée`
     );
   };
 
@@ -188,11 +147,12 @@ export function MorningView({ onApplied }: { onApplied?: (level: "campaign" | "a
                     <li key={row.id} className="flex items-center gap-3 py-1.5 text-[13px]">
                       <span className="min-w-0 flex-1 truncate font-semibold" title={row.reasons[0]}>
                         {row.name}
+                        {row.verdict ? <span className="ml-1.5 text-[11.5px] font-normal text-slate-500">· {row.verdict}</span> : null}
                       </span>
                       <span className="text-[11.5px] text-slate-500 tabular-nums">ROAS {num(row.roas3)} · {eur(row.budget)}</span>
                       <button type="button" disabled={busy !== null} onClick={() => applyRamp(row)} className="inline-flex w-[150px] items-center justify-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50" style={{ background: color }}>
                         {busy === row.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                        {row.status === "COUPER" ? "Couper" : row.status === "MONTER" ? `Monter à ${eur(row.nextBudget)}` : `Revenir à ${eur(row.nextBudget)}`}
+                        {row.status === "COUPER" ? "Couper" : row.status === "MONTER" ? `${row.surf ? "Surf" : "Monter"} à ${eur(row.nextBudget)}` : `Revenir à ${eur(row.nextBudget)}`}
                       </button>
                     </li>
                   );
@@ -202,10 +162,10 @@ export function MorningView({ onApplied }: { onApplied?: (level: "campaign" | "a
           ) : null}
           {data.creatives.length ? (
             <div>
-              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Créas</p>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Créas à couper (lecture 3 j)</p>
               <ul className="divide-y divide-slate-100 dark:divide-white/[0.06]">
                 {data.creatives.map((row) => (
-                  <CreativeAction key={row.key} row={row} busy={busy} onAct={(target) => applyCreative(row, target)} />
+                  <CreativeAction key={row.key} row={row} busy={busy} onAct={() => applyCreative(row)} />
                 ))}
               </ul>
             </div>
@@ -218,36 +178,22 @@ export function MorningView({ onApplied }: { onApplied?: (level: "campaign" | "a
   );
 }
 
-function CreativeAction({ row, busy, onAct }: { row: MorningCreative; busy: string | null; onAct: (target?: string) => void }) {
-  const [target, setTarget] = useState(row.targets[0]?.adsetId ?? "");
-  const cut = row.action === "Couper";
+function CreativeAction({ row, busy, onAct }: { row: MorningCreative; busy: string | null; onAct: () => void }) {
   return (
     <li className="flex items-center gap-3 py-1.5 text-[13px]">
-      <span className="min-w-0 flex-1 truncate" title={row.why}>
-        <b>{row.name}</b> <span className="text-[11.5px] text-slate-400">· {row.adsetName}</span>
+      <span className="min-w-0 flex-1" title={row.why}>
+        <span className="block truncate">
+          <b>{row.name}</b> <span className="text-[11.5px] text-slate-400">· {row.adsetName}</span>
+        </span>
+        <span className="block truncate text-[11px] text-slate-500">{row.label}</span>
       </span>
       <span className="text-[11.5px] tabular-nums">
-        <b style={{ color: cut ? RED : GREEN }}>{row.badge}</b> · {Math.round(row.sales)} ventes
+        <b style={{ color: RED }}>{row.badge}</b> · {Math.round(row.sales)} ventes 7 j
       </span>
-      {row.blocked ? (
-        <span className="w-[150px] text-right text-[11px] text-slate-500">{row.blocked}</span>
-      ) : (
-        <span className="flex items-center gap-1">
-          {!cut && row.targets.length > 1 ? (
-            <select value={target} onChange={(event) => setTarget(event.target.value)} className="h-7 max-w-[140px] rounded-md border border-slate-200 text-[11px]">
-              {row.targets.map((item) => (
-                <option key={item.adsetId} value={item.adsetId}>
-                  {item.adsetName}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          <button type="button" disabled={busy !== null} onClick={() => onAct(target)} className="inline-flex w-[150px] items-center justify-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50" style={{ background: cut ? RED : PURPLE }}>
-            {busy === row.key ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-            {cut ? "Couper" : "Mettre dans le HYPER"}
-          </button>
-        </span>
-      )}
+      <button type="button" disabled={busy !== null} onClick={onAct} className="inline-flex w-[150px] items-center justify-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50" style={{ background: RED }}>
+        {busy === row.key ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        Couper
+      </button>
     </li>
   );
 }

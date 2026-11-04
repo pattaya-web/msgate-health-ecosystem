@@ -39,3 +39,12 @@ export function netMargin(input: { purchases: number; spendUsd: number; factor: 
   const pct = revenue > 0 ? margin / revenue : null;
   return { sales, revenue, margin, pct: pct == null ? null : round2(pct * 100) };
 }
+
+/**
+ * Le CPA Meta (dépense $ par achat Meta) qui laisse `pct` % de marge nette :
+ * par achat Meta, CA = facteur × (prix + 9,99 $ × upsell) ; marge = CA × (1 − frais) − facteur × colis − CPA.
+ */
+export function cpaAtMargin(pct: number, input: { factor: number; price: number }, costs: MarginCosts) {
+  const revenue = input.factor * (input.price + UPSELL_PRICE * costs.upsellRate);
+  return round2(revenue * (1 - costs.feeRate - pct / 100) - input.factor * costs.cogsPerOrder);
+}

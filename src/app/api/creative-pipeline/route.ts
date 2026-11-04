@@ -2,13 +2,13 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { sessionFromRequest } from "@/lib/auth/request";
 import { buildPipeline, invalidatePipeline, type WindowDays } from "@/lib/creative-pipeline/build";
-import { journalLine, updateStore, type Brief, type BriefStatus, type CreativeStatus } from "@/lib/creative-pipeline/store";
+import { DEFAULT_THRESHOLDS, journalLine, updateStore, type Brief, type BriefStatus, type CreativeStatus, type Thresholds } from "@/lib/creative-pipeline/store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const BRIEF_STATUSES: BriefStatus[] = ["BRIEF", "EN PROD", "PRÊTE", "UPLOADÉE"];
-const CREATIVE_STATUSES: CreativeStatus[] = ["TEST", "SCALING", "HYPER", "COSTCAP", "OFF"];
+const CREATIVE_STATUSES: CreativeStatus[] = ["TEST", "MAIN", "SCALING", "BIDCAP", "COSTCAP", "OFF"];
 const clean = (value: unknown, max = 300) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 const token = (value: string) => value.toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Z0-9]+/g, "");
 
@@ -33,12 +33,15 @@ export async function GET(request: Request) {
 /**
  * Les actions : `brief.save` (créer / modifier), `brief.move` (changer de colonne),
  * `brief.delete`, `status.set` (forcer le statut d'une créa, null = automatique),
- * `settings` (taux d'upsell, facteur réel), `log` (couper / promouvoir faits depuis le pipeline).
+ * `settings` (taux d'upsell, facteur réel, seuils), `check` (case de « À faire cette semaine »),
+ * `log` (couper / promouvoir faits depuis le pipeline).
  */
 export async function POST(request: Request) {
   const session = allowed(request);
   if (!session) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   const who = session.email;
+  /** Qui a coché une case : « Admin » ou « Alison » (le compte associé). */
+  const person = session.role === "associate" ? "Alison" : "Admin";
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   try {
     const result = await updateStore((store) => {
@@ -127,6 +130,35 @@ export async function POST(request: Request) {
           const factor = body.factor === null ? null : Number(body.factor);
           store.settings.factor = factor == null || !Number.isFinite(factor) || factor <= 0 ? null : Math.round(factor * 100) / 100;
           store.journal.push(journalLine(who, `Facteur réel : ${store.settings.factor == null ? "calculé" : store.settings.factor}`));
+        }
+        if (body.thresholds && typeof body.thresholds === "object") {
+          const input = body.thresholds as Partial<Record<keyof Thresholds, unknown>>;
+          const next = { ...store.settings.thresholds };
+          const changed: string[] = [];
+          for (const key of Object.keys(DEFAULT_THRESHOLDS) as Array<keyof Thresholds>) {
+            if (!(key in input)) continue;
+            const value = input[key] === null ? DEFAULT_THRESHOLDS[key] : Number(input[key]);
+            if (!Number.isFinite(value) || value < 0) throw new Error(`Seuil invalide : ${key}`);
+            if (value !== next[key]) changed.push(`${key} ${next[key]} → ${value}`);
+            next[key] = value;
+          }
+          store.settings.thresholds = next;
+          if (changed.length) store.journal.push(journalLine(who, `Réglages : ${changed.join(", ")}`));
+        }
+        return { ok: true };
+      }
+      if (body.action === "check") {
+        const id = clean(body.id, 300);
+        const weekStart = clean(body.weekStart, 10);
+        const label = clean(body.label, 400);
+        if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw new Error("Case invalide");
+        const key = `${weekStart}|${id}`;
+        if (body.checked) {
+          store.checks[key] = { at: new Date().toISOString(), who: person, label };
+          store.journal.push(journalLine(person, `✓ ${label}`));
+        } else {
+          delete store.checks[key];
+          store.journal.push(journalLine(person, `Décoché : ${label}`));
         }
         return { ok: true };
       }

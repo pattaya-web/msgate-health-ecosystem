@@ -27,6 +27,13 @@ import { reportToday } from "@/lib/report-tz";
  *    minimum alors qu'un palier a été monté dans les 72 h ;
  *  - TEST (ne pas toucher) : ad set de moins de 72 h, CBO sous 400 € dépensés ;
  *  - TENIR sinon.
+ * Les ad sets TEST (nom « TEST - … ») ont leur propre règle, sans attendre la
+ * fin des 7 jours : ≥ 5 ventes sur 3 j, marge 3 j ≥ 7,5 %, ROAS 3 j ≥ 1,61 et
+ * rien bougé depuis 48 h → +25 %, jusqu'à 2× le budget de départ (au-delà la
+ * créa doit passer en MAIN) ; marge 2 j < 7,5 % après une hausse → retour au
+ * palier précédent ; « surf » +30 % pour la journée sur un ad set très fort
+ * avant 14 h (heure du compte), retour au budget normal le lendemain. Les
+ * seuils viennent des Réglages du pipeline créa.
  * Le cap global vient du ROAS réel 3 jours (ventes ÷ toute la dépense Meta) :
  * il bloque les montées, jamais les descentes. L'historique des budgets est le
  * journal des modifications (Ads Manager, Pilotage, rampe), complété par
@@ -64,6 +71,14 @@ export type RampRow = {
   blockedByCap: number | null;
   /** Marge nette sur 7 jours complets (en % du CA), null sans vente. */
   margin7: number | null;
+  /** Ad set TEST (ABO, nom « TEST - … ») : il a sa propre règle de scaling. */
+  testAdset: boolean;
+  /** Le verdict en clair quand il précise le statut (ad sets TEST) : « Monter +25 % (50 → 63 €) »… */
+  verdict: string | null;
+  /** Une hausse « surf » pour la journée seulement (retour au budget normal à 00:00). */
+  surf: boolean;
+  /** La dernière hausse de budget (hors surf). */
+  lastRiseAt: string | null;
   /** Ad set de test : les créas à couper (0 achat avec ≥ 60 $). */
   cutAds: Array<{ name: string; spend: number }>;
   thresholds: { minimum: number | null; rise: number | null };
@@ -111,6 +126,8 @@ const SEED: Array<{ id: string; at: string; before: number; after: number }> = [
 const iso = (value: string) => new Date(value.replace(/([+-]\d{2})(\d{2})$/, "$1:$2")).toISOString();
 const round2 = (value: number) => Math.round(value * 100) / 100;
 /** 1.35 → « 1,35 », pour les phrases affichées. */
+/** Un seuil sans zéros inutiles : 7.5 → « 7,5 ». */
+const frs = (value: number) => value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 const fr = (value: number | null) => (value == null ? "—" : value.toFixed(2).replace(".", ","));
 const shortDate = (value: string | number) => new Date(value).toLocaleString("fr-FR", { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const live = (row: { status: string; effectiveStatus?: string }) => row.status === "ACTIVE" && (!row.effectiveStatus || row.effectiveStatus === "ACTIVE");
@@ -211,7 +228,18 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
   };
   let weekPurchases = 0;
   const adsRecent = new Map<string, Agg & { currency: string }>();
+  // Les 2 derniers jours complets (retour au palier précédent) et la journée en cours (surf), par ad set.
+  const d2 = addDays(today, -2);
+  const twoDays = new Map<string, { spendUsd: number; purchases: number }>();
+  const intraday = new Map<string, Agg>();
   for (const row of daily) {
+    if (row.date >= d2 && row.date <= d1) {
+      const agg = twoDays.get(row.adsetId) ?? { spendUsd: 0, purchases: 0 };
+      agg.spendUsd += toUsd(row.spend, row.currency);
+      agg.purchases += row.purchases;
+      twoDays.set(row.adsetId, agg);
+    }
+    if (row.date === today) add(intraday, row.adsetId, row);
     if (row.date >= d3 && row.date <= d1) {
       add(byAdset, row.adsetId, row);
       add(byCampaign, row.campaignId, row);
@@ -234,6 +262,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
   // Le même modèle de marge que le pipeline créa (facteur réel 7 j, colis, frais, upsell).
   const orders7 = (overview?.sales.series ?? []).filter((row) => row.date >= from7 && row.date <= d1).reduce((sum, row) => sum + row.orders, 0);
   const factor7 = store.settings.factor ?? (orders7 > 0 && weekPurchases > 0 ? orders7 / weekPurchases : DEFAULT_FACTOR);
+  const T = store.settings.thresholds;
   const costs = marginCosts({ grids, today, collarsPerOrder: pilotage?.objectives.collarsPerOrder, processingRate: pilotage?.objectives.processingRate, upsellRate: store.settings.upsellRate });
 
   const history = budgetHistory(entries);
@@ -254,13 +283,13 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
           : { label: "Pas de plafond", limit: null, frozen: false };
 
   // Les lignes : ad sets actifs des campagnes ABO actives, et les campagnes CBO actives.
-  type Source = { level: "campaign" | "adset"; node: CampaignNode | AdsetNode; campaign: CampaignNode; accountName: string; currency: string };
+  type Source = { level: "campaign" | "adset"; node: CampaignNode | AdsetNode; campaign: CampaignNode; accountName: string; currency: string; timezone: string };
   const sources: Source[] = [];
   for (const account of tree.accounts) {
     for (const campaign of account.campaigns) {
       if (!live(campaign)) continue;
-      if (campaign.budgetLevel === "campaign") sources.push({ level: "campaign", node: campaign, campaign, accountName: account.name, currency: account.currency });
-      else for (const adset of campaign.adsets) if (live(adset) && adset.dailyBudget > 0) sources.push({ level: "adset", node: adset, campaign, accountName: account.name, currency: account.currency });
+      if (campaign.budgetLevel === "campaign") sources.push({ level: "campaign", node: campaign, campaign, accountName: account.name, currency: account.currency, timezone: account.timezone });
+      else for (const adset of campaign.adsets) if (live(adset) && adset.dailyBudget > 0) sources.push({ level: "adset", node: adset, campaign, accountName: account.name, currency: account.currency, timezone: account.timezone });
     }
   }
 
@@ -277,7 +306,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     if (source) campaignChangedToday.add(source.campaign.id);
   }
 
-  const rows: RampRow[] = sources.map(({ level, node, campaign, accountName, currency }) => {
+  const rows: RampRow[] = sources.map(({ level, node, campaign, accountName, currency, timezone }) => {
     const agg = (level === "campaign" ? byCampaign.get(node.id) : byAdset.get(node.id)) ?? { spend: 0, value: 0, purchases: 0 };
     const roas3 = agg.spend > 0 ? round2(agg.value / agg.spend) : null;
     const product = productOf(campaign.name, products);
@@ -295,7 +324,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     const weekAgg = week.get(node.id) ?? { spendUsd: 0, purchases: 0 };
     const margin7 = weekAgg.spendUsd > 0 ? netMargin({ purchases: weekAgg.purchases, spendUsd: weekAgg.spendUsd, factor: factor7, price: product?.price ?? 29.99 }, costs).pct : null;
     // Sans vente sur 7 jours mais avec de la dépense : marge négative, sous les 7,5 %.
-    const marginLow = weekAgg.spendUsd > 0 && (margin7 == null || margin7 < 7.5);
+    const marginLow = weekAgg.spendUsd > 0 && (margin7 == null || margin7 < T.cutMargin);
     const cutRule = minimum != null && roas3 != null && roas3 < minimum && marginLow;
     const adsets = level === "campaign" ? (node as CampaignNode).adsets : [node as AdsetNode];
     const ads = adsets.flatMap((adset) => adset.ads).filter(live);
@@ -308,9 +337,77 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     let status: RampStatus = "TENIR";
     let nextBudget = budget;
     let cutAds: RampRow["cutAds"] = [];
-
+    let verdict: string | null = null;
+    let surf = false;
     const isTest = level === "campaign" ? toEur(lifetimeSpend, currency) < 400 : hoursSinceCreate < 72;
-    if (isTest) {
+
+    // Les ad sets TEST : leur propre règle de scaling, sans attendre la fin des 7 jours.
+    // Les hausses « surf » ne comptent pas comme des paliers (elles repartent le lendemain).
+    const isSurf = (change: BudgetChange) => /surf/i.test(change.note);
+    const steps = changes.filter((change) => !isSurf(change));
+    const lastStep = steps[steps.length - 1] ?? null;
+    const lastRise = [...steps].reverse().find((change) => change.before != null && change.after != null && change.after > change.before) ?? null;
+    const testAdset = level === "adset" && (/^\s*TEST\b/i.test(node.name) || /^\s*TEST\s*-/i.test(campaign.name));
+    type TestVerdict = { status: RampStatus; next: number; verdict: string; reason: string; surf?: boolean };
+    const testVerdict = (): TestVerdict | null => {
+      const price = product?.price ?? 29.99;
+      // Le budget de départ : celui d'avant le premier changement noté au journal, sinon le budget actuel.
+      const start = changes.find((change) => change.before != null)?.before ?? budget;
+      const ceiling = Math.round(start * T.testCap);
+      // 1. Le surf d'hier : retour au budget normal.
+      if (lastChange && isSurf(lastChange) && parisDay(lastChange.at) < today && lastChange.before != null && lastChange.after != null && lastChange.after > lastChange.before && budget === lastChange.after) {
+        return { status: "REDESCENDRE", next: lastChange.before, verdict: `Fin du surf : revenir à ${lastChange.before} €`, reason: `Surf du ${shortDate(lastChange.at)} (${lastChange.before} → ${lastChange.after} €) : retour au budget normal` };
+      }
+      // 2. Une hausse qui n'a pas tenu : marge des 2 derniers jours complets sous le seuil → palier précédent.
+      if (lastRise && lastStep === lastRise && lastRise.before != null && parisDay(lastRise.at) <= d2 && now - Date.parse(lastRise.at) < 7 * 24 * HOUR) {
+        const two = twoDays.get(node.id) ?? { spendUsd: 0, purchases: 0 };
+        const margin2 = two.spendUsd > 0 ? netMargin({ purchases: two.purchases, spendUsd: two.spendUsd, factor: factor7, price }, costs).pct : null;
+        if (two.spendUsd > 0 && (margin2 == null || margin2 < T.cutMargin)) {
+          return {
+            status: "REDESCENDRE",
+            next: lastRise.before,
+            verdict: `Revenir au palier précédent (${budget} → ${lastRise.before} €)`,
+            reason: `Marge 2 j ${margin2 == null ? "négative (aucune vente)" : `${fr(margin2)} %`} (< ${frs(T.cutMargin)} %) depuis la hausse du ${shortDate(lastRise.at)} : on revient à ${lastRise.before} €, puis ${T.testWait} h sans toucher`,
+          };
+        }
+      }
+      // La règle de coupe passe avant les hausses.
+      if (!isTest && cutRule && !riseWait) return null;
+      // 3. Le surf : très fort aujourd'hui avant l'heure limite (heure du compte), une fois par jour.
+      const day = intraday.get(node.id) ?? { spend: 0, value: 0, purchases: 0 };
+      const roasToday = day.spend > 0 ? round2(day.value / day.spend) : null;
+      const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: timezone || "Europe/Paris", hour: "2-digit", hourCycle: "h23" }).format(new Date(now)));
+      const changedToday = changes.some((change) => parisDay(change.at) === today);
+      if (roasToday != null && roasToday >= T.surfRoas && day.purchases >= T.surfSales && hour < T.surfHour && !changedToday) {
+        const next = Math.round(budget * (1 + T.surfRise / 100));
+        return { status: "MONTER", next, surf: true, verdict: `Surf +${T.surfRise} % aujourd'hui (${budget} → ${next} €), revenir au budget normal à 00:00`, reason: `ROAS du jour ${fr(roasToday)} avec ${day.purchases} ventes avant ${T.surfHour} h (heure du compte)` };
+      }
+      // 4. +25 % : ventes, marge et ROAS des 3 derniers jours complets, rien bougé depuis 48 h, plafond 2× le départ.
+      const sales3 = agg.purchases * factor7;
+      const spendUsd3 = toUsd(agg.spend, currency);
+      const margin3 = spendUsd3 > 0 ? netMargin({ purchases: agg.purchases, spendUsd: spendUsd3, factor: factor7, price }, costs).pct : null;
+      if (!(sales3 >= T.testSales && margin3 != null && margin3 >= T.cutMargin && roas3 != null && roas3 >= T.rescueRoas)) return null;
+      const facts = `${Math.round(sales3)} ventes, marge ${fr(margin3)} %, ROAS ${fr(roas3)} sur 3 j`;
+      if (budget >= ceiling) {
+        return { status: "TENIR", next: budget, verdict: "Plafond TEST atteint · passe-la en MAIN", reason: `${facts} ; ${budget} € = ${T.testCap}× le départ (${start} €) : la créa va en MAIN, elle ne reste pas dans TEST` };
+      }
+      const next = Math.min(ceiling, Math.round(budget * (1 + T.testRise / 100)));
+      if (lastStep && now - Date.parse(lastStep.at) < T.testWait * HOUR) {
+        const at = Date.parse(lastStep.at) + T.testWait * HOUR;
+        return { status: "TENIR", next: budget, verdict: `Monter +${T.testRise} % (${budget} → ${next} €) à partir du ${shortDate(at)}`, reason: `${facts} ; dernier changement le ${shortDate(lastStep.at)} : ${T.testWait} h sans toucher` };
+      }
+      return { status: "MONTER", next, verdict: `Monter +${T.testRise} % (${budget} → ${next} €)`, reason: `${facts} : on n'attend pas la fin des 7 jours (plafond ${ceiling} €)` };
+    };
+    const test = testAdset ? testVerdict() : null;
+
+    if (test) {
+      status = test.status;
+      nextBudget = test.next;
+      verdict = test.verdict;
+      surf = Boolean(test.surf);
+      reasons.push(test.reason);
+      allowedAt = new Date(now).toISOString();
+    } else if (isTest) {
       status = "TEST";
       if (level === "campaign") {
         reasons.push(`Nouvelle CBO : on la juge à 400 € dépensés (${Math.round(toEur(lifetimeSpend, currency))} € pour l'instant)`);
@@ -326,7 +423,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     } else if (cutRule && !riseWait) {
       status = "COUPER";
       nextBudget = 0;
-      reasons.push(`Marge 7 j ${margin7 == null ? "négative (aucune vente)" : `${fr(margin7)} %`} (< 7,5 %) et ROAS 3 j ${fr(roas3)} (< ${fr(minimum)}) : il perd de l'argent`);
+      reasons.push(`Marge 7 j ${margin7 == null ? "négative (aucune vente)" : `${fr(margin7)} %`} (< ${frs(T.cutMargin)} %) et ROAS 3 j ${fr(roas3)} (< ${fr(minimum)}) : il perd de l'argent`);
       if (lastWasCut && lastChange) reasons.push(`Budget baissé le ${shortDate(lastChange.at)} (${lastChange.before} → ${lastChange.after} €) : la coupe s'applique tout de suite, sur les chiffres d'avant`);
     } else if (minimum != null && roas3 != null && roas3 < minimum && lastChange && hoursSinceChange < 72 && lastChange.before != null && lastChange.after != null && lastChange.after > lastChange.before) {
       status = "REDESCENDRE";
@@ -337,7 +434,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
       const okPurchases = agg.purchases >= 10;
       const okDelay = !riseWait;
       if (riseWait && lastChange) reasons.push(`Budget monté il y a ${Math.round(hoursSinceChange)} h : on attend 48 h avant de juger, jusqu'au ${shortDate(Date.parse(lastChange.at) + 48 * HOUR)}`);
-      if (cutRule && riseWait) reasons.push(`Remplit la règle de coupe (marge 7 j < 7,5 %, ROAS 3 j < ${fr(minimum)}) : à couper après les 48 h si ça ne remonte pas`);
+      if (cutRule && riseWait) reasons.push(`Remplit la règle de coupe (marge 7 j < ${frs(T.cutMargin)} %, ROAS 3 j < ${fr(minimum)}) : à couper après les 48 h si ça ne remonte pas`);
       if (!okRoas) reasons.push(roas3 == null ? "Pas encore de dépense sur 3 jours" : minimum != null && roas3 < minimum ? `ROAS ${fr(roas3)} sous le minimum ${fr(minimum)} : à surveiller` : `ROAS ${fr(roas3)} correct, mais il faut ${fr(rise)} pour monter`);
       if (!okPurchases) reasons.push(`Pas assez de ventes : ${agg.purchases} sur 3 jours, il en faut 10`);
       if (okRoas && okPurchases && okDelay) {
@@ -382,13 +479,17 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
       allowedAt,
       blockedByCap: null,
       margin7,
+      testAdset,
+      verdict,
+      surf,
+      lastRiseAt: lastRise?.at ?? null,
       cutAds,
       thresholds: { minimum, rise },
     };
   });
 
   // Un seul palier par campagne et par jour : le meilleur ROAS monte, les autres attendent demain.
-  const risers = rows.filter((row) => row.status === "MONTER").sort((a, b) => (b.roas3 ?? 0) - (a.roas3 ?? 0));
+  const risers = rows.filter((row) => row.status === "MONTER" && !row.testAdset).sort((a, b) => (b.roas3 ?? 0) - (a.roas3 ?? 0));
   const campaignsRising = new Set<string>();
   for (const row of risers) {
     if (campaignsRising.has(row.campaignId)) {
@@ -407,6 +508,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     const delta = eur(row, row.nextBudget - row.budget);
     if (cap.frozen || (cap.limit != null && running + delta > cap.limit)) {
       row.blockedByCap = row.nextBudget - row.budget;
+      if (row.verdict) row.verdict = `${row.verdict} · bloqué (${cap.frozen ? "gel : ROAS global trop bas" : `plafond de ${cap.limit} €/j`})`;
       row.status = "TENIR";
       row.nextBudget = row.budget;
       row.reasons = [

@@ -126,7 +126,8 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
       return;
     }
     if (!window.confirm(`${row.status === "MONTER" ? "Monter" : "Redescendre"} « ${row.name} » : ${eur(row.budget)} → ${eur(row.nextBudget)} ?`)) return;
-    void send(row, { dailyBudget: row.nextBudget }, `Rampe : ${row.status} · ${roas}`, `${row.name} : ${eur(row.budget)} → ${eur(row.nextBudget)}`);
+    // « surf » dans la note : la rampe reconnaît la hausse du jour et propose le retour au budget normal le lendemain.
+    void send(row, { dailyBudget: row.nextBudget }, `Rampe : ${row.surf ? "SURF (pour la journée)" : row.verdict?.startsWith("Fin du surf") ? "fin du surf" : row.status} · ${roas}`, `${row.name} : ${eur(row.budget)} → ${eur(row.nextBudget)}`);
   }
 
   function undo() {
@@ -252,7 +253,7 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
                           <td className="px-2 py-2 tabular-nums">{row.purchases3}</td>
                           <td className="px-2 py-2">
                             <p className="text-[12.5px] font-bold" style={{ color: style.color }}>
-                              {ACTION[row.status](row)}
+                              {row.verdict ?? ACTION[row.status](row)}
                             </p>
                             <p className="text-[11px] leading-snug text-slate-500" title={row.reasons.join("\n")}>
                               {row.reasons[0]}
@@ -262,7 +263,12 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
                                 {reason}
                               </p>
                             ))}
-                            {later ? (
+                            {row.testAdset ? (
+                              <p className="text-[10.5px] text-slate-400">
+                                Ad set TEST · {row.lastRiseAt ? `dernière hausse le ${when(row.lastRiseAt)}` : "aucune hausse pour l'instant"}
+                              </p>
+                            ) : null}
+                            {later && !row.testAdset ? (
                               <p className="text-[10.5px] text-slate-400">
                                 Prochaine hausse possible : {eur(row.nextStep)} à partir du {when(later)}
                               </p>
@@ -279,7 +285,7 @@ export function ScalingRamp({ onApplied }: { onApplied?: (level: "campaign" | "a
                                 title="Fait le changement chez Meta et le note dans le journal"
                               >
                                 {busy === row.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                {row.status === "COUPER" ? "Couper" : row.status === "MONTER" ? `Monter à ${eur(row.nextBudget)}` : `Revenir à ${eur(row.nextBudget)}`}
+                                {row.status === "COUPER" ? "Couper" : row.status === "MONTER" ? `${row.surf ? "Surf" : "Monter"} à ${eur(row.nextBudget)}` : `Revenir à ${eur(row.nextBudget)}`}
                               </button>
                             ) : null}
                           </td>
