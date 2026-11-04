@@ -85,6 +85,12 @@ export async function readStore(): Promise<Store> {
       settings: { ...EMPTY.settings, ...(parsed.settings ?? {}) },
       journal: Array.isArray(parsed.journal) ? parsed.journal : [],
     };
+    // 04/11/2026 : le passage TEST → SCALING de MIX 4 venait d'un changement de règle, pas d'une vraie promotion.
+    for (const creative of Object.values(state.store.creatives)) {
+      creative.history = creative.history.filter(
+        (change) => !(change.who === "auto" && change.from === "TEST" && change.to === "SCALING" && change.at >= "2026-11-04T00:00:00Z" && change.at < "2026-11-04T12:30:00Z")
+      );
+    }
   } catch {
     state.store = structuredClone(EMPTY);
   }
