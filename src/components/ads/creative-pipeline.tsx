@@ -696,6 +696,7 @@ function CreativeLine({
               <p className="truncate font-semibold text-slate-900 dark:text-slate-50" title={row.name}>
                 {row.name}
               </p>
+              {single ? <OtherNames row={row} place={single} /> : null}
               <p className="truncate text-[10.5px] text-slate-400">
                 {single ? single.adsetName : `${places.length} emplacements`} ·{" "}
                 <span style={PRODUCT_STYLE(row.product)} title={[row.product === "?" ? "Produit inconnu (URL de la pub) : calculé à 29,99 $" : "", ...row.placements.flatMap((place) => place.links)].filter(Boolean).join(" · ")}>
@@ -737,6 +738,7 @@ function CreativeLine({
                   <p className="truncate text-slate-600 dark:text-slate-300" title={place.campaignName}>
                     ↳ {place.adsetName}
                   </p>
+                  <OtherNames row={row} place={place} />
                   <p className="text-[10px] text-slate-400">
                     depuis le {dayLabel(place.createdAt)} ·{" "}
                     <span style={PRODUCT_STYLE(place.product)} title={place.links.join(" · ") || "Pas d'URL de destination lue"}>
@@ -763,6 +765,17 @@ function CreativeLine({
           })
         : null}
     </>
+  );
+}
+
+/** Une copie par post ID qui porte un autre nom que la créa : « pub nommée … ». */
+function OtherNames({ row, place }: { row: CreativeRow; place: Placement }) {
+  const others = place.adNames.filter((name) => name !== row.name);
+  if (!others.length) return null;
+  return (
+    <p className="truncate text-[10px] text-slate-400" title="Même post ID, autre nom de pub dans cet ad set">
+      pub nommée « {others.join(" », « ")} »
+    </p>
   );
 }
 

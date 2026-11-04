@@ -57,6 +57,8 @@ export type Placement = {
   /** Ancien ad set « SCALING - », traité comme MAIN, à migrer. */
   legacy: boolean;
   adIds: string[];
+  /** Les noms des pubs de cet emplacement (une copie par post ID peut porter un autre nom que la créa). */
+  adNames: string[];
   liveAdIds: string[];
   /** Arrivée de la créa dans cet ad set (sa pub la plus ancienne). */
   createdAt: string;
@@ -434,6 +436,15 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
       }
     }
   }
+  // Le nom d'une créa : celui de sa pub d'origine (la plus ancienne), pas celui d'une copie faite plus tard
+  // avec le même post ID (« {HIS HERS - post ID.} » dans MIX 4 est S 02 de MIX 2).
+  for (const work of groups.values()) {
+    const origin = [...work.ads].sort((a, b) => (a.ad.createdTime ? iso(a.ad.createdTime) : "9").localeCompare(b.ad.createdTime ? iso(b.ad.createdTime) : "9"))[0];
+    if (origin) {
+      work.name = origin.ad.name;
+      work.thumbnail = origin.ad.thumbnailUrl ?? work.thumbnail;
+    }
+  }
   // Les réuploads : même image et même nom = la même créa.
   const byImage = new Map<string, Work>();
   for (const [key, work] of [...groups]) {
@@ -657,6 +668,7 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
         live: isLive,
         legacy: kind === "SCALING",
         adIds: ads.map((row) => row.ad.id),
+        adNames: [...new Set(ads.map((row) => row.ad.name))],
         liveAdIds: liveAds.map((row) => row.ad.id),
         createdAt: since,
         product,
