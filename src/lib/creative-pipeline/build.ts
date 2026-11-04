@@ -266,12 +266,15 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
 
   /* ---------------- Placements et regroupement ---------------- */
   const nowMs = Date.now();
-  const placementStatus = (ad: AdNode, adset: AdsetNode, campaign: CampaignNode): CreativeStatus => {
-    if (!live(ad) || !live(adset) || !live(campaign)) return "OFF";
+  /** Le statut d'un ad set : COSTCAP, HYPER, puis SCALING par son nom (STATIC 3:4, MIX 2 à 4, « SCALING ») ou son âge (≥ 7 j), sinon TEST. */
+  const adsetStatus = (adset: AdsetNode, campaign: CampaignNode): CreativeStatus => {
     if (/COSTCAP|BIDCAP/i.test(campaign.name)) return "COSTCAP";
     if (campaign.budgetLevel === "campaign" && /ULTRA|HYPER/i.test(campaign.name)) return "HYPER";
+    if (/SCALING|STATIC\s*-?\s*3:4|MIX\s*[234]/i.test(adset.name)) return "SCALING";
     return nowMs - Date.parse(iso(adset.createdTime)) < 7 * 24 * HOUR ? "TEST" : "SCALING";
   };
+  const placementStatus = (ad: AdNode, adset: AdsetNode, campaign: CampaignNode): CreativeStatus =>
+    !live(ad) || !live(adset) || !live(campaign) ? "OFF" : adsetStatus(adset, campaign);
   type Work = { key: string; name: string; account: (typeof tree.accounts)[number]; thumbnail: string | null; postId: string | null; hash: string | null; product: CreativeRow["product"]; placements: Array<Placement & { ad: AdNode; adset: AdsetNode; campaign: CampaignNode }> };
   const groups = new Map<string, Work>();
   const targets: PipelineReport["targets"] = [];
@@ -280,7 +283,7 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
       for (const adset of campaign.adsets) {
         const adsetLive = live(adset) && live(campaign);
         if (adsetLive) {
-          const status = /COSTCAP|BIDCAP/i.test(campaign.name) ? "COSTCAP" : campaign.budgetLevel === "campaign" && /ULTRA|HYPER/i.test(campaign.name) ? "HYPER" : nowMs - Date.parse(iso(adset.createdTime)) < 7 * 24 * HOUR ? "TEST" : "SCALING";
+          const status = adsetStatus(adset, campaign);
           if (status === "SCALING" || status === "HYPER") targets.push({ accountId: account.accountId, adsetId: adset.id, adsetName: adset.name, campaignId: campaign.id, campaignName: campaign.name, status });
         }
         for (const ad of adset.ads) {
