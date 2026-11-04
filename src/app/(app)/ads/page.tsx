@@ -133,6 +133,7 @@ const zero = (): Metrics => ({
   cpc: 0,
   ctr: 0,
   purchases: 0,
+  addToCart: 0,
   purchaseValue: 0,
   roas: 0,
 });
@@ -144,6 +145,7 @@ function sum(list: Metrics[]): Metrics {
     total.impressions += item.impressions;
     total.clicks += item.clicks;
     total.purchases += item.purchases;
+    total.addToCart = (total.addToCart ?? 0) + (item.addToCart ?? 0);
     total.purchaseValue += item.purchaseValue;
   }
   total.cpc = total.clicks ? total.spend / total.clicks : 0;
@@ -162,6 +164,7 @@ const COL = {
   budget: "w-[5.5rem]",
   spend: "w-[5.25rem]",
   purchases: "w-12",
+  atc: "w-12",
   cpa: "w-14",
   cpc: "w-12",
   ctr: "w-12",
@@ -221,6 +224,7 @@ function MetricsRail({
       <Cell width={COL.purchases}>
         {metrics.purchases ? formatNumber(metrics.purchases) : "—"}
       </Cell>
+      <Cell width={COL.atc}>{metrics.addToCart ? formatNumber(metrics.addToCart) : "—"}</Cell>
       <Cell width={COL.cpa}>{cpaOf(metrics) ? cpaOf(metrics).toFixed(2) : "—"}</Cell>
       <Cell width={COL.cpc}>{metrics.cpc ? metrics.cpc.toFixed(2) : "—"}</Cell>
       <Cell width={COL.ctr}>{metrics.ctr ? `${metrics.ctr.toFixed(1)}%` : "—"}</Cell>
@@ -238,7 +242,7 @@ function MetricsRail({
  * Tri par colonne, comme dans le Gestionnaire de publicités Meta
  * ------------------------------------------------------------------ */
 
-type SortKey = "budget" | "spend" | "purchases" | "cpa" | "cpc" | "ctr" | "roas";
+type SortKey = "budget" | "spend" | "purchases" | "atc" | "cpa" | "cpc" | "ctr" | "roas";
 
 /** CPA = dépense ÷ achats (Meta), dans la devise du compte ; 0 sans achat. */
 const cpaOf = (metrics: Metrics) => (metrics.purchases > 0 ? metrics.spend / metrics.purchases : 0);
@@ -249,6 +253,7 @@ const SORT_COLUMNS: Array<{ key: SortKey; label: string; width: string; from?: "
   { key: "budget", label: "Budget/j", width: COL.budget, from: "lg" },
   { key: "spend", label: "Dépense", width: COL.spend },
   { key: "purchases", label: "Achats", width: COL.purchases },
+  { key: "atc", label: "ATC", width: COL.atc },
   { key: "cpa", label: "CPA", width: COL.cpa },
   { key: "cpc", label: "CPC", width: COL.cpc },
   { key: "ctr", label: "CTR", width: COL.ctr },
@@ -267,6 +272,7 @@ function readSort(): SortState {
 function sortValue(node: { metrics: Metrics; dailyBudget?: number | null }, key: SortKey) {
   if (key === "budget") return node.dailyBudget || node.metrics.spend;
   if (key === "cpa") return cpaOf(node.metrics);
+  if (key === "atc") return node.metrics.addToCart ?? 0;
   return node.metrics[key];
 }
 

@@ -89,10 +89,11 @@ type ActionRow = { action_type: string; value: string };
 
 /** Meta reports the same conversion under several aliases; take the richest. */
 const PURCHASE_ACTIONS = ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"];
+const CART_ACTIONS = ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"];
 
-function pickAction(rows: ActionRow[] | undefined) {
+function pickAction(rows: ActionRow[] | undefined, types: string[] = PURCHASE_ACTIONS) {
   if (!rows?.length) return 0;
-  for (const type of PURCHASE_ACTIONS) {
+  for (const type of types) {
     const hit = rows.find((row) => row.action_type === type);
     if (hit) return Number(hit.value) || 0;
   }
@@ -100,7 +101,7 @@ function pickAction(rows: ActionRow[] | undefined) {
 }
 
 export function emptyMetrics(): Metrics {
-  return { spend: 0, impressions: 0, clicks: 0, cpc: 0, ctr: 0, purchases: 0, purchaseValue: 0, roas: 0 };
+  return { spend: 0, impressions: 0, clicks: 0, cpc: 0, ctr: 0, purchases: 0, addToCart: 0, purchaseValue: 0, roas: 0 };
 }
 
 /** CPC, CTR and ROAS are ratios: they must be recomputed, never averaged. */
@@ -113,6 +114,7 @@ function derive(metrics: Metrics): Metrics {
     cpc: metrics.clicks > 0 ? round(metrics.spend / metrics.clicks) : 0,
     ctr: metrics.impressions > 0 ? round((metrics.clicks / metrics.impressions) * 100) : 0,
     purchases: metrics.purchases,
+    addToCart: metrics.addToCart ?? 0,
     purchaseValue: round(metrics.purchaseValue),
     roas: metrics.spend > 0 ? round(metrics.purchaseValue / metrics.spend) : 0,
   };
@@ -123,6 +125,7 @@ function accumulate(target: Metrics, source: Metrics) {
   target.impressions += source.impressions;
   target.clicks += source.clicks;
   target.purchases += source.purchases;
+  target.addToCart = (target.addToCart ?? 0) + (source.addToCart ?? 0);
   target.purchaseValue += source.purchaseValue;
 }
 
@@ -134,6 +137,7 @@ function insightMetrics(row: RawInsight): Metrics {
     cpc: 0,
     ctr: 0,
     purchases: pickAction(row.actions),
+    addToCart: pickAction(row.actions, CART_ACTIONS),
     purchaseValue: pickAction(row.action_values),
     roas: 0,
   };

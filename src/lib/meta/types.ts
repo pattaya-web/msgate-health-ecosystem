@@ -12,6 +12,8 @@ export type Metrics = {
   cpc: number;
   ctr: number;
   purchases: number;
+  /** Ajouts au panier (ATC) attribués par Meta. Absent des anciennes listes gardées dans le navigateur. */
+  addToCart?: number;
   purchaseValue: number;
   roas: number;
 };
