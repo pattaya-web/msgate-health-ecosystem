@@ -10,6 +10,7 @@ import { buildPilotage } from "@/lib/pilotage/build";
 import { adDailyInsights, type AdDay } from "@/lib/pilotage/meta-daily";
 import { reportToday } from "@/lib/report-tz";
 import { readStore, updateStore, type Brief, type CreativeStatus, type StatusChange } from "@/lib/creative-pipeline/store";
+import { buildScalingRamp, type RampRow } from "@/lib/metrics/scaling-ramp";
 
 /**
  * Le pipeline créa de l'Ads Manager : chaque créa (regroupée par post ID, et
@@ -27,10 +28,33 @@ import { readStore, updateStore, type Brief, type CreativeStatus, type StatusCha
 
 export type WindowDays = 3 | 7 | 14;
 export type MarginBadge = "BEST" | "BONNE" | "CUT" | "DATA";
-export type Margin = { spend: number; spendUsd: number; purchases: number; sales: number; revenue: number; margin: number; pct: number | null; badge: MarginBadge; roas: number | null; clicks: number; carts: number };
-export type Todo = "Couper" | "Laisser" | "Laisser jusqu'à J7" | "Promouvoir en SCALING" | "Post ID dans le HYPER" | "Éligible COSTCAP" | "—";
+export type Margin = { spend: number; spendUsd: number; purchases: number; sales: number; revenue: number; value: number; margin: number; pct: number | null; badge: MarginBadge; roas: number | null; clicks: number; carts: number };
+export type Todo = "Couper" | "Attendre" | "Laisser" | "Laisser jusqu'à J7" | "Promouvoir en SCALING" | "Post ID dans le HYPER" | "Éligible COSTCAP" | "—";
+/** Le produit lu sur l'URL de destination de la pub : « ? » quand elle ne le dit pas (calculé alors à 29,99 $). */
+export type Product = "29,99 $" | "39,99 $" | "?";
 
-export type Placement = { adId: string; adName: string; adsetId: string; adsetName: string; campaignId: string; campaignName: string; status: CreativeStatus; createdAt: string; live: boolean };
+/** Un emplacement d'une créa : l'ad set où elle tourne, avec sa marge et son verdict à lui. */
+export type Placement = {
+  adsetId: string;
+  adsetName: string;
+  campaignId: string;
+  campaignName: string;
+  /** Le type de l'ad set (TEST, SCALING, HYPER, COSTCAP), allumé ou non. */
+  kind: CreativeStatus;
+  /** OFF si la pub, l'ad set ou la campagne est coupé ; sinon le type (ou le statut forcé). */
+  status: CreativeStatus;
+  live: boolean;
+  adIds: string[];
+  liveAdIds: string[];
+  createdAt: string;
+  product: Product;
+  margins: Record<WindowDays, Margin>;
+  todo: Todo;
+  why: string;
+  /** Le bouton est remplacé par ce message (déjà dans le HYPER, aucune campagne HYPER active…). */
+  blocked: string | null;
+  warnings: string[];
+};
 
 export type CreativeRow = {
   key: string;
@@ -40,17 +64,17 @@ export type CreativeRow = {
   currency: string;
   thumbnail: string | null;
   postId: string | null;
-  product: "29,99 $" | "39,99 $";
+  product: Product;
   status: CreativeStatus;
   autoStatus: CreativeStatus;
   manual: boolean;
   placements: Placement[];
   firstSeen: string;
   margins: Record<WindowDays, Margin>;
+  /** Le verdict le plus urgent de ses emplacements actifs (chacun a le sien). */
   todo: Todo;
   why: string;
   warnings: string[];
-  /** Les pubs actives à mettre en pause pour « Couper ». */
   liveAdIds: string[];
   history: StatusChange[];
 };
@@ -118,6 +142,8 @@ type RawAd = GraphError & {
     id: string;
     creative?: {
       effective_object_story_id?: string;
+      link_url?: string;
+      object_url?: string;
       image_hash?: string;
       object_story_spec?: { link_data?: { link?: string; image_hash?: string }; video_data?: { video_id?: string; call_to_action?: { value?: { link?: string } } } };
       asset_feed_spec?: { link_urls?: Array<{ website_url?: string }>; images?: Array<{ hash?: string }>; videos?: Array<{ video_id?: string }> };
@@ -137,7 +163,7 @@ async function identities(accountId: string): Promise<Map<string, Identity>> {
     const token = await resolveToken(act);
     const filtering = encodeURIComponent(JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED", "PENDING_REVIEW", "IN_PROCESS", "WITH_ISSUES"] }]));
     let body = await graphGet<RawAd>(
-      `${act}/ads?fields=id,creative{effective_object_story_id,image_hash,object_story_spec{link_data{link,image_hash},video_data{video_id,call_to_action}},asset_feed_spec{link_urls,images,videos}}&limit=300&filtering=${filtering}`,
+      `${act}/ads?fields=id,creative{effective_object_story_id,link_url,object_url,image_hash,object_story_spec{link_data{link,image_hash},video_data{video_id,call_to_action}},asset_feed_spec{link_urls,images,videos}}&limit=300&filtering=${filtering}`,
       token
     );
     for (let page = 0; page < 6; page++) {
@@ -151,7 +177,7 @@ async function identities(accountId: string): Promise<Map<string, Identity>> {
         map.set(ad.id, {
           postId: creative.effective_object_story_id ?? null,
           hash: hash ? `img:${hash}` : video ? `vid:${video}` : null,
-          link: spec?.link_data?.link || spec?.video_data?.call_to_action?.value?.link || feed?.link_urls?.[0]?.website_url || "",
+          link: spec?.link_data?.link || spec?.video_data?.call_to_action?.value?.link || feed?.link_urls?.[0]?.website_url || creative.link_url || creative.object_url || "",
         });
       }
       if (!body.paging?.next) break;
@@ -196,6 +222,9 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
     getSupplierGrids(),
     readStore(),
   ]);
+  // La rampe de scaling passe d'abord : un ad set dont le budget vient de bouger n'est pas jugé sur ses pubs.
+  const ramp = await buildScalingRamp({ aggressive: true }).catch(() => null);
+  const rampById = new Map<string, RampRow>((ramp?.rows ?? []).map((row) => [row.id, row]));
   const tree = restrictTreeToAccounts(fullTree, accountIds);
   const ids = new Map<string, Identity>();
   for (const map of await Promise.all(tree.accounts.map((account) => identities(account.accountId)))) for (const [id, value] of map) ids.set(id, value);
@@ -247,7 +276,17 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
     const margin = revenue - sales * cogsPerOrder - revenue * feeRate - spendUsd;
     const pct = revenue > 0 ? margin / revenue : null;
     const badge: MarginBadge = sales < 5 ? "DATA" : (pct ?? -1) >= 0.15 ? "BEST" : (pct ?? -1) >= 0.075 ? "BONNE" : "CUT";
-    return { spend: round2(spend), spendUsd: round2(spendUsd), purchases, sales: round2(sales), revenue: round2(revenue), margin: round2(margin), pct: pct == null ? null : round2(pct * 100), badge, roas: spendUsd > 0 ? round2(value / spendUsd) : null, clicks, carts };
+    return { spend: round2(spend), spendUsd: round2(spendUsd), purchases, sales: round2(sales), revenue: round2(revenue), value: round2(value), margin: round2(margin), pct: pct == null ? null : round2(pct * 100), badge, roas: spendUsd > 0 ? round2(value / spendUsd) : null, clicks, carts };
+  };
+  /** Le total de plusieurs emplacements (prix différents possibles). */
+  const sumMargins = (list: Margin[]): Margin => {
+    const t = list.reduce(
+      (acc, m) => ({ spend: acc.spend + m.spend, spendUsd: acc.spendUsd + m.spendUsd, purchases: acc.purchases + m.purchases, sales: acc.sales + m.sales, revenue: acc.revenue + m.revenue, value: acc.value + m.value, margin: acc.margin + m.margin, clicks: acc.clicks + m.clicks, carts: acc.carts + m.carts }),
+      { spend: 0, spendUsd: 0, purchases: 0, sales: 0, revenue: 0, value: 0, margin: 0, clicks: 0, carts: 0 }
+    );
+    const pct = t.revenue > 0 ? t.margin / t.revenue : null;
+    const badge: MarginBadge = t.sales < 5 ? "DATA" : (pct ?? -1) >= 0.15 ? "BEST" : (pct ?? -1) >= 0.075 ? "BONNE" : "CUT";
+    return { spend: round2(t.spend), spendUsd: round2(t.spendUsd), purchases: t.purchases, sales: round2(t.sales), revenue: round2(t.revenue), value: round2(t.value), margin: round2(t.margin), pct: pct == null ? null : round2(pct * 100), badge, roas: t.spendUsd > 0 ? round2(t.value / t.spendUsd) : null, clicks: t.clicks, carts: t.carts };
   };
   const inWindow = (rows: AdDay[], days: WindowDays) => {
     const { start, end } = windowRange(days);
@@ -273,26 +312,22 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
     if (/SCALING|STATIC\s*-?\s*3:4|MIX\s*[234]/i.test(adset.name)) return "SCALING";
     return nowMs - Date.parse(iso(adset.createdTime)) < 7 * 24 * HOUR ? "TEST" : "SCALING";
   };
-  const placementStatus = (ad: AdNode, adset: AdsetNode, campaign: CampaignNode): CreativeStatus =>
-    !live(ad) || !live(adset) || !live(campaign) ? "OFF" : adsetStatus(adset, campaign);
-  type Work = { key: string; name: string; account: (typeof tree.accounts)[number]; thumbnail: string | null; postId: string | null; hash: string | null; product: CreativeRow["product"]; placements: Array<Placement & { ad: AdNode; adset: AdsetNode; campaign: CampaignNode }> };
+  type RawPlacement = { ad: AdNode; adset: AdsetNode; campaign: CampaignNode; link: string };
+  type Work = { key: string; name: string; account: (typeof tree.accounts)[number]; thumbnail: string | null; postId: string | null; hash: string | null; ads: RawPlacement[] };
   const groups = new Map<string, Work>();
   const targets: PipelineReport["targets"] = [];
   for (const account of tree.accounts) {
     for (const campaign of account.campaigns) {
       for (const adset of campaign.adsets) {
-        const adsetLive = live(adset) && live(campaign);
-        if (adsetLive) {
+        if (live(adset) && live(campaign)) {
           const status = adsetStatus(adset, campaign);
           if (status === "SCALING" || status === "HYPER") targets.push({ accountId: account.accountId, adsetId: adset.id, adsetName: adset.name, campaignId: campaign.id, campaignName: campaign.name, status });
         }
         for (const ad of adset.ads) {
           const identity = ids.get(ad.id);
           const key = identity?.postId ? `post:${identity.postId}` : `ad:${ad.id}`;
-          const product = /venom39/i.test(identity?.link ?? "") || /39[.,]?99/.test(campaign.name) ? "39,99 $" : "29,99 $";
-          const work = groups.get(key) ?? { key, name: ad.name, account, thumbnail: ad.thumbnailUrl, postId: identity?.postId ?? null, hash: identity?.hash ?? null, product, placements: [] };
-          work.placements.push({ adId: ad.id, adName: ad.name, adsetId: adset.id, adsetName: adset.name, campaignId: campaign.id, campaignName: campaign.name, status: placementStatus(ad, adset, campaign), createdAt: iso(ad.createdTime), live: live(ad) && adsetLive, ad, adset, campaign });
-          if (product === "39,99 $") work.product = product;
+          const work = groups.get(key) ?? { key, name: ad.name, account, thumbnail: ad.thumbnailUrl, postId: identity?.postId ?? null, hash: identity?.hash ?? null, ads: [] };
+          work.ads.push({ ad, adset, campaign, link: identity?.link ?? "" });
           groups.set(key, work);
         }
       }
@@ -305,67 +340,136 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
     const imageKey = `${work.account.accountId}|${work.hash}|${work.name.trim().toLowerCase()}`;
     const first = byImage.get(imageKey);
     if (first && first !== work) {
-      first.placements.push(...work.placements);
+      first.ads.push(...work.ads);
       groups.delete(key);
     } else byImage.set(imageKey, work);
   }
 
-  /* ---------------- Statut, marge et « À faire » ---------------- */
+  const productOfLink = (link: string): Product => (/snakelace-venom39|venom39/i.test(link) ? "39,99 $" : /necklace-snake/i.test(link) ? "29,99 $" : "?");
+  const priceOf = (product: Product) => (product === "39,99 $" ? 39.99 : 29.99);
+  const shortDate = (value: number | string) => new Date(value).toLocaleString("fr-FR", { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const TODO_RANK: Record<Todo, number> = { Couper: 1, "Promouvoir en SCALING": 2, "Post ID dans le HYPER": 3, "Éligible COSTCAP": 4, Attendre: 5, "Laisser jusqu'à J7": 6, Laisser: 7, "—": 8 };
+
+  /** Le verdict d'un emplacement, sur ses propres chiffres (jours complets). */
+  const verdict = (status: CreativeStatus, ads: RawPlacement[], price: number): { todo: Todo; why: string } => {
+    const liveAds = ads.filter((row) => live(row.ad) && live(row.adset) && live(row.campaign));
+    if (status === "OFF" || !liveAds.length) return { todo: "—", why: "" };
+    const rows = liveAds.flatMap((row) => rowsByAd.get(row.ad.id) ?? []).filter((row) => row.date <= d1);
+    if (status === "TEST") {
+      const started = liveAds.map((row) => iso(row.ad.createdTime)).sort()[0];
+      const ageH = (nowMs - Date.parse(started)) / HOUR;
+      const since = marginOf(rows, 14, price);
+      const cpcUsd = since.clicks > 0 ? since.spendUsd / since.clicks : null;
+      const adsetSpendUsd = (rowsByAdset.get(liveAds[0].adset.id) ?? []).filter((row) => row.date <= d1).reduce((sum, row) => sum + toUsd(row.spend, row.currency), 0);
+      if (ageH < 24) return { todo: "Laisser", why: "Lancée il y a moins de 24 h" };
+      if (ageH < 72) {
+        if (cpcUsd != null && cpcUsd > 3.5) return { todo: "Couper", why: `CPC ${cpcUsd.toFixed(2)} $ (> 3,50 $)` };
+        if (since.spendUsd >= 40 && since.carts === 0) return { todo: "Couper", why: `0 ajout panier pour ${Math.round(since.spendUsd)} $` };
+        return { todo: "Laisser", why: `J1 : CPC ${cpcUsd == null ? "—" : `${cpcUsd.toFixed(2)} $`}, ${since.carts} ajout${since.carts > 1 ? "s" : ""} panier` };
+      }
+      if (ageH < 7 * 24) {
+        if ((since.roas ?? 0) >= 2 && since.purchases >= 5) return { todo: "Promouvoir en SCALING", why: `ROAS ${since.roas} et ${since.purchases} ventes` };
+        if (since.spendUsd >= 60 && since.purchases === 0) return { todo: "Couper", why: `0 vente pour ${Math.round(since.spendUsd)} $` };
+        if ((since.roas ?? 0) < 1.2 && adsetSpendUsd >= 150) return { todo: "Couper", why: `ROAS ${since.roas ?? 0} avec ${Math.round(adsetSpendUsd)} $ dans l'ad set` };
+        return { todo: "Laisser jusqu'à J7", why: `ROAS ${since.roas ?? "—"}, ${since.purchases} vente${since.purchases > 1 ? "s" : ""}` };
+      }
+      return { todo: "Couper", why: "7 jours en test sans être promue" };
+    }
+    if (status === "SCALING") {
+      const m = marginOf(rows.filter((row) => row.date >= addDays(today, -7)), 7, price);
+      if (m.badge === "BEST" && m.sales >= 20) return { todo: "Post ID dans le HYPER", why: `Marge ${m.pct} % et ${Math.round(m.sales)} ventes sur 7 j` };
+      if (m.badge === "CUT") return { todo: "Couper", why: `Marge ${m.pct} % sur 7 j (< 7,5 %)` };
+      return { todo: "Laisser", why: m.badge === "DATA" ? "Moins de 5 ventes sur 7 j : pas encore de verdict" : `Marge ${m.pct} % sur 7 j` };
+    }
+    if (status === "HYPER") {
+      const m = marginOf(rows, 14, price);
+      const campaignSales = (rowsByCampaign.get(liveAds[0].campaign.id) ?? []).filter((row) => row.date >= addDays(today, -7) && row.date <= d1).reduce((sum, row) => sum + row.purchases, 0) * windows[7].factor;
+      if (m.badge === "BEST" && campaignSales >= 50) return { todo: "Éligible COSTCAP", why: `Marge ${m.pct} % sur 14 j, campagne à ${Math.round(campaignSales)} ventes / semaine` };
+      if (m.badge === "CUT") return { todo: "Couper", why: `Marge ${m.pct} % sur 14 j (< 7,5 %)` };
+      return { todo: "Laisser", why: m.badge === "DATA" ? "Moins de 5 ventes sur 14 j : pas encore de verdict" : `Marge ${m.pct} % sur 14 j` };
+    }
+    return { todo: "Laisser", why: "Campagne en cost cap" };
+  };
+
   const changes: Array<{ key: string; change: StatusChange; auto: CreativeStatus }> = [];
   const all: CreativeRow[] = [...groups.values()].map((work) => {
-    const price = work.product === "39,99 $" ? 39.99 : 29.99;
-    const best = work.placements.reduce((top, row) => (RANK[row.status] > RANK[top] ? row.status : top), "OFF" as CreativeStatus);
     const saved = store.creatives[work.key];
-    const status = saved?.manual ?? best;
-    const adRows = work.placements.flatMap((row) => rowsByAd.get(row.adId) ?? []);
-    const margins = { 3: marginOf(inWindow(adRows, 3), 3, price), 7: marginOf(inWindow(adRows, 7), 7, price), 14: marginOf(inWindow(adRows, 14), 14, price) };
-    const main = work.placements.filter((row) => row.status === status && row.live);
-    const mainRows = main.flatMap((row) => rowsByAd.get(row.adId) ?? []).filter((row) => row.date <= d1);
-    const firstSeen = work.placements.map((row) => row.createdAt).sort()[0] ?? new Date().toISOString();
-    const warnings: string[] = [];
-    let todo: Todo = "—";
-    let why = "";
+    // Les emplacements : un par ad set.
+    const byAdset = new Map<string, RawPlacement[]>();
+    for (const row of work.ads) byAdset.set(row.adset.id, [...(byAdset.get(row.adset.id) ?? []), row]);
+    const totalSales14 = [...byAdset.values()].reduce((sum, ads) => sum + ads.flatMap((row) => rowsByAd.get(row.ad.id) ?? []).filter((row) => row.date >= addDays(today, -14) && row.date <= d1).reduce((acc, row) => acc + row.purchases, 0), 0) * windows[14].factor;
 
-    if (status === "TEST" && main.length) {
-      const started = main.map((row) => row.createdAt).sort()[0];
-      const ageH = (nowMs - Date.parse(started)) / HOUR;
-      const since = marginOf(mainRows, 14, price);
-      const cpcUsd = since.clicks > 0 ? since.spendUsd / since.clicks : null;
-      const adsetSpendUsd = [...new Set(main.map((row) => row.adsetId))].flatMap((id) => rowsByAdset.get(id) ?? []).filter((row) => row.date <= d1).reduce((sum, row) => sum + toUsd(row.spend, row.currency), 0);
-      if (ageH < 24) {
-        todo = "Laisser";
-        why = "Lancée il y a moins de 24 h";
-      } else if (ageH < 72) {
-        if (cpcUsd != null && cpcUsd > 3.5) [todo, why] = ["Couper", `CPC ${cpcUsd.toFixed(2)} $ (> 3,50 $)`];
-        else if (since.spendUsd >= 40 && since.carts === 0) [todo, why] = ["Couper", `0 ajout panier pour ${Math.round(since.spendUsd)} $`];
-        else [todo, why] = ["Laisser", `J1 : CPC ${cpcUsd == null ? "—" : `${cpcUsd.toFixed(2)} $`}, ${since.carts} ajout${since.carts > 1 ? "s" : ""} panier`];
-      } else if (ageH < 7 * 24) {
-        if ((since.roas ?? 0) >= 2 && since.purchases >= 5) [todo, why] = ["Promouvoir en SCALING", `ROAS ${since.roas} et ${since.purchases} ventes`];
-        else if (since.spendUsd >= 60 && since.purchases === 0) [todo, why] = ["Couper", `0 vente pour ${Math.round(since.spendUsd)} $`];
-        else if ((since.roas ?? 0) < 1.2 && adsetSpendUsd >= 150) [todo, why] = ["Couper", `ROAS ${since.roas ?? 0} avec ${Math.round(adsetSpendUsd)} $ dans l'ad set`];
-        else [todo, why] = ["Laisser jusqu'à J7", `ROAS ${since.roas ?? "—"}, ${since.purchases} vente${since.purchases > 1 ? "s" : ""}`];
-      } else [todo, why] = ["Couper", "7 jours en test sans être promue"];
-    } else if (status === "SCALING") {
-      const m = marginOf(mainRows.filter((row) => row.date >= addDays(today, -7)), 7, price);
-      if (m.badge === "BEST" && m.sales >= 20) [todo, why] = ["Post ID dans le HYPER", `Marge ${m.pct} % et ${Math.round(m.sales)} ventes sur 7 j`];
-      else if (m.badge === "CUT") [todo, why] = ["Couper", `Marge ${m.pct} % sur 7 j (< 7,5 %)`];
-      else [todo, why] = ["Laisser", m.badge === "DATA" ? "Moins de 5 ventes sur 7 j" : `Marge ${m.pct} % sur 7 j`];
-    } else if (status === "HYPER") {
-      const m = marginOf(mainRows, 14, price);
-      const campaignSales = [...new Set(main.map((row) => row.campaignId))].flatMap((id) => rowsByCampaign.get(id) ?? []).filter((row) => row.date >= addDays(today, -7) && row.date <= d1).reduce((sum, row) => sum + row.purchases, 0) * windows[7].factor;
-      if (m.badge === "BEST" && campaignSales >= 50) [todo, why] = ["Éligible COSTCAP", `Marge ${m.pct} % sur 14 j, campagne à ${Math.round(campaignSales)} ventes / semaine`];
-      else if (m.badge === "CUT") [todo, why] = ["Couper", `Marge ${m.pct} % sur 14 j (< 7,5 %)`];
-      else [todo, why] = ["Laisser", m.badge === "DATA" ? "Moins de 5 ventes sur 14 j" : `Marge ${m.pct} % sur 14 j`];
-    } else if (status === "COSTCAP") [todo, why] = ["Laisser", "Campagne en cost cap"];
+    const placements: Placement[] = [...byAdset.values()].map((ads) => {
+      const { adset, campaign } = ads[0];
+      const kind = adsetStatus(adset, campaign);
+      const liveAds = ads.filter((row) => live(row.ad) && live(row.adset) && live(row.campaign));
+      const isLive = liveAds.length > 0;
+      const status: CreativeStatus = isLive ? (saved?.manual ?? kind) : "OFF";
+      const products = [...new Set(ads.map((row) => productOfLink(row.link)))];
+      const product: Product = products.length === 1 ? products[0] : products.filter((item) => item !== "?").length === 1 ? products.filter((item) => item !== "?")[0] : "?";
+      const price = priceOf(product);
+      const adRows = ads.flatMap((row) => rowsByAd.get(row.ad.id) ?? []);
+      const margins = { 3: marginOf(inWindow(adRows, 3), 3, price), 7: marginOf(inWindow(adRows, 7), 7, price), 14: marginOf(inWindow(adRows, 14), 14, price) };
+      let { todo, why } = verdict(status, ads, price);
+      let blocked: string | null = null;
 
-    for (const row of work.placements) {
-      if (row.live && (row.status === "SCALING" || row.status === "HYPER") && nowMs - Date.parse(row.createdAt) < 7 * 24 * HOUR) {
-        warnings.push(`Créa neuve (< 7 j) dans l'ad set ${row.status} « ${row.adsetName} » : une créa neuve passe d'abord en TEST`);
+      // 1. La rampe passe d'abord : pas de coupe sur un ad set dont le budget vient de bouger.
+      const rampRow = rampById.get(adset.id) ?? rampById.get(campaign.id);
+      const change = rampRow?.lastChange;
+      if (todo === "Couper" && rampRow && (rampRow.status === "REDESCENDRE" || (change && nowMs - Date.parse(change.at) < 72 * HOUR))) {
+        todo = "Attendre";
+        why =
+          rampRow.status === "REDESCENDRE"
+            ? `La rampe dit de revenir à ${rampRow.nextBudget} € : fais-le d'abord, puis attendre J+3 avant de juger cette pub`
+            : `Budget changé le ${shortDate(change!.at)} (${change!.before ?? "?"} → ${change!.after ?? "?"} €) : attendre J+3, re-jugée le ${shortDate(Date.parse(change!.at) + 72 * HOUR)}`;
       }
-    }
 
-    if ((saved?.auto ?? null) !== best) {
-      changes.push({ key: work.key, auto: best, change: { at: new Date().toISOString(), who: "auto", from: saved?.auto ?? null, to: best, note: saved ? "" : "première lecture" } });
+      // 4. Promouvoir / HYPER : seulement si c'est possible.
+      const otherKinds = [...byAdset.values()].map((list) => ({ kind: adsetStatus(list[0].adset, list[0].campaign), name: list[0].adset.name }));
+      if (todo === "Post ID dans le HYPER" || todo === "Promouvoir en SCALING") {
+        const want: CreativeStatus = todo === "Post ID dans le HYPER" ? "HYPER" : "SCALING";
+        const already = otherKinds.find((item) => item.kind === want);
+        if (already) blocked = `Déjà dans un ad set ${want} (« ${already.name} »)`;
+        else if (!targets.some((target) => target.accountId === work.account.accountId && target.status === want)) blocked = want === "HYPER" ? "Aucune campagne HYPER active sur ce compte : rallume-la ou crée-la d'abord" : "Aucun ad set SCALING actif sur ce compte";
+      }
+
+      // 2. Créa neuve dans un ad set de scaling : seulement si ajoutée plus de 48 h après l'ad set, et pas un post ID qui a déjà fait ses preuves.
+      const warnings: string[] = [];
+      if (isLive && (kind === "SCALING" || kind === "HYPER")) {
+        const late = liveAds.filter((row) => nowMs - Date.parse(iso(row.ad.createdTime)) < 7 * 24 * HOUR && Date.parse(iso(row.ad.createdTime)) - Date.parse(iso(adset.createdTime)) > 48 * HOUR);
+        if (late.length && !(work.postId && totalSales14 >= 10)) warnings.push(`Créa neuve ajoutée dans l'ad set ${kind} « ${adset.name} » : une créa neuve passe d'abord en TEST`);
+      }
+
+      return {
+        adsetId: adset.id,
+        adsetName: adset.name,
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        kind,
+        status,
+        live: isLive,
+        adIds: ads.map((row) => row.ad.id),
+        liveAdIds: liveAds.map((row) => row.ad.id),
+        createdAt: ads.map((row) => iso(row.ad.createdTime)).sort()[0],
+        product,
+        margins,
+        todo,
+        why,
+        blocked,
+        warnings,
+      };
+    });
+    placements.sort((a, b) => Number(b.live) - Number(a.live) || b.margins[window].spend - a.margins[window].spend);
+
+    const livePlacements = placements.filter((row) => row.live);
+    const autoBest = placements.filter((row) => row.live).reduce((top, row) => (RANK[row.kind] > RANK[top] ? row.kind : top), "OFF" as CreativeStatus);
+    const status = livePlacements.length ? (saved?.manual ?? autoBest) : "OFF";
+    const margins = { 3: sumMargins(placements.map((row) => row.margins[3])), 7: sumMargins(placements.map((row) => row.margins[7])), 14: sumMargins(placements.map((row) => row.margins[14])) };
+    const top = [...livePlacements].sort((a, b) => TODO_RANK[a.todo] - TODO_RANK[b.todo])[0];
+    const liveProducts = [...new Set(livePlacements.map((row) => row.product))];
+
+    if ((saved?.auto ?? null) !== autoBest) {
+      changes.push({ key: work.key, auto: autoBest, change: { at: new Date().toISOString(), who: "auto", from: saved?.auto ?? null, to: autoBest, note: saved ? "" : "première lecture" } });
     }
 
     return {
@@ -376,17 +480,17 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
       currency: work.account.currency,
       thumbnail: work.thumbnail,
       postId: work.postId,
-      product: work.product,
+      product: liveProducts.length === 1 ? liveProducts[0] : liveProducts.length ? "?" : (placements[0]?.product ?? "?"),
       status,
-      autoStatus: best,
+      autoStatus: autoBest,
       manual: Boolean(saved?.manual),
-      placements: work.placements.map((row) => ({ adId: row.adId, adName: row.adName, adsetId: row.adsetId, adsetName: row.adsetName, campaignId: row.campaignId, campaignName: row.campaignName, status: row.status, createdAt: row.createdAt, live: row.live })),
-      firstSeen,
+      placements,
+      firstSeen: placements.map((row) => row.createdAt).sort()[0] ?? new Date().toISOString(),
       margins,
-      todo,
-      why,
-      warnings,
-      liveAdIds: work.placements.filter((row) => row.live).map((row) => row.adId),
+      todo: top?.todo ?? "—",
+      why: top ? (livePlacements.length > 1 ? `${top.adsetName} : ${top.why}` : top.why) : "",
+      warnings: livePlacements.flatMap((row) => row.warnings),
+      liveAdIds: livePlacements.flatMap((row) => row.liveAdIds),
       history: saved?.history ?? [],
     };
   });
@@ -451,22 +555,22 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
   }
   const badges: Record<MarginBadge, number> = { BEST: 0, BONNE: 0, CUT: 0, DATA: 0 };
   for (const row of creatives) badges[row.margins[7].badge] += 1;
-  const cutActive = creatives.filter((row) => row.margins[7].badge === "CUT").map((row) => row.name);
+  const cutActive = creatives.flatMap((row) => row.placements.filter((place) => place.live && place.todo === "Couper").map((place) => `${row.name} (${place.adsetName})`));
 
   /* ---------------- Le rappel du jour (heure de Paris) ---------------- */
   const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
   const briefedThisWeek = briefs.filter((brief) => thisWeek(brief.createdAt)).length;
   const ready = briefs.filter((brief) => brief.status === "PRÊTE");
   let reminder: PipelineReport["reminder"] = null;
-  if (weekday === 1) reminder = { title: "Lundi : 15 à 20 briefs à écrire", lines: [`${briefedThisWeek} briefé${briefedThisWeek > 1 ? "s" : ""} cette semaine`, ...(cutActive.length ? [`À couper aujourd'hui (marge < 7,5 %) : ${cutActive.join(", ")}`] : [])] };
+  if (weekday === 1) reminder = { title: "Lundi : 15 à 20 briefs à écrire", lines: [`${briefedThisWeek} briefé${briefedThisWeek > 1 ? "s" : ""} cette semaine`, ...(cutActive.length ? [`À couper aujourd'hui : ${cutActive.join(", ")}`] : [])] };
   else if (weekday === 3) {
     const late = briefs.filter((brief) => brief.status === "BRIEF" || brief.status === "EN PROD");
     reminder = { title: "Mercredi 18 h : briefs à valider", lines: late.length ? late.map((brief) => `${brief.creaId} · ${brief.status} · ${brief.assignee || "non assigné"}`) : ["Aucun brief en attente"] };
   } else if (weekday === 4) {
     reminder = { title: `Jeudi : upload de ${ready.length} créa${ready.length > 1 ? "s" : ""} prête${ready.length > 1 ? "s" : ""}, ${Math.ceil(ready.length / 3)} ad set${Math.ceil(ready.length / 3) > 1 ? "s" : ""} à créer (3 créas = 1 concept + 2 swaps)`, lines: ready.map((brief) => brief.creaId) };
   } else if (weekday === 5) {
-    const j1 = creatives.filter((row) => row.status === "TEST" && nowMs - Date.parse(row.firstSeen) < 72 * HOUR);
-    reminder = { title: "Vendredi : verdict des tests J1", lines: j1.length ? j1.map((row) => `${row.name} → ${row.todo} (${row.why})`) : ["Aucune créa en J1"] };
+    const j1 = creatives.flatMap((row) => row.placements.filter((place) => place.live && place.status === "TEST" && nowMs - Date.parse(place.createdAt) < 72 * HOUR).map((place) => `${row.name} (${place.adsetName}) → ${place.todo} (${place.why})`));
+    reminder = { title: "Vendredi : verdict des tests J1", lines: j1.length ? j1 : ["Aucune créa en J1"] };
   } else if (weekday === 0) reminder = { title: "Dimanche : les 5 KPI de la semaine", lines: ["Lis le bloc KPI juste au-dessus."] };
 
   const journal = [

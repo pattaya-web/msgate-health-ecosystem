@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronDown, Layers, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { BriefBoard } from "@/components/ads/brief-board";
-import type { CreativeRow, Margin, PipelineReport, Todo, WindowDays } from "@/lib/creative-pipeline/build";
+import type { CreativeRow, Margin, PipelineReport, Placement, Todo, WindowDays } from "@/lib/creative-pipeline/build";
 import type { CreativeStatus } from "@/lib/creative-pipeline/store";
 
 /**
@@ -32,6 +32,7 @@ const BADGE_STYLE: Record<Margin["badge"], { color: string; background: string }
 const STATUS_COLOR: Record<CreativeStatus, string> = { BRIEF: "#64748b", "EN PROD": "#64748b", "PRÊTE": "#64748b", TEST: "#4f46e5", SCALING: GREEN, HYPER: "#7c3aed", COSTCAP: "#0e7490", OFF: "#94a3b8" };
 const TODO_COLOR: Record<Todo, string> = {
   Couper: RED,
+  Attendre: ORANGE,
   Laisser: "#475569",
   "Laisser jusqu'à J7": "#475569",
   "Promouvoir en SCALING": GREEN,
@@ -69,7 +70,7 @@ export function CreativePipeline() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: "margin" | "pct" | "spend" | "sales"; dir: 1 | -1 }>({ key: "spend", dir: -1 });
-  const [promote, setPromote] = useState<{ row: CreativeRow; to: "SCALING" | "HYPER" } | null>(null);
+  const [promote, setPromote] = useState<{ row: CreativeRow; place: Placement; to: "SCALING" | "HYPER" } | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -107,23 +108,22 @@ export function CreativePipeline() {
     return body;
   }
 
-  async function cut(row: CreativeRow) {
-    if (!row.liveAdIds.length) return;
-    const where = row.placements.filter((place) => place.live).map((place) => `• ${place.adName} (${place.adsetName})`).join("\n");
-    if (!window.confirm(`Couper « ${row.name} » ? Ces pubs passent en pause chez Meta :\n${where}\n\nRaison : ${row.why}`)) return;
-    setBusy(row.key);
+  async function cut(row: CreativeRow, place: Placement) {
+    if (!place.liveAdIds.length) return;
+    if (!window.confirm(`Couper « ${row.name} » dans « ${place.adsetName} » ? ${place.liveAdIds.length > 1 ? `Ses ${place.liveAdIds.length} pubs passent` : "La pub passe"} en pause chez Meta.\n\nRaison : ${place.why}`)) return;
+    setBusy(`${row.key}|${place.adsetId}`);
     try {
-      for (const id of row.liveAdIds) {
+      for (const id of place.liveAdIds) {
         const res = await fetch("/api/meta/entity", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, level: "ad", status: "PAUSED", source: "pipeline", reason: `Pipeline : Couper · ${row.why}` }),
+          body: JSON.stringify({ id, level: "ad", status: "PAUSED", source: "pipeline", reason: `Pipeline : Couper · ${place.why}` }),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || "Meta a refusé la pause");
       }
-      await pipelinePost({ action: "log", what: `Couper « ${row.name} » (${row.liveAdIds.length} pub${row.liveAdIds.length > 1 ? "s" : ""}) · ${row.why}` });
-      toast.success(`${row.name} coupée`);
+      await pipelinePost({ action: "log", what: `Couper « ${row.name} » dans « ${place.adsetName} » · ${place.why}` });
+      toast.success(`${row.name} coupée dans ${place.adsetName}`);
       await load(windowDays, true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Coupe impossible");
@@ -136,7 +136,7 @@ export function CreativePipeline() {
     const target = data?.targets.find((item) => item.adsetId === adsetId);
     if (!target || !row.postId) return;
     if (!window.confirm(`Ajouter « ${row.name} » (post ID ${row.postId}) dans « ${target.adsetName} » (${target.campaignName}) ? La pub part en live.`)) return;
-    setBusy(row.key);
+    setBusy(`${row.key}|promote`);
     try {
       const res = await fetch("/api/meta/upload", {
         method: "POST",
@@ -313,7 +313,15 @@ export function CreativePipeline() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
                       {sorted.map((row) => (
-                        <CreativeLine key={row.key} row={row} days={windowDays} busy={busy === row.key} disabled={busy !== null} onCut={() => void cut(row)} onPromote={(to) => setPromote({ row, to })} onStatus={(status) => void setStatus(row, status)} />
+                        <CreativeLine
+                          key={row.key}
+                          row={row}
+                          days={windowDays}
+                          busy={busy}
+                          onCut={(place) => void cut(row, place)}
+                          onPromote={(place, to) => setPromote({ row, place, to })}
+                          onStatus={(status) => void setStatus(row, status)}
+                        />
                       ))}
                     </tbody>
                   </table>
@@ -404,14 +412,14 @@ export function CreativePipeline() {
             {!promote.row.postId ? <p className="mt-2 text-[12px] text-rose-600">Post ID introuvable pour cette créa.</p> : null}
             <div className="mt-3 space-y-1">
               {data.targets
-                .filter((target) => target.accountId === promote.row.accountId && target.status === promote.to && !promote.row.placements.some((place) => place.live && place.adsetId === target.adsetId))
+                .filter((target) => target.accountId === promote.row.accountId && target.status === promote.to && !promote.row.placements.some((place) => place.adsetId === target.adsetId))
                 .map((target) => (
                   <button key={target.adsetId} type="button" disabled={busy !== null || !promote.row.postId} onClick={() => void doPromote(promote.row, target.adsetId)} className="flex w-full items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-left text-[12.5px] hover:bg-slate-50 disabled:opacity-50 dark:border-white/10">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold">{target.adsetName}</span>
                       <span className="block truncate text-[11px] text-slate-400">{target.campaignName}</span>
                     </span>
-                    {busy === promote.row.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {busy === `${promote.row.key}|promote` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   </button>
                 ))}
               {!data.targets.some((target) => target.accountId === promote.row.accountId && target.status === promote.to) ? (
@@ -464,77 +472,132 @@ function MarginCells({ margin }: { margin: Margin }) {
   );
 }
 
+const PRODUCT_STYLE = (product: CreativeRow["product"]) => (product === "?" ? { color: ORANGE, fontWeight: 600 } : undefined);
+
 function CreativeLine({
   row,
   days,
   busy,
-  disabled,
   onCut,
   onPromote,
   onStatus,
 }: {
   row: CreativeRow;
   days: WindowDays;
-  busy: boolean;
-  disabled: boolean;
-  onCut: () => void;
-  onPromote: (to: "SCALING" | "HYPER") => void;
+  busy: string | null;
+  onCut: (place: Placement) => void;
+  onPromote: (place: Placement, to: "SCALING" | "HYPER") => void;
   onStatus: (status: string) => void;
 }) {
   const m = row.margins[days];
   const hover = ([3, 7, 14] as WindowDays[]).map((d) => `${d} j : ${usd(row.margins[d].margin)} (${num(row.margins[d].pct, 1)} %) · ${num(row.margins[d].sales, 1)} ventes · ${row.margins[d].badge}`).join("\n");
   const places = row.placements.filter((place) => place.live);
+  const single = places.length <= 1 ? places[0] : null;
   return (
-    <tr className="align-top">
-      <td className="max-w-[260px] py-1.5 pr-2">
-        <div className="flex items-start gap-2">
-          {row.thumbnail ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={row.thumbnail} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
-          ) : null}
-          <div className="min-w-0">
-            <p className="truncate font-semibold text-slate-900 dark:text-slate-50" title={row.name}>
-              {row.name}
-            </p>
-            <p className="truncate text-[10.5px] text-slate-400" title={places.map((place) => `${place.status} · ${place.adsetName} (${place.campaignName})`).join("\n")}>
-              {places.map((place) => place.adsetName).join(" · ")} · {row.product}
-            </p>
+    <>
+      <tr className="align-top">
+        <td className="max-w-[260px] py-1.5 pr-2">
+          <div className="flex items-start gap-2">
+            {row.thumbnail ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={row.thumbnail} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
+            ) : null}
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-slate-900 dark:text-slate-50" title={row.name}>
+                {row.name}
+              </p>
+              <p className="truncate text-[10.5px] text-slate-400">
+                {single ? single.adsetName : `${places.length} emplacements`} ·{" "}
+                <span style={PRODUCT_STYLE(row.product)} title={row.product === "?" ? "Produit inconnu (URL de la pub) : calculé à 29,99 $" : undefined}>
+                  {row.product}
+                </span>
+              </p>
+            </div>
           </div>
-        </div>
-      </td>
-      <td className="px-2 py-1.5">
-        <select
-          value={row.manual ? row.status : "auto"}
-          onChange={(event) => onStatus(event.target.value)}
-          className="rounded-md border-0 bg-transparent py-0.5 text-[11px] font-bold"
-          style={{ color: STATUS_COLOR[row.status] }}
-          title={row.manual ? `Forcé à la main (automatique : ${row.autoStatus})` : "Statut automatique (d'après l'ad set). Change-le pour le forcer."}
-        >
-          <option value="auto">{row.manual ? `Auto (${row.autoStatus})` : row.status}</option>
-          {(["TEST", "SCALING", "HYPER", "COSTCAP", "OFF"] as CreativeStatus[]).map((status) => (
-            <option key={status} value={status}>
-              {status}
-              {row.manual && row.status === status ? " ✎" : ""}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td className="px-2 py-1.5 font-semibold tabular-nums" style={{ color: m.badge === "DATA" ? undefined : m.margin >= 0 ? GREEN : RED }} title={hover}>
-        {usd(m.margin)}
-      </td>
-      <td className="px-2 py-1.5 tabular-nums" title={hover}>
-        <span className="mr-1">{num(m.pct, 1)} %</span>
-        <Badge badge={m.badge} />
-      </td>
-      <td className="px-2 py-1.5 tabular-nums">{num(m.sales, 1)}</td>
-      <td className="px-2 py-1.5 tabular-nums">{usd(m.spendUsd)}</td>
-      <td className="px-2 py-1.5 tabular-nums">{num(m.roas)}</td>
+        </td>
+        <td className="px-2 py-1.5">
+          <StatusMenu row={row} onStatus={onStatus} />
+        </td>
+        <td className="px-2 py-1.5 font-semibold tabular-nums" style={{ color: m.badge === "DATA" ? undefined : m.margin >= 0 ? GREEN : RED }} title={hover}>
+          {usd(m.margin)}
+        </td>
+        <td className="px-2 py-1.5 tabular-nums" title={hover}>
+          <span className="mr-1">{num(m.pct, 1)} %</span>
+          <Badge badge={m.badge} />
+        </td>
+        <td className="px-2 py-1.5 tabular-nums">{num(m.sales, 1)}</td>
+        <td className="px-2 py-1.5 tabular-nums">{usd(m.spendUsd)}</td>
+        <td className="px-2 py-1.5 tabular-nums">{num(m.roas)}</td>
+        {single ? (
+          <PlacementVerdict row={row} place={single} busy={busy} onCut={onCut} onPromote={onPromote} />
+        ) : (
+          <td colSpan={2} className="px-2 py-1.5 text-[11px] text-slate-400">
+            Verdict par emplacement ↓
+          </td>
+        )}
+      </tr>
+      {!single
+        ? places.map((place) => {
+            const pm = place.margins[days];
+            return (
+              <tr key={place.adsetId} className="align-top bg-slate-50/60 dark:bg-slate-800/30">
+                <td className="py-1 pl-11 pr-2 text-[11px]">
+                  <p className="truncate text-slate-600 dark:text-slate-300" title={place.campaignName}>
+                    ↳ {place.adsetName}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    depuis le {new Date(place.createdAt).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "short" })} ·{" "}
+                    <span style={PRODUCT_STYLE(place.product)}>{place.product}</span>
+                  </p>
+                </td>
+                <td className="px-2 py-1">
+                  <span className="text-[10.5px] font-bold" style={{ color: STATUS_COLOR[place.status] }}>
+                    {place.status}
+                  </span>
+                </td>
+                <td className="px-2 py-1 text-[11.5px] font-semibold tabular-nums" style={{ color: pm.badge === "DATA" ? undefined : pm.margin >= 0 ? GREEN : RED }}>
+                  {usd(pm.margin)}
+                </td>
+                <td className="px-2 py-1 text-[11.5px] tabular-nums">
+                  <span className="mr-1">{num(pm.pct, 1)} %</span>
+                  <Badge badge={pm.badge} />
+                </td>
+                <td className="px-2 py-1 text-[11.5px] tabular-nums">{num(pm.sales, 1)}</td>
+                <td className="px-2 py-1 text-[11.5px] tabular-nums">{usd(pm.spendUsd)}</td>
+                <td className="px-2 py-1 text-[11.5px] tabular-nums">{num(pm.roas)}</td>
+                <PlacementVerdict row={row} place={place} busy={busy} onCut={onCut} onPromote={onPromote} />
+              </tr>
+            );
+          })
+        : null}
+    </>
+  );
+}
+
+/** Le verdict d'un emplacement et son bouton (ou le message qui le remplace). */
+function PlacementVerdict({
+  row,
+  place,
+  busy,
+  onCut,
+  onPromote,
+}: {
+  row: CreativeRow;
+  place: Placement;
+  busy: string | null;
+  onCut: (place: Placement) => void;
+  onPromote: (place: Placement, to: "SCALING" | "HYPER") => void;
+}) {
+  const working = busy === `${row.key}|${place.adsetId}`;
+  return (
+    <>
       <td className="max-w-[260px] px-2 py-1.5">
-        <p className="text-[12px] font-bold" style={{ color: TODO_COLOR[row.todo] }}>
-          {row.todo}
+        <p className="text-[12px] font-bold" style={{ color: TODO_COLOR[place.todo] }}>
+          {place.todo}
         </p>
-        {row.why ? <p className="text-[10.5px] leading-snug text-slate-500">{row.why}</p> : null}
-        {row.warnings.map((warning) => (
+        {place.why ? <p className="text-[10.5px] leading-snug text-slate-500">{place.why}</p> : null}
+        {place.blocked ? <p className="text-[10.5px] leading-snug text-slate-500">→ {place.blocked}</p> : null}
+        {place.warnings.map((warning) => (
           <p key={warning} className="flex items-start gap-1 text-[10.5px] leading-snug text-amber-700">
             <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
             {warning}
@@ -542,15 +605,55 @@ function CreativeLine({
         ))}
       </td>
       <td className="py-1.5 pl-2 text-right">
-        {row.todo === "Couper" ? (
-          <ActionButton color={RED} busy={busy} disabled={disabled} onClick={onCut} label="Couper" />
-        ) : row.todo === "Promouvoir en SCALING" ? (
-          <ActionButton color={GREEN} busy={busy} disabled={disabled} onClick={() => onPromote("SCALING")} label="Promouvoir" />
-        ) : row.todo === "Post ID dans le HYPER" ? (
-          <ActionButton color="#7c3aed" busy={busy} disabled={disabled} onClick={() => onPromote("HYPER")} label="Mettre dans le HYPER" />
+        {place.blocked ? null : place.todo === "Couper" ? (
+          <ActionButton color={RED} busy={working} disabled={busy !== null} onClick={() => onCut(place)} label="Couper" />
+        ) : place.todo === "Promouvoir en SCALING" ? (
+          <ActionButton color={GREEN} busy={false} disabled={busy !== null} onClick={() => onPromote(place, "SCALING")} label="Promouvoir" />
+        ) : place.todo === "Post ID dans le HYPER" ? (
+          <ActionButton color="#7c3aed" busy={false} disabled={busy !== null} onClick={() => onPromote(place, "HYPER")} label="Mettre dans le HYPER" />
         ) : null}
       </td>
-    </tr>
+    </>
+  );
+}
+
+/** Un seul badge de statut ; le menu s'ouvre au clic pour le forcer. */
+function StatusMenu({ row, onStatus }: { row: CreativeRow; onStatus: (status: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const choose = (status: string) => {
+    setOpen(false);
+    onStatus(status);
+  };
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10.5px] font-bold ring-1 ring-inset"
+        style={{ color: STATUS_COLOR[row.status], boxShadow: `inset 0 0 0 1px ${STATUS_COLOR[row.status]}55` }}
+        title={row.manual ? `Forcé à la main (automatique : ${row.autoStatus})` : "Statut automatique (d'après l'ad set). Clique pour le forcer."}
+      >
+        {row.status}
+        {row.manual ? " ✎" : ""}
+        <ChevronDown className="h-3 w-3" />
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-30 mt-1 w-40 rounded-lg bg-white py-1 shadow-lg ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-white/10">
+          {row.manual ? (
+            <button type="button" onClick={() => choose("auto")} className="block w-full px-3 py-1 text-left text-[11.5px] hover:bg-slate-50 dark:hover:bg-slate-800">
+              Automatique ({row.autoStatus})
+            </button>
+          ) : null}
+          {(["TEST", "SCALING", "HYPER", "COSTCAP", "OFF"] as CreativeStatus[])
+            .filter((status) => status !== row.status)
+            .map((status) => (
+              <button key={status} type="button" onClick={() => choose(status)} className="block w-full px-3 py-1 text-left text-[11.5px] font-semibold hover:bg-slate-50 dark:hover:bg-slate-800" style={{ color: STATUS_COLOR[status] }}>
+                Forcer en {status}
+              </button>
+            ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
