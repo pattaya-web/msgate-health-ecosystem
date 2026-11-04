@@ -345,7 +345,13 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
     } else byImage.set(imageKey, work);
   }
 
-  const productOfLink = (link: string): Product => (/snakelace-venom39|venom39/i.test(link) ? "39,99 $" : /necklace-snake/i.test(link) ? "29,99 $" : "?");
+  // Le nom du produit dans l'URL (/products/…) : necklace-snake = 29,99 $, snakelace-venom39 = 39,99 $, sinon on ne devine pas.
+  const productOfLink = (link: string): Product => {
+    const handle = /\/products\/([^/?#]+)/i.exec(link)?.[1]?.toLowerCase() ?? "";
+    if (handle === "necklace-snake" || (!handle && /necklace-snake/i.test(link))) return "29,99 $";
+    if (handle === "snakelace-venom39" || (!handle && /snakelace-venom39/i.test(link))) return "39,99 $";
+    return "?";
+  };
   const priceOf = (product: Product) => (product === "39,99 $" ? 39.99 : 29.99);
   const shortDate = (value: number | string) => new Date(value).toLocaleString("fr-FR", { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const TODO_RANK: Record<Todo, number> = { Couper: 1, "Promouvoir en SCALING": 2, "Post ID dans le HYPER": 3, "Éligible COSTCAP": 4, Attendre: 5, "Laisser jusqu'à J7": 6, Laisser: 7, "—": 8 };
