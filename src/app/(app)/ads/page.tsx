@@ -493,7 +493,7 @@ function CreativeActions({
         </ActionChip>
       ) : null}
       {onArchive ? (
-        <ActionChip label="Retirer" title="Archiver la pub sur Meta (elle ne diffuse plus)" onClick={onArchive}>
+        <ActionChip label="Archiver" title="Archiver la pub coupée sur Meta : elle disparaît des listes" onClick={onArchive}>
           <Archive className="h-2.5 w-2.5" />
         </ActionChip>
       ) : null}
@@ -2401,6 +2401,35 @@ function AdsetRow({
           </span>
           <CreatedPill value={adset.createdTime} />
           <RenameChip onClick={() => askRename(shared, "adset", adset.id, adset.name)} />
+          {(() => {
+            const off = adset.ads.filter((ad) => ad.status !== "ACTIVE");
+            if (!off.length) return null;
+            return (
+              <ActionChip
+                label={`Archiver les off (${off.length})`}
+                title="Archiver chez Meta toutes les pubs coupées de cet ad set"
+                onClick={() => {
+                  if (!window.confirm(`Archiver chez Meta les ${off.length} pub${off.length > 1 ? "s" : ""} coupée${off.length > 1 ? "s" : ""} de « ${adset.name} » ?\n\n${off.map((ad) => `• ${ad.name}`).join("\n")}`)) return;
+                  void (async () => {
+                    let done = 0;
+                    for (const ad of off) {
+                      const res = await fetch("/api/meta/entity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: ad.id, level: "ad", status: "ARCHIVED" }) });
+                      if (!res.ok) {
+                        const body = await res.json().catch(() => ({}));
+                        toast.error(`${ad.name} : ${body.error || "Meta a refusé l'archivage"}`);
+                        continue;
+                      }
+                      shared.onHideAd(ad.id);
+                      done += 1;
+                    }
+                    if (done) toast.success(`${done} pub${done > 1 ? "s" : ""} archivée${done > 1 ? "s" : ""}`);
+                  })();
+                }}
+              >
+                <Archive className="h-2.5 w-2.5" />
+              </ActionChip>
+            );
+          })()}
           <ActionChip
             label="Créa"
             tone="green"
@@ -2525,6 +2554,15 @@ function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
           onOpen={() => shared.onOpenAd(ad.id)}
           onDownload={() => void shared.onAdDownload(ad)}
           onRename={() => askRename(shared, "ad", ad.id, ad.name)}
+          onArchive={
+            ad.status !== "ACTIVE"
+              ? () => {
+                  if (window.confirm(`Archiver « ${ad.name} » chez Meta ?\nElle disparaît des listes ; ses chiffres restent consultables dans Meta.`)) {
+                    void shared.onWrite("ad", ad.id, { status: "ARCHIVED" }, "Pub archivée");
+                  }
+                }
+              : undefined
+          }
         />
       </div>
       <MetricsRail metrics={ad.metrics} />

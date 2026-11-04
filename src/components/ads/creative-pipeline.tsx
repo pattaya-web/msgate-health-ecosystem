@@ -177,6 +177,28 @@ export function CreativePipeline() {
     }
   }
 
+  /** Une créa coupée : archiver chez Meta toutes ses pubs, pour nettoyer les campagnes. */
+  async function archive(row: CreativeRow) {
+    const ids = row.placements.flatMap((place) => place.adIds);
+    if (!ids.length) return;
+    if (!window.confirm(`Archiver chez Meta « ${row.name} » (${ids.length} pub${ids.length > 1 ? "s" : ""}) ? Elle disparaît des listes ; ses chiffres restent dans Meta.`)) return;
+    setBusy(`${row.key}|archive`);
+    try {
+      for (const id of ids) {
+        const res = await fetch("/api/meta/entity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, level: "ad", status: "ARCHIVED", source: "pipeline", reason: "Pipeline : archivée (créa coupée)" }) });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || "Meta a refusé l'archivage");
+      }
+      await pipelinePost({ action: "log", what: `Archiver « ${row.name} » (${ids.length} pub${ids.length > 1 ? "s" : ""})` });
+      toast.success(`${row.name} archivée`);
+      await load(windowDays, true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Archivage impossible");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function setStatus(row: CreativeRow, status: string) {
     try {
       await pipelinePost({ action: "status.set", key: row.key, status: status === "auto" ? null : status });
@@ -371,6 +393,19 @@ export function CreativePipeline() {
                           14 j : {usd(row.margins[14].margin)} ({num(row.margins[14].pct, 1)} %) · {num(row.margins[14].sales, 1)} ventes · {usd(row.margins[14].spendUsd)} dépensés
                         </span>
                         <Badge badge={row.margins[14].badge} />
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            void archive(row);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-md bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-300 disabled:opacity-50 dark:bg-slate-700 dark:text-slate-100"
+                          title="Archiver chez Meta toutes les pubs de cette créa"
+                        >
+                          {busy === `${row.key}|archive` ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Archiver chez Meta
+                        </button>
                       </summary>
                       <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-500">
                         {row.history.length ? row.history.map((change) => (
