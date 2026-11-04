@@ -12,6 +12,7 @@ import { adDailyInsights, type AdDay } from "@/lib/pilotage/meta-daily";
 import { reportToday } from "@/lib/report-tz";
 import { readStore, updateStore, type Brief, type CreativeStatus, type StatusChange, type Thresholds, type WeekCheck } from "@/lib/creative-pipeline/store";
 import { buildScalingRamp, type RampRow } from "@/lib/metrics/scaling-ramp";
+import { parseCreativeName, type ParsedCreativeName } from "@/lib/creative-naming";
 
 /**
  * Le pipeline créa de l'Ads Manager : chaque créa (regroupée par post ID, et
@@ -87,6 +88,11 @@ export type Placement = {
 export type CreativeRow = {
   key: string;
   name: string;
+  /**
+   * Le nom lu à la convention S45_MIX1_CONCEPT_VARIANTE[_IT2] (src/lib/creative-naming.ts) :
+   * celui de la créa, sinon le premier nom de pub qui la suit. null = hors convention.
+   */
+  naming: ParsedCreativeName | null;
   accountId: string;
   accountName: string;
   currency: string;
@@ -706,6 +712,7 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
     return {
       key: work.key,
       name: work.name,
+      naming: parseCreativeName(work.name) ?? placements.flatMap((place) => place.adNames).map(parseCreativeName).find((parsed) => parsed !== null) ?? null,
       accountId: work.account.accountId,
       accountName: work.account.name,
       currency: work.account.currency,

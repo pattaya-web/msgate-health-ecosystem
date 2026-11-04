@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { BriefBoard } from "@/components/ads/brief-board";
 import type { CreativeRow, Margin, PipelineReport, Placement, Todo, Trend, WeeklyItem, WeeklyKind, WindowDays } from "@/lib/creative-pipeline/build";
 import type { CreativeStatus, Thresholds } from "@/lib/creative-pipeline/store";
+import { parseCreativeName, type ParsedCreativeName } from "@/lib/creative-naming";
 
 /**
  * Le « Pipeline créa » de l'Ads Manager, sous la rampe de scaling : l'outil de
@@ -100,6 +101,57 @@ function readOpen() {
   }
 }
 
+/** Le nom à la convention d'une créa (calculé par le serveur ; relu ici si la réponse vient d'une version sans ce champ). */
+const namingOf = (row: CreativeRow): ParsedCreativeName | null => row.naming ?? parseCreativeName(row.name);
+
+type NamingFilter = { week: string; mix: string; concept: string; variante: string };
+const NO_FILTER: NamingFilter = { week: "", mix: "", concept: "", variante: "" };
+/** Valeur de filtre pour « hors convention ». */
+const NONE = "—";
+
+function namingValue(naming: ParsedCreativeName | null, key: keyof NamingFilter) {
+  if (!naming) return NONE;
+  return key === "week" ? `S${String(naming.week).padStart(2, "0")}` : naming[key];
+}
+
+/**
+ * Les créas dans l'ordre du tri, chaque itération (_IT2, _IT3, ou doublon _2)
+ * rangée sous sa créa d'origine : même MIX_CONCEPT_VARIANTE (`base`, sans la
+ * semaine). L'origine = celle sans _IT (ni doublon), sinon la semaine la plus
+ * ancienne. Les noms hors convention restent seuls.
+ */
+function groupIterations(rows: CreativeRow[]) {
+  const byBase = new Map<string, CreativeRow[]>();
+  for (const row of rows) {
+    const naming = namingOf(row);
+    if (!naming) continue;
+    byBase.set(naming.base, [...(byBase.get(naming.base) ?? []), row]);
+  }
+  const rank = (row: CreativeRow) => {
+    const naming = namingOf(row)!;
+    return [naming.iteration ? 1 : 0, naming.dup ? 1 : 0, naming.week, naming.iteration ?? 1, naming.dup ?? 1];
+  };
+  const compare = (a: CreativeRow, b: CreativeRow) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i];
+    return a.launchedAt.localeCompare(b.launchedAt);
+  };
+  const out: Array<{ row: CreativeRow; children: CreativeRow[] }> = [];
+  for (const row of rows) {
+    const naming = namingOf(row);
+    const family = naming ? byBase.get(naming.base) ?? [row] : [row];
+    if (family.length < 2) {
+      out.push({ row, children: [] });
+      continue;
+    }
+    const [origin, ...children] = [...family].sort(compare);
+    // La famille prend la place de son origine dans le tri ; ses itérations la suivent.
+    if (origin.key === row.key) out.push({ row, children });
+  }
+  return out;
+}
+
 export function CreativePipeline() {
   const [open, setOpen] = useState(true);
   const [ready, setReady] = useState(false);
@@ -112,6 +164,9 @@ export function CreativePipeline() {
   const [sort, setSort] = useState<{ key: "margin" | "pct" | "spend" | "sales"; dir: 1 | -1 }>({ key: "spend", dir: -1 });
   const [promote, setPromote] = useState<{ row: CreativeRow; place: Placement } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [namingFilter, setNamingFilter] = useState<NamingFilter>(NO_FILTER);
+  /** Les familles d'itérations repliées (clé de la créa d'origine). */
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -314,6 +369,12 @@ export function CreativePipeline() {
       })
     : [];
   const sortBy = (key: typeof sort.key) => setSort((current) => ({ key, dir: current.key === key ? (current.dir === 1 ? -1 : 1) : -1 }));
+  // Semaine, MIX, Concept, Variante lus dans le nom (S45_MIX1_HEMIOS_NAVY) : filtres, puis itérations rangées sous leur origine.
+  const namingOptions = (key: keyof NamingFilter) =>
+    [...new Set((data?.creatives ?? []).map((row) => namingValue(namingOf(row), key)))].sort((a, b) => (a === NONE ? 1 : b === NONE ? -1 : a.localeCompare(b, "fr", { numeric: true })));
+  const filtered = sorted.filter((row) => (Object.keys(namingFilter) as Array<keyof NamingFilter>).every((key) => !namingFilter[key] || namingValue(namingOf(row), key) === namingFilter[key]));
+  const families = groupIterations(filtered);
+  const filtering = Object.values(namingFilter).some(Boolean);
   /** La fenêtre en rappel (gris) : 3 j en vue 7 j / 14 j, 7 j en vue 3 j. */
   const other: WindowDays = windowDays === 3 ? 7 : 3;
 
@@ -417,10 +478,45 @@ export function CreativePipeline() {
 
               {tab === "creas" ? (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1180px] text-[12px]">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    {(
+                      [
+                        ["week", "Semaine"],
+                        ["mix", "MIX"],
+                        ["concept", "Concept"],
+                        ["variante", "Variante"],
+                      ] as Array<[keyof NamingFilter, string]>
+                    ).map(([key, label]) => (
+                      <label key={key} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5", namingFilter[key] ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300")}>
+                        {label}
+                        <select
+                          value={namingFilter[key]}
+                          onChange={(event) => setNamingFilter((current) => ({ ...current, [key]: event.target.value }))}
+                          className="bg-transparent text-[11px] font-semibold outline-none"
+                        >
+                          <option value="">{key === "week" || key === "variante" ? "Toutes" : "Tous"}</option>
+                          {namingOptions(key).map((value) => (
+                            <option key={value} value={value}>
+                              {value === NONE ? "— hors convention" : value}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                    {filtering ? (
+                      <button type="button" onClick={() => setNamingFilter(NO_FILTER)} className="rounded-full px-2 py-0.5 text-slate-500 underline decoration-dotted">
+                        Effacer ({filtered.length} / {sorted.length})
+                      </button>
+                    ) : null}
+                  </div>
+                  <table className="w-full min-w-[1420px] text-[12px]">
                     <thead>
                       <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
                         <th className="py-1.5 pr-2 font-semibold">Créa</th>
+                        <th className="px-2 font-semibold">Semaine</th>
+                        <th className="px-2 font-semibold">MIX</th>
+                        <th className="px-2 font-semibold">Concept</th>
+                        <th className="px-2 font-semibold">Variante</th>
                         <th className="px-2 font-semibold">Lancée le</th>
                         <th className="px-2 font-semibold">Où elle tourne</th>
                         <th className="px-2 font-semibold">Statut</th>
@@ -435,21 +531,24 @@ export function CreativePipeline() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
-                      {sorted.map((row) => (
+                      {families.flatMap(({ row, children }) => [row, ...(folded[row.key] ? [] : children)].map((line, index) => (
                         <CreativeLine
-                          key={row.key}
-                          row={row}
+                          key={line.key}
+                          row={line}
                           days={windowDays}
                           other={other}
                           busy={busy}
-                          onCut={(place) => void cut(row, place)}
-                          onPromote={(place) => setPromote({ row, place })}
-                          onStatus={(status) => void setStatus(row, status)}
+                          iteration={index > 0}
+                          family={index === 0 && children.length ? { count: children.length, folded: Boolean(folded[row.key]), onToggle: () => setFolded((current) => ({ ...current, [row.key]: !current[row.key] })) } : null}
+                          onCut={(place) => void cut(line, place)}
+                          onPromote={(place) => setPromote({ row: line, place })}
+                          onStatus={(status) => void setStatus(line, status)}
                         />
-                      ))}
+                      )))}
                     </tbody>
                   </table>
                   {!sorted.length ? <p className="py-4 text-center text-[12px] text-slate-400">Aucune créa active.</p> : null}
+                  {sorted.length && !filtered.length ? <p className="py-4 text-center text-[12px] text-slate-400">Aucune créa pour ces filtres.</p> : null}
                   {WINDOW_HELP[windowDays] ? (
                     <p className="mt-2 rounded-lg bg-slate-50 px-3 py-1.5 text-[11.5px] text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
                       <b>{WINDOW_LABEL[windowDays]} :</b> « {WINDOW_HELP[windowDays]} »
@@ -668,6 +767,8 @@ function CreativeLine({
   days,
   other,
   busy,
+  iteration,
+  family,
   onCut,
   onPromote,
   onStatus,
@@ -676,18 +777,24 @@ function CreativeLine({
   days: WindowDays;
   other: WindowDays;
   busy: string | null;
+  /** Itération (_IT2…) rangée sous sa créa d'origine : ligne en retrait. */
+  iteration?: boolean;
+  /** Sur la créa d'origine : ses itérations, et le bouton pour les replier. */
+  family?: { count: number; folded: boolean; onToggle: () => void } | null;
   onCut: (place: Placement) => void;
   onPromote: (place: Placement) => void;
   onStatus: (status: string) => void;
 }) {
   const m = row.margins[days];
+  const naming = namingOf(row);
   const places = row.placements.filter((place) => place.live);
   const single = places.length <= 1 ? places[0] : null;
   return (
     <>
-      <tr className="align-top">
-        <td className="max-w-[240px] py-1.5 pr-2">
+      <tr className={cn("align-top", iteration && "bg-slate-50/60 dark:bg-slate-800/30")}>
+        <td className={cn("max-w-[240px] py-1.5 pr-2", iteration && "pl-6")}>
           <div className="flex items-start gap-2">
+            {iteration ? <span className="shrink-0 text-[11px] text-slate-400">↳</span> : null}
             {row.thumbnail ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={row.thumbnail} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />
@@ -696,6 +803,11 @@ function CreativeLine({
               <p className="truncate font-semibold text-slate-900 dark:text-slate-50" title={row.name}>
                 {row.name}
               </p>
+              {family ? (
+                <button type="button" onClick={family.onToggle} className="text-[10.5px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+                  {family.folded ? "▸" : "▾"} {family.count} itération{family.count > 1 ? "s" : ""}
+                </button>
+              ) : null}
               {single ? <OtherNames row={row} place={single} /> : null}
               <p className="truncate text-[10.5px] text-slate-400">
                 {single ? single.adsetName : `${places.length} emplacements`} ·{" "}
@@ -705,6 +817,22 @@ function CreativeLine({
               </p>
             </div>
           </div>
+        </td>
+        <td className="whitespace-nowrap px-2 py-1.5 text-[11.5px] font-semibold tabular-nums">{naming ? `S${String(naming.week).padStart(2, "0")}` : <span className="font-normal text-slate-300">—</span>}</td>
+        <td className="whitespace-nowrap px-2 py-1.5 text-[11.5px]">{naming ? naming.mix : <span className="text-slate-300">—</span>}</td>
+        <td className="max-w-[120px] truncate px-2 py-1.5 text-[11.5px] font-semibold" title={naming?.concept}>
+          {naming ? naming.concept : <span className="font-normal text-slate-300">—</span>}
+        </td>
+        <td className="whitespace-nowrap px-2 py-1.5 text-[11.5px]">
+          {naming ? (
+            <>
+              {naming.variante}
+              {naming.iteration ? <span className="ml-1 rounded bg-indigo-50 px-1 text-[10px] font-bold text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300">IT{naming.iteration}</span> : null}
+              {naming.dup ? <span className="ml-1 text-[10px] text-slate-400">_{naming.dup}</span> : null}
+            </>
+          ) : (
+            <span className="text-slate-300">—</span>
+          )}
         </td>
         <td className="whitespace-nowrap px-2 py-1.5 text-[11.5px]" title={`Création de la pub chez Meta : ${when(row.launchedAt)}`}>
           {dayLabel(row.launchedAt)} <span className="text-slate-400">· J{row.age}</span>
@@ -746,6 +874,7 @@ function CreativeLine({
                     </span>
                   </p>
                 </td>
+                <td colSpan={4} />
                 <td />
                 <td className="px-2 py-1 text-[10.5px] font-bold" style={{ color: STATUS_COLOR[place.kind] }}>
                   {place.legacy ? "ancien SCALING" : place.kind}

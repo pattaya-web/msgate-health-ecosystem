@@ -10,6 +10,7 @@ import {
   type UploadAccount,
   type UploadedMedia,
 } from "@/lib/meta/uploader-shared";
+import { dedupeNames } from "@/lib/creative-naming";
 
 export type { PickerAd, PickerAdset, PickerCampaign, UploadAccount, UploadedMedia };
 export {
@@ -351,10 +352,14 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
    */
   const planned: Array<{ group: number; media: UploadedMedia; name: string; creativeId: string }> = [];
   onProgress({ kind: "plan", creatives: input.media.length, adsets: makesAdsets ? groups.length : 0, ads: input.media.length, newCampaign: input.createNewCampaign });
+  // Le nom de chaque pub (par défaut le nom du fichier sans extension) ; deux fichiers au même nom → _2, _3, comme dans l'aperçu de l'uploader.
+  const adNames = dedupeNames(
+    groups.flatMap((group, g) => group.map((media) => ({ media, g }))).map(({ media, g }, i) => adName(input.adNamePattern, media.fileName, plannedCampaignName, adsetNameOf(g), i, input.startNumber))
+  );
   let index = 0;
   for (let g = 0; g < groups.length; g++) {
     for (const media of groups[g]) {
-      const name = adName(input.adNamePattern, media.fileName, plannedCampaignName, adsetNameOf(g), index, input.startNumber);
+      const name = adNames[index];
       const own = input.copies?.[index];
       index += 1;
       const clean = (list?: string[]) => (list ?? []).map((t) => t.trim()).filter(Boolean);

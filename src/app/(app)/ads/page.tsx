@@ -23,7 +23,8 @@ import {
 import { toast } from "sonner";
 import { cn, formatCurrency, formatCreatedFr, formatNumber } from "@/lib/utils";
 import { adsetsToRefill, liveCreatives, missingCreatives, needsRefill } from "@/lib/meta/refill";
-import { RenameDialogHost, askName } from "@/components/ads/rename-dialog";
+import { RenameDialogHost, askName, openNamingPanel, type NamingAd } from "@/components/ads/rename-dialog";
+import { namingContextFor, parseCreativeName } from "@/lib/creative-naming";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, PHASE_TABS, type CampaignBucket, type PhaseTab } from "@/lib/meta/buckets";
 import { isAccountKilled, isCampaignLive } from "@/lib/meta/account-flow";
 import { loadHiddenAdIds, saveHiddenAdIds } from "@/lib/meta/hidden-ads";
@@ -1245,6 +1246,23 @@ export default function AdsPage() {
     [tree]
   );
 
+  /**
+   * Renomme une pub par la même route que « Renommer » (/api/meta/entity), en
+   * patchant l'arbre courant : plusieurs renommages à la suite (« Renommer
+   * tout l'ad set », « Normaliser ») ne s'écrasent pas entre eux.
+   */
+  const renameAd = useCallback(async (id: string, name: string) => {
+    const res = await fetch("/api/meta/entity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, level: "ad", name }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || "Meta a refusé le renommage");
+    rememberPending("ad", id, { name });
+    setTree((current) => (current ? patchTree(current, "ad", id, { name }) : current));
+  }, []);
+
   const downloadZip = useCallback(async (ids: string[], label: string, key: string) => {
     if (!ids.length) {
       toast.error("Aucune publicité dans cette sélection.");
@@ -1441,6 +1459,23 @@ export default function AdsPage() {
       }).filter((group) => showOther || group.bucket !== "other"),
     [tree, query, activeOnly, showOther, hiddenAdIds]
   );
+
+  /** « Normaliser » : les pubs affichées (filtres compris) dont le nom ne suit pas la convention, par ad set. */
+  const openNormalize = useCallback(() => {
+    const adsets = new Map<string, { adsetId: string; adsetName: string; ads: NamingAd[] }>();
+    for (const group of groups) {
+      for (const account of group.accounts) {
+        for (const campaign of account.campaigns) {
+          for (const adset of campaign.adsets) {
+            const entry = adsets.get(adset.id) ?? { adsetId: adset.id, adsetName: adset.name, ads: [] };
+            for (const ad of adset.ads) if (!entry.ads.some((row) => row.id === ad.id)) entry.ads.push({ id: ad.id, name: ad.name, createdTime: ad.createdTime });
+            adsets.set(adset.id, entry);
+          }
+        }
+      }
+    }
+    openNamingPanel({ kind: "normalize", adsets: [...adsets.values()].filter((adset) => adset.ads.some((ad) => !parseCreativeName(ad.name))), onRename: renameAd });
+  }, [groups, renameAd]);
 
   const phaseTab: PhaseTab =
     chosenPhaseTab ?? PHASE_TABS.find((bucket) => groups.some((group) => group.bucket === bucket)) ?? "hyperscaling";
@@ -1969,6 +2004,15 @@ export default function AdsPage() {
                 {hiddenAdIds.size} cachée{hiddenAdIds.size > 1 ? "s" : ""}
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={openNormalize}
+              title="Lister les pubs affichées hors convention (S45_MIX1_CONCEPT_VARIANTE) et les renommer une par une"
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-slate-100 px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              <Pencil className="h-3 w-3" />
+              Normaliser
+            </button>
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
@@ -2102,6 +2146,7 @@ export default function AdsPage() {
                               busy={busy}
                               onToggle={toggle}
                               onWrite={write}
+                              onRenameAd={renameAd}
                               onZip={downloadZip}
                               onAdDownload={downloadAd}
                               onOpenAd={setPanelAd}
@@ -2141,6 +2186,7 @@ export default function AdsPage() {
                               busy={busy}
                               onToggle={toggle}
                               onWrite={write}
+                              onRenameAd={renameAd}
                               onZip={downloadZip}
                               onAdDownload={downloadAd}
                               onOpenAd={setPanelAd}
@@ -2181,6 +2227,8 @@ type RowShared = {
     patch: { status?: EntityStatus; dailyBudget?: number; name?: string },
     label: string
   ) => Promise<void>;
+  /** Renomme une pub chez Meta (même route que onWrite), sans écraser les autres renommages en cours. */
+  onRenameAd: (id: string, name: string) => Promise<void>;
   onZip: (ids: string[], label: string, key: string) => Promise<void>;
   onAdDownload: (ad: AdNode) => Promise<void>;
   onOpenAd: (id: string) => void;
@@ -2194,8 +2242,9 @@ type RowShared = {
 /** Renomme une campagne, un ad set ou une pub, après saisie du nouveau nom. */
 const RENAME_TITLE: Record<EntityLevel, string> = { campaign: "Renommer la campagne", adset: "Renommer l'ad set", ad: "Renommer la pub" };
 
-function askRename(shared: RowShared, level: EntityLevel, id: string, current: string) {
-  void askName(RENAME_TITLE[level], current).then((next) => {
+function askRename(shared: RowShared, level: EntityLevel, id: string, current: string, naming?: { adsetName: string; createdTime: string }) {
+  // Une pub : la fenêtre pré-remplit S{semaine du lancement}_{MIX de l'ad set}_ ; il reste CONCEPT et VARIANTE.
+  void askName(RENAME_TITLE[level], current, naming ? namingContextFor(naming.adsetName, naming.createdTime) : undefined).then((next) => {
     if (next) void shared.onWrite(level, id, { name: next }, "Renommé sur Meta");
   });
 }
@@ -2400,6 +2449,22 @@ function AdsetRow({
           </span>
           <CreatedPill value={adset.createdTime} />
           <RenameChip onClick={() => askRename(shared, "adset", adset.id, adset.name)} />
+          {adset.ads.length ? (
+            <ActionChip
+              label="Renommer les pubs"
+              title="Renommer tout l'ad set : S45_MIX1_CONCEPT_V1, V2, V3… (CONCEPT tapé une fois, aperçu avant)"
+              onClick={() =>
+                openNamingPanel({
+                  kind: "adset",
+                  adsetName: adset.name,
+                  ads: adset.ads.map((ad) => ({ id: ad.id, name: ad.name, createdTime: ad.createdTime })),
+                  onRename: shared.onRenameAd,
+                })
+              }
+            >
+              <Pencil className="h-2.5 w-2.5" />
+            </ActionChip>
+          ) : null}
           {(() => {
             const off = adset.ads.filter((ad) => ad.status !== "ACTIVE");
             if (!off.length) return null;
@@ -2468,13 +2533,13 @@ function AdsetRow({
       </HoverRow>
 
       {isOpen
-        ? orderAds(adset.ads, shared.sort).map((ad) => <AdRow key={ad.id} ad={ad} {...shared} />)
+        ? orderAds(adset.ads, shared.sort).map((ad) => <AdRow key={ad.id} ad={ad} adsetName={adset.name} {...shared} />)
         : null}
     </div>
   );
 }
 
-function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
+function AdRow({ ad, adsetName, ...shared }: RowShared & { ad: AdNode; adsetName: string }) {
   const dead = shared.deadAdIds.has(ad.id);
   const hs = shared.hsAdIds.get(ad.id);
   const paused = ad.status !== "ACTIVE";
@@ -2552,7 +2617,7 @@ function AdRow({ ad, ...shared }: RowShared & { ad: AdNode }) {
           busy={shared.busy[`dl-${ad.id}`]}
           onOpen={() => shared.onOpenAd(ad.id)}
           onDownload={() => void shared.onAdDownload(ad)}
-          onRename={() => askRename(shared, "ad", ad.id, ad.name)}
+          onRename={() => askRename(shared, "ad", ad.id, ad.name, { adsetName, createdTime: ad.createdTime })}
           onArchive={
             ad.status !== "ACTIVE"
               ? () => {

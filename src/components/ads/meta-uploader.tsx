@@ -34,6 +34,7 @@ import {
   type UploadAccount,
   type UploadedMedia,
 } from "@/lib/meta/uploader-shared";
+import { dedupeNames, fileStemName, parseCreativeName } from "@/lib/creative-naming";
 
 const META_BLUE = "bg-[#1877F2] hover:bg-[#166fe5] text-white";
 
@@ -395,23 +396,33 @@ export function MetaUploader() {
     const base = newAdsetName.trim() || `${sourceAdsetRow?.name ?? "Ad set"}`;
     return groups > 1 ? `${base} · ${group + 1}` : newAdsetName.trim() || `${base} · copy`;
   };
+  /** Les pubs dont le nom a pris un _2, _3 parce qu'un autre fichier donnait déjà le même nom. */
+  const renamedDuplicates: Array<{ label: string; from: string; to: string }> = [];
   const adItems: PreviewItem[] = (() => {
     const raw = [
       ...previews.map((item) => ({ key: fileKey(item.file), label: item.file.name, url: item.url, video: item.video })),
       ...postIds.map((id) => ({ key: `p:${id}`, label: postLabel(id), postId: id })),
     ];
     const groups = raw.length ? groupOf(raw.length - 1) + 1 : 0;
-    return raw.map((item, index) => ({
-      ...item,
-      name: formatAdName(useNamePattern ? namePattern : "{file}", {
+    // Même calcul que le serveur (createAdsFromTemplate) : le modèle (par défaut le nom du fichier sans extension), puis _2, _3 sur les noms répétés.
+    const planned = raw.map((item, index) =>
+      formatAdName(useNamePattern ? namePattern : "{file}", {
         fileName: item.label,
         campaign: createNewCampaign || multiCampaigns ? newCampaignName.trim() || (sourceCampaignRow ? `${sourceCampaignRow.name} · copy` : "Campaign") : sourceCampaignRow?.name ?? "Campaign",
         adset: adsetLabelOf(groupOf(index), groups),
         index,
         start: Math.max(1, Number(startNumber) || 1),
-      }),
-    }));
+      })
+    );
+    const names = dedupeNames(planned);
+    names.forEach((name, index) => {
+      if (name !== planned[index]) renamedDuplicates.push({ label: raw[index].label, from: planned[index], to: name });
+    });
+    return raw.map((item, index) => ({ ...item, name: names[index] }));
   })();
+  /** Fichiers nommés à la convention (S45_MIX1_…) alors qu'un modèle de nom les remplacerait. */
+  const patternHidesConvention =
+    useNamePattern && namePattern.trim() !== "{file}" && previews.some((item) => parseCreativeName(fileStemName(item.file.name)));
   const groupCount = adItems.length ? groupOf(adItems.length - 1) + 1 : 0;
   /** Les textes propres à la pub n° index selon le mode choisi (null = textes communs). */
   const ownCopyFor = (index: number): OwnCopy | null => {
@@ -1018,6 +1029,14 @@ export function MetaUploader() {
       </Card>
       <Card title="Ad Name Options">
         <CheckRow label="Use custom ad name pattern" checked={useNamePattern} onChange={setUseNamePattern} />
+        {patternHidesConvention ? (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800 ring-1 ring-amber-200">
+            Tes fichiers sont déjà nommés à la convention (S45_MIX1_CONCEPT_VARIANTE) : le modèle « {namePattern} » va remplacer ce nom.{" "}
+            <button type="button" onClick={() => setNamePattern("{file}")} className="font-semibold underline">
+              Garder le nom du fichier
+            </button>
+          </p>
+        ) : null}
         {useNamePattern ? (
           <div className="mt-2 space-y-2">
             <div className="flex gap-2">
@@ -1056,6 +1075,7 @@ export function MetaUploader() {
       </Card>
       <Card title="Preview">
         <p className="text-[13px] text-slate-600">{preview}</p>
+        {renamedDuplicates.length ? <DuplicateNamesWarning rows={renamedDuplicates} /> : null}
         {itemCount ? (
           <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100">
             {adItems.slice(0, 50).map((item, index) => (
@@ -1305,6 +1325,8 @@ export function MetaUploader() {
         );
       })()}
 
+      {renamedDuplicates.length ? <DuplicateNamesWarning rows={renamedDuplicates} /> : null}
+
       {!itemCount ? (
         <p className="rounded-lg bg-slate-100 px-3 py-2 text-[13px] text-slate-600">Aucun média ni Post ID : ajoute des photos / vidéos ou colle des Post ID plus haut.</p>
       ) : null}
@@ -1332,6 +1354,25 @@ export function MetaUploader() {
           renderPost={(postId) => <PostPreview accountId={accountId} postId={postId} onRemove={() => setPostText((text) => removePostId(text, postId))} />}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Deux fichiers (ou plus) donnent le même nom de pub : on l'annonce avant l'envoi, avec le nom que chacun prendra chez Meta. */
+function DuplicateNamesWarning({ rows }: { rows: Array<{ label: string; from: string; to: string }> }) {
+  return (
+    <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800 ring-1 ring-amber-200">
+      <p>
+        <strong>Noms en double :</strong> {rows.length > 1 ? `${rows.length} pubs porteraient` : "une pub porterait"} le même nom
+        qu&apos;une autre. {rows.length > 1 ? "Elles seront renommées" : "Elle sera renommée"} ainsi chez Meta :
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {rows.map((row, index) => (
+          <li key={`${row.to}-${index}`} className="truncate" title={row.label}>
+            {row.label} → <code className="font-mono font-semibold">{row.to}</code>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
