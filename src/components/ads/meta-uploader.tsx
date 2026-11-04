@@ -366,7 +366,6 @@ export function MetaUploader() {
   );
 
   const itemCount = files.length + postIds.length;
-  const adsetCount = adsetPerUpload ? Math.max(itemCount, 0) : 1;
   /** Où vont les pubs : dans l'ad set choisi, dans un nouvel ad set (copie), ou dans une nouvelle campagne. */
   const target: "existing" | "adset" | "campaign" = createNewCampaign || multiCampaigns ? "campaign" : createNewAdset || adsetPerUpload || autoDivide ? "adset" : "existing";
   const chooseTarget = (next: "existing" | "adset" | "campaign") => {
@@ -379,12 +378,12 @@ export function MetaUploader() {
     }
   };
   const chosenAdsetName = adsets.find((row) => row.id === adsetId)?.name;
-  const preview =
-    target === "existing"
-      ? chosenAdsetName
-        ? `${itemCount} pub${itemCount > 1 ? "s" : ""} ajoutée${itemCount > 1 ? "s" : ""} dans l'ad set existant « ${chosenAdsetName} »`
-        : "Choisis l'ad set où ajouter les pubs"
-      : `${itemCount} ads in ${adsetCount || 1} new ad set${adsetCount > 1 ? "s" : ""} will be created`;
+  /** Comment les créas se répartissent dans les nouveaux ad sets : toutes ensemble (défaut), une par ad set, ou par 5. */
+  const split: "all" | "one" | "five" = adsetPerUpload ? "one" : autoDivide ? "five" : "all";
+  const chooseSplit = (next: "all" | "one" | "five") => {
+    setAdsetPerUpload(next === "one");
+    setAutoDivide(next === "five");
+  };
   const postLabel = (id: string) => `Post ${id.split("_").pop()}`;
 
   // Les pubs à créer, dans l'ordre d'envoi (fichiers puis Post ID), avec leur nom final.
@@ -424,6 +423,22 @@ export function MetaUploader() {
   const patternHidesConvention =
     useNamePattern && namePattern.trim() !== "{file}" && previews.some((item) => parseCreativeName(fileStemName(item.file.name)));
   const groupCount = adItems.length ? groupOf(adItems.length - 1) + 1 : 0;
+  /** Les nouveaux ad sets prévus, avec le nombre de créas dans chacun (vide = pubs ajoutées dans l'ad set existant). */
+  const plannedAdsets =
+    target === "existing"
+      ? []
+      : Array.from({ length: Math.max(groupCount, 1) }, (_, group) => ({
+          name: adsetLabelOf(group, groupCount),
+          ads: adItems.filter((_, index) => groupOf(index) === group).length,
+        }));
+  const preview =
+    target === "existing"
+      ? chosenAdsetName
+        ? `${itemCount} pub${itemCount > 1 ? "s" : ""} ajoutée${itemCount > 1 ? "s" : ""} dans l'ad set existant « ${chosenAdsetName} »`
+        : "Choisis l'ad set où ajouter les pubs"
+      : plannedAdsets.length > 1
+        ? `${plannedAdsets.length} nouveaux ad sets${createNewCampaign || multiCampaigns ? " dans une nouvelle campagne" : ""} :`
+        : `1 nouvel ad set${createNewCampaign || multiCampaigns ? " dans une nouvelle campagne" : ""} avec ${itemCount} créa${itemCount > 1 ? "s" : ""} dedans :`;
   /** Les textes propres à la pub n° index selon le mode choisi (null = textes communs). */
   const ownCopyFor = (index: number): OwnCopy | null => {
     if (textMode === "adset") return ownCopy[`adset:${groupOf(index)}`] ?? null;
@@ -479,6 +494,13 @@ export function MetaUploader() {
     if (!files.length && !postIds.length) return toast.error("Ajoute des photos / vidéos ou des Post ID d’abord");
     if (!adsetId && !campaignId) return toast.error("Sélectionne une campagne / un ad set source");
     if (target === "existing" && !adsetId) return toast.error("Choisis l'ad set où ajouter les pubs (colonne Ad Sets)");
+    if (
+      plannedAdsets.length > 1 &&
+      !window.confirm(
+        `${plannedAdsets.length} ad sets vont être créés :\n${plannedAdsets.map((adset) => `• ${adset.name} (${adset.ads} créa${adset.ads > 1 ? "s" : ""})`).join("\n")}\n\nContinuer ?`
+      )
+    )
+      return;
     setBusy("create");
     // La fenêtre de suivi : d'abord les médias, puis ce que le serveur annonce étape par étape.
     const count = files.length + postIds.length;
@@ -986,10 +1008,45 @@ export function MetaUploader() {
         })()}
       </Card>
       <Card title="Ad Set Options">
-        <CheckRow label="Create new ad set" checked={createNewAdset} onChange={setCreateNewAdset} />
-        <CheckRow label="Create new ad set per upload or group" checked={adsetPerUpload} onChange={setAdsetPerUpload} />
-        <CheckRow label="Auto-divide ads into ad sets" checked={autoDivide} onChange={setAutoDivide} />
-        <CheckRow label="Build custom ad set configuration" checked={customAdset} onChange={setCustomAdset} />
+        {target === "existing" ? (
+          <p className="text-[12px] text-slate-500">
+            Les pubs vont dans l&apos;ad set choisi. Pour créer un nouvel ad set, choisis « Nouvel ad set » ou « Nouvelle campagne » plus haut.
+          </p>
+        ) : (
+          <div>
+            <p className="text-[12px] font-semibold text-slate-700">Combien d&apos;ad sets ?</p>
+            <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
+              {(
+                [
+                  { id: "all", title: "1 ad set, toutes les créas dedans", text: `${itemCount || "Les"} créa${itemCount === 1 ? "" : "s"} dans le même ad set (à dupliquer ensuite).` },
+                  { id: "one", title: "1 ad set par créa", text: `${itemCount || "N"} ad set${itemCount === 1 ? "" : "s"} séparé${itemCount === 1 ? "" : "s"}, 1 créa dans chacun.` },
+                  { id: "five", title: "Par paquets de 5", text: "Un ad set toutes les 5 créas." },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => chooseSplit(option.id)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-left transition-colors",
+                    split === option.id ? "border-[#1877F2] bg-[#e7f0ff]" : "border-slate-200 hover:bg-slate-50"
+                  )}
+                >
+                  <span className="flex items-center gap-2 text-[12.5px] font-semibold">
+                    <span className={cn("grid h-4 w-4 place-items-center rounded-full border", split === option.id ? "border-[#1877F2] bg-[#1877F2]" : "border-slate-300")}>
+                      {split === option.id ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+                    </span>
+                    {option.title}
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-snug text-slate-500">{option.text}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="mt-2">
+          <CheckRow label="Build custom ad set configuration" checked={customAdset} onChange={setCustomAdset} />
+        </div>
         {createNewAdset || adsetPerUpload || autoDivide || newCampaign ? (
           <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
             <label className="block text-[12px] font-medium text-slate-600">
@@ -1075,6 +1132,27 @@ export function MetaUploader() {
       </Card>
       <Card title="Preview">
         <p className="text-[13px] text-slate-600">{preview}</p>
+        {plannedAdsets.length ? (
+          <ul className="mt-1.5 space-y-1">
+            {plannedAdsets.map((adset, index) => (
+              <li key={index} className="flex items-center gap-2 text-[12.5px]">
+                <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700">AD SET</span>
+                <span className="min-w-0 truncate font-semibold text-slate-800">{adset.name}</span>
+                <span className="shrink-0 text-slate-500">
+                  · {adset.ads} créa{adset.ads > 1 ? "s" : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {split === "one" && target !== "existing" && itemCount > 1 ? (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800 ring-1 ring-amber-200">
+            Attention : {itemCount} ad sets séparés avec 1 seule créa dans chacun.{" "}
+            <button type="button" onClick={() => chooseSplit("all")} className="font-semibold underline">
+              Tout mettre dans 1 ad set
+            </button>
+          </p>
+        ) : null}
         {renamedDuplicates.length ? <DuplicateNamesWarning rows={renamedDuplicates} /> : null}
         {itemCount ? (
           <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100">
