@@ -1,4 +1,8 @@
+import { readFileSync } from "fs";
+import { mkdir, rename, writeFile } from "fs/promises";
+import path from "path";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, classifyCampaign } from "@/lib/meta/buckets";
+import { STORAGE_ROOT } from "@/lib/storage-root";
 import { getMetaConfigWithExtras } from "@/lib/meta/client";
 import { centsToUnits, graphBatch, graphGet, type GraphError } from "@/lib/meta/graph";
 import { rememberAccounts } from "@/lib/meta/registry";
@@ -279,6 +283,38 @@ const state: MetaTreeState = (globalRef.__msgateMetaTree ??= {
   maps: { tokenByAccount: new Map(), tokenByObject: new Map() },
 });
 
+/*
+ * La dernière structure lue chez Meta, gardée aussi sur disque : après un
+ * redémarrage (déploiement), si Meta limite les requêtes, l'Ads Manager
+ * affiche les derniers ad sets connus au lieu de campagnes vides.
+ */
+const STRUCTURE_FILE = path.join(STORAGE_ROOT, ".msgate-cache", "meta-structure.json");
+let structureLoaded = false;
+function loadSavedStructure() {
+  if (structureLoaded) return;
+  structureLoaded = true;
+  try {
+    const saved = JSON.parse(readFileSync(STRUCTURE_FILE, "utf8")) as Record<string, { campaigns: RawCampaign[]; adsets: RawAdset[]; ads: RawAd[] }>;
+    // Marquée ancienne : sert seulement de secours, jamais comme lecture fraîche.
+    for (const [id, value] of Object.entries(saved)) if (!state.structure.has(id)) state.structure.set(id, { at: 0, ...value });
+  } catch {
+    // pas encore de fichier
+  }
+}
+let structureWrite: ReturnType<typeof setTimeout> | null = null;
+function saveStructureSoon() {
+  if (structureWrite) return;
+  structureWrite = setTimeout(() => {
+    structureWrite = null;
+    const data = Object.fromEntries([...state.structure.entries()].map(([id, value]) => [id, { campaigns: value.campaigns, adsets: value.adsets, ads: value.ads }]));
+    const tmp = `${STRUCTURE_FILE}.${process.pid}.tmp`;
+    void mkdir(path.dirname(STRUCTURE_FILE), { recursive: true })
+      .then(() => writeFile(tmp, JSON.stringify(data)))
+      .then(() => rename(tmp, STRUCTURE_FILE))
+      .catch(() => {});
+  }, 5_000);
+}
+
 // Soft refreshes hit cache; Sync forces a rebuild.
 // Historical ranges barely move — keep them warm so date toggles feel instant.
 /** Le jour en cours dans le fuseau des comptes Meta (Paris). */
@@ -394,6 +430,7 @@ export async function buildAdsTree(params: {
   const campaignsByAccount = new Map<string, RawCampaign[]>();
   const adsetsByAccount = new Map<string, RawAdset[]>();
   const adsByAccount = new Map<string, RawAd[]>();
+  loadSavedStructure();
 
   await Promise.all(
     [...byToken.entries()].map(async ([token, accounts]) => {
@@ -513,12 +550,15 @@ export async function buildAdsTree(params: {
           continue;
         }
         if (campaignsByAccount.has(id) && adsetsByAccount.has(id) && adsByAccount.has(id)) {
-          if ((state.generation ?? 0) === generation) state.structure.set(id, {
-            at: Date.now(),
-            campaigns: campaignsByAccount.get(id) || [],
-            adsets: adsetsByAccount.get(id) || [],
-            ads: adsByAccount.get(id) || [],
-          });
+          if ((state.generation ?? 0) === generation) {
+            state.structure.set(id, {
+              at: Date.now(),
+              campaigns: campaignsByAccount.get(id) || [],
+              adsets: adsetsByAccount.get(id) || [],
+              ads: adsByAccount.get(id) || [],
+            });
+            saveStructureSoon();
+          }
         }
       }
     })

@@ -58,19 +58,44 @@ async function pages<T>(url: string): Promise<T[]> {
 }
 
 const state = ((globalThis as typeof globalThis & {
-  __msgatePilotageMeta?: { daily: Map<string, { at: number; rows: AdDay[] }> };
-}).__msgatePilotageMeta ??= { daily: new Map() });
+  __msgatePilotageMeta?: { daily: Map<string, { at: number; rows: AdDay[] }>; inflight?: Map<string, Promise<AdDay[]>> };
+}).__msgatePilotageMeta ??= { daily: new Map(), inflight: new Map() }) as { daily: Map<string, { at: number; rows: AdDay[] }>; inflight?: Map<string, Promise<AdDay[]>> };
+state.inflight ??= new Map();
+
+function minusDays(day: string, days: number) {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
 
 async function scopedAccounts(accountIds: string[]) {
   const { list, apiVersion } = await knownAccounts();
   return { apiVersion, accounts: list.filter((account) => accountIds.includes(account.accountId)) };
 }
 
-/** Les chiffres de chaque pub, jour par jour, du `start` au `end` (fuseau du compte). Gardés 2 minutes. */
+/**
+ * Les chiffres de chaque pub, jour par jour, du `start` au `end` (fuseau du compte).
+ * Une seule lecture Meta de 14 jours au moins sert tous les appels (Pilotage, rampe,
+ * pipeline) : gardée 5 minutes, et deux appels simultanés attendent la même lecture.
+ */
 export async function adDailyInsights(accountIds: string[], start: string, end: string): Promise<AdDay[]> {
+  const from = start < minusDays(end, 14) ? start : minusDays(end, 14);
+  const rows = await readDaily(accountIds, from, end);
+  return rows.filter((row) => row.date >= start && row.date <= end);
+}
+
+async function readDaily(accountIds: string[], start: string, end: string): Promise<AdDay[]> {
   const key = `${accountIds.join(",")}:${start}:${end}`;
   const hit = state.daily.get(key);
-  if (hit && Date.now() - hit.at < 2 * 60_000) return hit.rows;
+  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.rows;
+  const pending = state.inflight!.get(key);
+  if (pending) return pending;
+  const promise = fetchDaily(accountIds, start, end, key).finally(() => state.inflight!.delete(key));
+  state.inflight!.set(key, promise);
+  return promise;
+}
+
+async function fetchDaily(accountIds: string[], start: string, end: string, key: string): Promise<AdDay[]> {
   const { apiVersion, accounts } = await scopedAccounts(accountIds);
   const range = encodeURIComponent(JSON.stringify({ since: start, until: end }));
   const perAccount = await Promise.all(

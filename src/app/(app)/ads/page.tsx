@@ -49,6 +49,7 @@ import { ProductThresholdsContext, RoasBreakevenContext, roasToneFor, useRoasTon
 import { ObjectivesBar } from "@/components/ads/objectives-bar";
 import { ScalingRamp } from "@/components/ads/scaling-ramp";
 import { CreativePipeline } from "@/components/ads/creative-pipeline";
+import { MorningView } from "@/components/ads/morning-view";
 import type { ObjectivesBar as Objectives } from "@/lib/metrics/objectives";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
@@ -1002,6 +1003,26 @@ export default function AdsPage() {
   const [agencyBusy, setAgencyBusy] = useState(false);
   const [storedTokens, setStoredTokens] = useState<Array<{ id: string; label: string; hint: string }>>([]);
   const [objectives, setObjectives] = useState<Objectives | null>(null);
+  /** L'onglet du haut : « Matin » (ce qu'il faut faire aujourd'hui) ou l'Ads Manager complet. Le dernier choix est retenu. */
+  const [view, setView] = useState<"matin" | "tout">("matin");
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      try {
+        if (localStorage.getItem("msgate-ads-view") === "tout") setView("tout");
+      } catch {
+        // stockage refusé : sans gravité
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+  const chooseView = (next: "matin" | "tout") => {
+    setView(next);
+    try {
+      localStorage.setItem("msgate-ads-view", next);
+    } catch {
+      // stockage refusé : sans gravité
+    }
+  };
   const [objectivesLoading, setObjectivesLoading] = useState(false);
   const [shopify, setShopify] = useState<{
     netSales: number;
@@ -1518,7 +1539,35 @@ export default function AdsPage() {
   return (
     <RoasBreakevenContext.Provider value={objectives?.thresholds.meta ?? null}>
     <ProductThresholdsContext.Provider value={(objectives?.products ?? []).filter((product) => product.pattern).map((product) => ({ pattern: product.pattern, thresholds: product.meta }))}>
-    <div className="flex w-full flex-col gap-2.5 pb-8">
+    <div className="mb-2.5 inline-flex gap-0.5 rounded-xl bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
+      {(
+        [
+          ["matin", "Matin"],
+          ["tout", "Ads Manager"],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => chooseView(id)}
+          className={cn(
+            "rounded-lg px-4 py-1.5 text-[13px] font-semibold transition-all",
+            view === id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-50" : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+    {view === "matin" ? (
+      <MorningView
+        onApplied={(level, id, patch) => {
+          if (tree) setTree(patchTree(tree, level, id, patch));
+          rememberPending(level, id, patch);
+        }}
+      />
+    ) : null}
+    <div className={cn("flex w-full flex-col gap-2.5 pb-8", view === "matin" && "hidden")}>
       {/* Header: stack on mobile, row on desktop */}
       <div className="order-1 flex flex-col gap-2 lg:order-1 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="min-w-0">

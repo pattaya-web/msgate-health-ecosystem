@@ -76,7 +76,8 @@ export function ObjectivesBar({ data, loading, periodLabel }: { data: Objectives
     : [{ id: "bogo", label: "Produit 29,99 $", price: 29.99, source: "ventes 7 j" as const, breakeven: t.breakeven, hold: t.hold, scale: t.scale, cpaMax: data.cpaMax, cpaTarget: data.cpaTarget, meta: t.meta, pattern: "" }];
   return (
     <div className="space-y-1.5">
-      {products.map((product) => (
+      {/* Seulement le produit à 29,99 $ (demande de Mady, 04/11/2026) ; les seuils du 39,99 $ colorent encore ses campagnes. */}
+      {products.slice(0, 1).map((product) => (
         <div key={product.id} className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-[8.5rem_repeat(5,minmax(0,1fr))]">
           <div className="col-span-2 flex flex-col justify-center rounded-xl bg-slate-900 px-2.5 py-1.5 text-white sm:col-span-3 lg:col-span-1 dark:bg-slate-100 dark:text-slate-900">
             <p className="text-[12px] font-bold leading-tight">{product.label}</p>

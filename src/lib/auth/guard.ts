@@ -73,6 +73,8 @@ const ASSOCIATE_READ = new Set([
   "/api/metrics/scaling-ramp",
   // Le pipeline créa (lecture).
   "/api/creative-pipeline",
+  // L'onglet « Matin » de l'Ads Manager.
+  "/api/metrics/morning",
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",
