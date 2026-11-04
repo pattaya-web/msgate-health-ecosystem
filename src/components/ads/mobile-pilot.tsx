@@ -780,7 +780,7 @@ export function MobilePilot({
                 phaseTab === bucket ? "text-slate-900 dark:text-slate-50" : ""
               )}
             >
-              {bucket === "hyperscaling" ? "Hyper" : bucket === "scaling" ? "Scaling" : "Testing"}
+              {bucket === "hyperscaling" ? "Main/Hyper" : bucket === "scaling" ? "Scaling" : "Testing"}
             </span>
             <span
               className={cn(

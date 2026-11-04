@@ -7,7 +7,7 @@ export const PHASE_TABS = ["hyperscaling", "scaling", "testing"] as const;
 export type PhaseTab = (typeof PHASE_TABS)[number];
 
 export const BUCKET_LABELS: Record<CampaignBucket, string> = {
-  hyperscaling: "Hyper-scaling",
+  hyperscaling: "Main / Hyper-scaling",
   scaling: "Scaling Testing",
   testing: "Testing",
   other: "Non catégorisé",
@@ -21,12 +21,16 @@ export const BUCKET_LABELS: Record<CampaignBucket, string> = {
  * "SCALING-TESTING" also contains "TESTING".
  */
 export function classifyCampaign(name: string): CampaignBucket {
-  const normalised = name.toUpperCase().replace(/[^A-Z]/g, "").replace(/SCALLING/g, "SCALING");
+  const upper = name.toUpperCase();
+  const normalised = upper.replace(/[^A-Z]/g, "").replace(/SCALLING/g, "SCALING");
 
   // « ULTRA-SCALING » (comptes Badgal Collection) est le même palier que « HYPER-SCALING ».
   if (normalised.includes("HYPERSCALING") || normalised.includes("ULTRASCALING")) return "hyperscaling";
+  // Framework TEST → MAIN → BidCap / CostCap : « MAIN - NECKLACE », « BIDCAP - … » vont avec le hyper-scaling.
+  if (/^\W*(MAIN|BID\s*CAP|COST\s*CAP)\b/.test(upper)) return "hyperscaling";
   if (normalised.includes("SCALING")) return "scaling";
-  if (normalised.includes("TESTING")) return "testing";
+  // « TEST - NECKLACE S45 » (nouveau nommage) comme « [TESTING] … ».
+  if (normalised.includes("TESTING") || /^\W*TEST\b/.test(upper)) return "testing";
   return "other";
 }
 

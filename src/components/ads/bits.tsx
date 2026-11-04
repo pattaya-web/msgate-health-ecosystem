@@ -64,6 +64,8 @@ export function CreativeName({
       title={`${name} — clic pour copier`}
       onClick={(event) => {
         event.stopPropagation();
+        // Le 2e clic d'un double-clic ouvre le renommage sur place : on ne recopie pas.
+        if (event.detail > 1) return;
         void copyText(name, "Nom créa copié");
       }}
       className={cn(

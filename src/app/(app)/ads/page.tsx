@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { cn, formatCurrency, formatCreatedFr, formatNumber } from "@/lib/utils";
 import { adsetsToRefill, liveCreatives, missingCreatives, needsRefill } from "@/lib/meta/refill";
 import { RenameDialogHost, askName, openNamingPanel, type NamingAd } from "@/components/ads/rename-dialog";
+import { InlineRename } from "@/components/ads/inline-rename";
 import { namingContextFor, parseCreativeName } from "@/lib/creative-naming";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, PHASE_TABS, type CampaignBucket, type PhaseTab } from "@/lib/meta/buckets";
 import { isAccountKilled, isCampaignLive } from "@/lib/meta/account-flow";
@@ -85,7 +86,7 @@ const PHASE: Record<CampaignBucket, { rail: string; dot: string; chip: string }>
 };
 
 const PHASE_TAB_SHORT: Record<PhaseTab, string> = {
-  hyperscaling: "Hyper",
+  hyperscaling: "Main/Hyper",
   scaling: "Scaling",
   testing: "Testing",
 };
@@ -2589,10 +2590,13 @@ function AdRow({ ad, adsetName, ...shared }: RowShared & { ad: AdNode; adsetName
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          <CreativeName
-            name={ad.name}
-            className={cn("min-w-0 flex-1", paused && "text-slate-500 dark:text-slate-400")}
-          />
+          <InlineRename id={ad.id} name={ad.name} onSave={(next) => shared.onRenameAd(ad.id, next)}>
+            <CreativeName
+              name={ad.name}
+              max={48}
+              className={cn("min-w-0", paused && "text-slate-500 dark:text-slate-400")}
+            />
+          </InlineRename>
           {paused ? (
             <span className="shrink-0 rounded-md bg-slate-400/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white">
               Off
