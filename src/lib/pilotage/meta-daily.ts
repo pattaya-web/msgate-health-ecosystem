@@ -9,6 +9,7 @@ import { knownAccounts } from "@/lib/associate/meta-fast";
 const GRAPH = "https://graph.facebook.com";
 const PURCHASE_ACTIONS = ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"];
 const LPV_ACTIONS = ["omni_landing_page_view", "landing_page_view"];
+const CART_ACTIONS = ["omni_add_to_cart", "add_to_cart", "offsite_conversion.fb_pixel_add_to_cart"];
 
 type ActionRow = { action_type: string; value: string };
 
@@ -37,6 +38,8 @@ export type AdDay = {
   purchases: number;
   /** Vues de la page de destination : les « visites » venues de la pub. */
   lpv: number;
+  /** Ajouts au panier attribués à la pub. */
+  carts: number;
 };
 
 type Paged<T> = { data?: T[]; paging?: { next?: string }; error?: { message: string } };
@@ -101,6 +104,7 @@ export async function adDailyInsights(accountIds: string[], start: string, end: 
           clicks: Number(row.clicks) || 0,
           purchases: pick(row.actions, PURCHASE_ACTIONS),
           lpv: pick(row.actions, LPV_ACTIONS),
+          carts: pick(row.actions, CART_ACTIONS),
         })
       );
     })

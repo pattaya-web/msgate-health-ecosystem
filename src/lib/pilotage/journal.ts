@@ -34,7 +34,7 @@ export type JournalEntry = {
   after: string | number | null;
   currency: string | null;
   /** « rampe » : bouton « Appliquer » de la rampe de scaling (Ads Manager). */
-  source: "ads" | "pilotage" | "uploader" | "manuel" | "rampe";
+  source: "ads" | "pilotage" | "uploader" | "manuel" | "rampe" | "pipeline";
   note: string;
 };
 

@@ -34,7 +34,7 @@ async function journal(
       before: action === "budget" ? (before?.dailyBudget ?? null) : action === "status" ? (before?.status ?? null) : (before?.name ?? null),
       after,
       currency: action === "budget" ? (account?.currency ?? null) : null,
-      source: body.source === "pilotage" ? "pilotage" : body.source === "rampe" ? "rampe" : "ads",
+      source: body.source === "pilotage" ? "pilotage" : body.source === "rampe" ? "rampe" : body.source === "pipeline" ? "pipeline" : "ads",
       note: typeof body.reason === "string" ? body.reason.slice(0, 300) : "",
     });
   } catch {

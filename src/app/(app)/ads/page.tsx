@@ -48,6 +48,7 @@ import { MobilePilot } from "@/components/ads/mobile-pilot";
 import { ProductThresholdsContext, RoasBreakevenContext, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
 import { ObjectivesBar } from "@/components/ads/objectives-bar";
 import { ScalingRamp } from "@/components/ads/scaling-ramp";
+import { CreativePipeline } from "@/components/ads/creative-pipeline";
 import type { ObjectivesBar as Objectives } from "@/lib/metrics/objectives";
 import { BudgetCell, CreativeName, HoverPreview, StatusToggle, loadCreative, setBudgetFx } from "@/components/ads/bits";
 import { CreativePanel, assetHref, copyText } from "@/components/ads/creative-panel";
@@ -1601,6 +1602,9 @@ export default function AdsPage() {
               rememberPending(level, id, patch);
             }}
           />
+        </div>
+        <div className="mt-1.5">
+          <CreativePipeline />
         </div>
       </div>
 

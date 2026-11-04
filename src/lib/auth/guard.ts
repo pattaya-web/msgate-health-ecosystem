@@ -71,6 +71,8 @@ const ASSOCIATE_READ = new Set([
   "/api/metrics/objectives",
   // La rampe de scaling de l'Ads Manager (lecture ; « Appliquer » passe par /api/meta/entity).
   "/api/metrics/scaling-ramp",
+  // Le pipeline créa (lecture).
+  "/api/creative-pipeline",
 ]);
 const ASSOCIATE_WRITE = new Set([
   "/api/associate/partnership",
@@ -83,6 +85,8 @@ const ASSOCIATE_WRITE = new Set([
   "/api/meta/upload/media",
   "/api/meta/upload/copy",
   "/api/meta/ad-copy",
+  // Le pipeline créa : briefs, statuts, réglages, journal.
+  "/api/creative-pipeline",
 ]);
 
 /**
