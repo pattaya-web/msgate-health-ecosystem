@@ -33,6 +33,7 @@ const STATUS_COLOR: Record<CreativeStatus, string> = { BRIEF: "#64748b", "EN PRO
 const TODO_COLOR: Record<Todo, string> = {
   Couper: RED,
   Attendre: ORANGE,
+  Surveiller: ORANGE,
   Laisser: "#475569",
   "Laisser jusqu'à J7": "#475569",
   "Promouvoir en SCALING": GREEN,

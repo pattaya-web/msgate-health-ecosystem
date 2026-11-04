@@ -29,7 +29,7 @@ import { buildScalingRamp, type RampRow } from "@/lib/metrics/scaling-ramp";
 export type WindowDays = 3 | 7 | 14;
 export type MarginBadge = "BEST" | "BONNE" | "CUT" | "DATA";
 export type Margin = { spend: number; spendUsd: number; purchases: number; sales: number; revenue: number; value: number; margin: number; pct: number | null; badge: MarginBadge; roas: number | null; clicks: number; carts: number };
-export type Todo = "Couper" | "Attendre" | "Laisser" | "Laisser jusqu'à J7" | "Promouvoir en SCALING" | "Post ID dans le HYPER" | "Éligible COSTCAP" | "—";
+export type Todo = "Couper" | "Attendre" | "Surveiller" | "Laisser" | "Laisser jusqu'à J7" | "Promouvoir en SCALING" | "Post ID dans le HYPER" | "Éligible COSTCAP" | "—";
 /** Le produit lu sur l'URL de destination de la pub : « ? » quand elle ne le dit pas (calculé alors à 29,99 $). */
 export type Product = "29,99 $" | "39,99 $" | "?";
 
@@ -227,6 +227,9 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
   // La rampe de scaling passe d'abord : un ad set dont le budget vient de bouger n'est pas jugé sur ses pubs.
   const ramp = await buildScalingRamp({ aggressive: true }).catch(() => null);
   const rampById = new Map<string, RampRow>((ramp?.rows ?? []).map((row) => [row.id, row]));
+  // Les seuils de ROAS du 29,99 $ (minimum et « à tenir »), ceux de la barre Objectifs.
+  const ROAS_MIN = ramp?.cap.thresholds.breakeven ?? 1.61;
+  const ROAS_HOLD = ramp?.cap.thresholds.hold ?? 1.8;
   const tree = restrictTreeToAccounts(fullTree, accountIds);
   const ids = new Map<string, Identity>();
   for (const map of await Promise.all(tree.accounts.map((account) => identities(account.accountId)))) for (const [id, value] of map) ids.set(id, value);
@@ -356,7 +359,7 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
   };
   const priceOf = (product: Product) => (product === "39,99 $" ? 39.99 : 29.99);
   const shortDate = (value: number | string) => new Date(value).toLocaleString("fr-FR", { timeZone: "Europe/Paris", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  const TODO_RANK: Record<Todo, number> = { Couper: 1, "Promouvoir en SCALING": 2, "Post ID dans le HYPER": 3, "Éligible COSTCAP": 4, Attendre: 5, "Laisser jusqu'à J7": 6, Laisser: 7, "—": 8 };
+  const TODO_RANK: Record<Todo, number> = { Couper: 1, "Promouvoir en SCALING": 2, "Post ID dans le HYPER": 3, "Éligible COSTCAP": 4, Attendre: 5, Surveiller: 6, "Laisser jusqu'à J7": 7, Laisser: 8, "—": 9 };
 
   /** Le verdict d'un emplacement, sur ses propres chiffres (jours complets). */
   const verdict = (status: CreativeStatus, ads: RawPlacement[], price: number): { todo: Todo; why: string } => {
@@ -384,9 +387,18 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
       return { todo: "Couper", why: "7 jours en test sans être promue" };
     }
     if (status === "SCALING") {
+      // Deux conditions : la marge 7 j ET le ROAS Meta 3 j de la créa (minimum 1,61, « à tenir » 1,80).
       const m = marginOf(rows.filter((row) => row.date >= addDays(today, -7)), 7, price);
-      if (m.badge === "BEST" && m.sales >= 20) return { todo: "Post ID dans le HYPER", why: `Marge ${m.pct} % et ${Math.round(m.sales)} ventes sur 7 j` };
-      if (m.badge === "CUT") return { todo: "Couper", why: `Marge ${m.pct} % sur 7 j (< 7,5 %)` };
+      const roas3 = marginOf(rows.filter((row) => row.date >= addDays(today, -3)), 3, price).roas;
+      const r3 = roas3 == null ? "—" : roas3.toFixed(2);
+      if (m.badge === "BEST" && m.sales >= 20) {
+        if ((roas3 ?? 0) >= ROAS_HOLD) return { todo: "Post ID dans le HYPER", why: `Marge ${m.pct} % et ${Math.round(m.sales)} ventes sur 7 j, ROAS 3 j ${r3}` };
+        return { todo: "Surveiller", why: `Marge ${m.pct} % sur 7 j, mais ROAS 3 j ${r3} (< ${ROAS_HOLD.toFixed(2)}) : pas encore pour le HYPER` };
+      }
+      if (m.badge === "CUT") {
+        if (roas3 != null && roas3 < ROAS_MIN) return { todo: "Couper", why: `Marge ${m.pct} % sur 7 j (< 7,5 %) et ROAS 3 j ${r3} (< ${ROAS_MIN.toFixed(2)})` };
+        return { todo: "Surveiller", why: `Marge ${m.pct} % sur 7 j (< 7,5 %), mais ROAS 3 j ${r3} (≥ ${ROAS_MIN.toFixed(2)})` };
+      }
       return { todo: "Laisser", why: m.badge === "DATA" ? "Moins de 5 ventes sur 7 j : pas encore de verdict" : `Marge ${m.pct} % sur 7 j` };
     }
     if (status === "HYPER") {
