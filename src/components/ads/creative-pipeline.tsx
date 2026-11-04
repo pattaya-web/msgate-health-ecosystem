@@ -508,7 +508,7 @@ function CreativeLine({
               </p>
               <p className="truncate text-[10.5px] text-slate-400">
                 {single ? single.adsetName : `${places.length} emplacements`} ·{" "}
-                <span style={PRODUCT_STYLE(row.product)} title={row.product === "?" ? "Produit inconnu (URL de la pub) : calculé à 29,99 $" : undefined}>
+                <span style={PRODUCT_STYLE(row.product)} title={[row.product === "?" ? "Produit inconnu (URL de la pub) : calculé à 29,99 $" : "", ...row.placements.flatMap((place) => place.links)].filter(Boolean).join(" · ")}>
                   {row.product}
                 </span>
               </p>
@@ -547,7 +547,9 @@ function CreativeLine({
                   </p>
                   <p className="text-[10px] text-slate-400">
                     depuis le {new Date(place.createdAt).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "short" })} ·{" "}
-                    <span style={PRODUCT_STYLE(place.product)}>{place.product}</span>
+                    <span style={PRODUCT_STYLE(place.product)} title={place.links.join(" · ") || "Pas d'URL de destination lue"}>
+                      {place.product}
+                    </span>
                   </p>
                 </td>
                 <td className="px-2 py-1">

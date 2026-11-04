@@ -48,6 +48,8 @@ export type Placement = {
   liveAdIds: string[];
   createdAt: string;
   product: Product;
+  /** L'URL de destination des pubs de cet emplacement (d'où vient le produit). */
+  links: string[];
   margins: Record<WindowDays, Margin>;
   todo: Todo;
   why: string;
@@ -458,6 +460,7 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
         liveAdIds: liveAds.map((row) => row.ad.id),
         createdAt: ads.map((row) => iso(row.ad.createdTime)).sort()[0],
         product,
+        links: [...new Set(ads.map((row) => row.link).filter(Boolean))],
         margins,
         todo,
         why,
