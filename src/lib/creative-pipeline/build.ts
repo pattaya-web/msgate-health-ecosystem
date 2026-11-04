@@ -158,7 +158,7 @@ const identityCache = ((globalThis as typeof globalThis & { __msgatePipelineIds?
 
 async function identities(accountId: string): Promise<Map<string, Identity>> {
   const hit = identityCache.get(accountId);
-  if (hit && Date.now() - hit.at < 15 * 60_000) return hit.map;
+  if (hit && Date.now() - hit.at < 60 * 60_000) return hit.map;
   const map = new Map<string, Identity>(hit?.map ?? []);
   try {
     const act = `act_${accountId}`;
@@ -202,7 +202,7 @@ export function invalidatePipeline() {
 
 export async function buildPipeline(window: WindowDays, force = false): Promise<PipelineReport> {
   const hit = reportCache.get(window);
-  if (!force && hit && Date.now() - hit.at < 3 * 60_000) return hit.report;
+  if (!force && hit && Date.now() - hit.at < 5 * 60_000) return hit.report;
 
   const warnings: string[] = [];
   const scope = await getAssociateScope();

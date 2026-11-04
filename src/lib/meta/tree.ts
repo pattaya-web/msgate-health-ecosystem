@@ -192,6 +192,8 @@ type RawAd = {
   adset_id: string;
   campaign_id: string;
   creative?: { id?: string; thumbnail_url?: string };
+  /** L'ad set de la pub, relu avec elle : sert de secours quand Meta refuse la liste des ad sets. */
+  adset?: RawAdset;
 };
 
 type RawAccount = {
@@ -323,11 +325,11 @@ function todayParis() {
 }
 // Une période qui contient aujourd'hui bouge en continu : 2 minutes, pour coller au gestionnaire de pubs.
 const ttlFor = (preset: DatePreset, range?: { start: string; end: string }) =>
-  preset === "today" || (range && range.end >= todayParis()) ? 60_000 : 20 * 60_000;
+  preset === "today" || (range && range.end >= todayParis()) ? 2 * 60_000 : 20 * 60_000;
 const LIFETIME_TTL_MS = 30 * 60_000;
 /** Les statuts (ON/OFF) vivent dans la structure : relus toutes les 2 min pour voir vite les changements de l'autre. */
-const STRUCTURE_TTL_MS = 2 * 60_000;
-const STRUCTURE_TTL_TODAY_MS = 60_000;
+const STRUCTURE_TTL_MS = 5 * 60_000;
+const STRUCTURE_TTL_TODAY_MS = 5 * 60_000;
 const OWNED_TTL_MS = 12 * 60_000;
 
 export function getTokenForObject(objectId: string) {
@@ -469,7 +471,7 @@ export async function buildAdsTree(params: {
             },
             {
               key: `ads:${id}`,
-              relativeUrl: `${act}/ads?fields=id,name,status,effective_status,created_time,adset_id,campaign_id,creative{id,thumbnail_url}&limit=500&filtering=${liveFilter}`,
+              relativeUrl: `${act}/ads?fields=id,name,status,effective_status,created_time,adset_id,campaign_id,creative{id,thumbnail_url},adset{id,name,status,effective_status,created_time,campaign_id,daily_budget,lifetime_budget}&limit=500&filtering=${liveFilter}`,
             }
           );
         }
@@ -513,28 +515,20 @@ export async function buildAdsTree(params: {
         })
       );
 
-      // Ad sets refusés au niveau du compte (Meta répond parfois « User request limit reached » sur
-      // cette seule requête) : on les redemande campagne par campagne, des requêtes plus légères.
-      await Promise.all(
-        accounts.map(async (account) => {
-          const id = account.account_id;
-          const campaigns = campaignsByAccount.get(id);
-          if (adsetsByAccount.has(id) || !campaigns || !requests.some((request) => request.key === `adsets:${id}`)) return;
-          const perCampaign = await Promise.all(
-            campaigns.map(async (campaign) => {
-              const body = await graphGet<Paged<RawAdset>>(
-                `${campaign.id}/adsets?fields=id,name,status,effective_status,created_time,campaign_id,daily_budget,lifetime_budget&limit=100&filtering=${liveFilter}`,
-                token
-              ).catch(() => null);
-              return body && !body.error ? followPages(body) : null;
-            })
-          );
-          if (!perCampaign.every(Boolean)) return;
-          adsetsByAccount.set(id, perCampaign.flatMap((rows) => rows ?? []));
-          const failed = errors.findIndex((error) => error.startsWith(`${id} (adsets)`));
-          if (failed >= 0) errors.splice(failed, 1);
-        })
-      );
+      // Ad sets refusés au niveau du compte (Meta répond « User request limit reached » sur cette
+      // seule requête) : on les reconstruit depuis les pubs, qui ramènent leur ad set. Aucun appel en plus.
+      for (const account of accounts) {
+        const id = account.account_id;
+        const ads = adsByAccount.get(id);
+        if (adsetsByAccount.has(id) || !ads || !requests.some((request) => request.key === `adsets:${id}`)) continue;
+        const rebuilt = new Map<string, RawAdset>();
+        for (const ad of ads) if (ad.adset?.id && !rebuilt.has(ad.adset.id)) rebuilt.set(ad.adset.id, { ...ad.adset, campaign_id: ad.adset.campaign_id || ad.campaign_id });
+        // Les ad sets sans pub manquent à la reconstruction : on ajoute ceux de la dernière lecture complète.
+        for (const known of state.structure.get(id)?.adsets ?? []) if (!rebuilt.has(known.id)) rebuilt.set(known.id, known);
+        adsetsByAccount.set(id, [...rebuilt.values()]);
+        const failed = errors.findIndex((error) => error.startsWith(`${id} (adsets)`));
+        if (failed >= 0) errors.splice(failed, 1);
+      }
 
       // Persist freshly fetched structure for the next date switch.
       for (const account of accounts) {

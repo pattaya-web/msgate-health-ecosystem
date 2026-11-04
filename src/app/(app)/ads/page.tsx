@@ -949,7 +949,6 @@ export default function AdsPage() {
     window.addEventListener("msgate:refresh", onRefresh);
     return () => window.removeEventListener("msgate:refresh", onRefresh);
   }, []);
-  const presetsWarmed = useRef(false);
 
   const [tree, setTree] = useState<AdsTree | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1077,16 +1076,6 @@ export default function AdsPage() {
         writeLastTree(lastKey, body as AdsTree, (body as { fx?: Record<string, number> }).fx ?? {});
         setError(null);
 
-        // One-shot warm of sibling presets (structure already cached server-side).
-        if (!presetsWarmed.current) {
-          presetsWarmed.current = true;
-          const warm = (["today", "yesterday", "last_3d", "last_7d"] as PresetKey[]).filter(
-            (key) => key !== preset
-          );
-          void Promise.allSettled(
-            warm.map((key) => fetch(`/api/meta/tree?preset=${key}`).then((r) => r.json()))
-          );
-        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Synchronisation impossible");
       } finally {
@@ -1645,16 +1634,16 @@ export default function AdsPage() {
           periodLabel={preset === "today" ? "aujourd'hui" : preset === "yesterday" ? "hier" : preset === "last_3d" ? "3 j" : preset === "last_7d" ? "7 j" : preset === "last_30d" ? "30 j" : "période"}
         />
         <div className="mt-1.5">
+          {view === "tout" ? (
           <ScalingRamp
             onApplied={(level, id, patch) => {
               if (tree) setTree(patchTree(tree, level, id, patch));
               rememberPending(level, id, patch);
             }}
           />
+          ) : null}
         </div>
-        <div className="mt-1.5">
-          <CreativePipeline />
-        </div>
+        <div className="mt-1.5">{view === "tout" ? <CreativePipeline /> : null}</div>
       </div>
 
       <div
