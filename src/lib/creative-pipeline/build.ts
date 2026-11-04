@@ -5,7 +5,8 @@ import { resolveToken } from "@/lib/meta/token";
 import { buildAdsTree, restrictTreeToAccounts } from "@/lib/meta/tree";
 import type { AdNode, AdsetNode, CampaignNode } from "@/lib/meta/types";
 import { buildObjectivesBar } from "@/lib/metrics/objectives";
-import { getSupplierGrids, gridPicker, parcelCost } from "@/lib/metrics/supplier-grid";
+import { getSupplierGrids } from "@/lib/metrics/supplier-grid";
+import { DEFAULT_FACTOR, marginCosts, netMargin } from "@/lib/creative-pipeline/margin-model";
 import { buildPilotage } from "@/lib/pilotage/build";
 import { adDailyInsights, type AdDay } from "@/lib/pilotage/meta-daily";
 import { reportToday } from "@/lib/report-tz";
@@ -110,9 +111,6 @@ export type PipelineReport = {
 };
 
 const HOUR = 3_600_000;
-const DEFAULT_UPSELL = 0.1;
-const DEFAULT_FACTOR = 1.1;
-const UPSELL_PRICE = 9.99;
 const RANK: Record<CreativeStatus, number> = { OFF: 0, BRIEF: 0, "EN PROD": 0, "PRÊTE": 0, TEST: 1, SCALING: 2, HYPER: 3, COSTCAP: 4 };
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
@@ -252,13 +250,8 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
         ? { ...range, factor: round2(orders / metaPurchases), factorSource: "calculé", orders, metaPurchases }
         : { ...range, factor: DEFAULT_FACTOR, factorSource: "par défaut", orders, metaPurchases };
   }
-  const upsellRate = store.settings.upsellRate ?? DEFAULT_UPSELL;
-  const piecesRaw = pilotage?.objectives.collarsPerOrder ?? 0;
-  const pieces = piecesRaw >= 1 ? piecesRaw : 2;
-  const grid = gridPicker(grids, () => null)({ number: Number.MAX_SAFE_INTEGER, day: today });
-  const low = Math.max(1, Math.floor(pieces));
-  const cogsPerOrder = round2(parcelCost(grid, low) + (pieces - low) * (parcelCost(grid, low + 1) - parcelCost(grid, low)));
-  const feeRate = (pilotage?.objectives.processingRate ?? 4) / 100;
+  const costs = marginCosts({ grids, today, collarsPerOrder: pilotage?.objectives.collarsPerOrder, processingRate: pilotage?.objectives.processingRate, upsellRate: store.settings.upsellRate });
+  const { upsellRate, cogsPerOrder, feeRate, pieces, piecesDefault } = costs;
 
   /** La marge nette d'un ensemble de lignes Meta sur une fenêtre. */
   const marginOf = (rows: AdDay[], days: WindowDays, price: number): Margin => {
@@ -276,12 +269,9 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
       clicks += row.clicks;
       carts += row.carts ?? 0;
     }
-    const sales = purchases * windows[days].factor;
-    const revenue = sales * price + UPSELL_PRICE * sales * upsellRate;
-    const margin = revenue - sales * cogsPerOrder - revenue * feeRate - spendUsd;
-    const pct = revenue > 0 ? margin / revenue : null;
-    const badge: MarginBadge = sales < 5 ? "DATA" : (pct ?? -1) >= 0.15 ? "BEST" : (pct ?? -1) >= 0.075 ? "BONNE" : "CUT";
-    return { spend: round2(spend), spendUsd: round2(spendUsd), purchases, sales: round2(sales), revenue: round2(revenue), value: round2(value), margin: round2(margin), pct: pct == null ? null : round2(pct * 100), badge, roas: spendUsd > 0 ? round2(value / spendUsd) : null, clicks, carts };
+    const { sales, revenue, margin, pct } = netMargin({ purchases, spendUsd, factor: windows[days].factor, price }, costs);
+    const badge: MarginBadge = sales < 5 ? "DATA" : (pct ?? -1) >= 15 ? "BEST" : (pct ?? -1) >= 7.5 ? "BONNE" : "CUT";
+    return { spend: round2(spend), spendUsd: round2(spendUsd), purchases, sales: round2(sales), revenue: round2(revenue), value: round2(value), margin: round2(margin), pct, badge, roas: spendUsd > 0 ? round2(value / spendUsd) : null, clicks, carts };
   };
   /** Le total de plusieurs emplacements (prix différents possibles). */
   const sumMargins = (list: Margin[]): Margin => {
@@ -433,15 +423,17 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
       let { todo, why } = verdict(status, ads, price);
       let blocked: string | null = null;
 
-      // 1. La rampe passe d'abord : pas de coupe sur un ad set dont le budget vient de bouger.
+      // 1. La rampe passe d'abord : pas de coupe dans les 48 h qui suivent une HAUSSE de budget.
+      //    Après une baisse ou un retour au palier précédent, la coupe s'applique tout de suite.
       const rampRow = rampById.get(adset.id) ?? rampById.get(campaign.id);
       const change = rampRow?.lastChange;
-      if (todo === "Couper" && rampRow && (rampRow.status === "REDESCENDRE" || (change && nowMs - Date.parse(change.at) < 72 * HOUR))) {
+      const recentRise = change && change.before != null && change.after != null && change.after > change.before && nowMs - Date.parse(change.at) < 48 * HOUR;
+      if (todo === "Couper" && rampRow && (rampRow.status === "REDESCENDRE" || recentRise)) {
         todo = "Attendre";
         why =
           rampRow.status === "REDESCENDRE"
-            ? `La rampe dit de revenir à ${rampRow.nextBudget} € : fais-le d'abord, puis attendre J+3 avant de juger cette pub`
-            : `Budget changé le ${shortDate(change!.at)} (${change!.before ?? "?"} → ${change!.after ?? "?"} €) : attendre J+3, re-jugée le ${shortDate(Date.parse(change!.at) + 72 * HOUR)}`;
+            ? `La rampe dit de revenir à ${rampRow.nextBudget} € : fais-le d'abord, la coupe se juge ensuite tout de suite`
+            : `Budget monté le ${shortDate(change!.at)} (${change!.before} → ${change!.after} €) : attendre 48 h, re-jugée le ${shortDate(Date.parse(change!.at) + 48 * HOUR)}`;
       }
 
       // 4. Promouvoir / HYPER : seulement si c'est possible.
@@ -604,7 +596,7 @@ export async function buildPipeline(window: WindowDays, force = false): Promise<
   const report: PipelineReport = {
     window,
     windows,
-    assumptions: { upsellRate, upsellDefault: store.settings.upsellRate == null, pieces: round2(pieces), piecesDefault: piecesRaw < 1, cogsPerOrder, feeRate },
+    assumptions: { upsellRate, upsellDefault: store.settings.upsellRate == null, pieces: round2(pieces), piecesDefault, cogsPerOrder, feeRate },
     creatives,
     archived,
     groups: groupsOut,

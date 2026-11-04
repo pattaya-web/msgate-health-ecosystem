@@ -1,4 +1,8 @@
-import { getAssociateScope } from "@/lib/associate/scope";
+import { buildAssociateOverview, getAssociateScope } from "@/lib/associate/scope";
+import { DEFAULT_FACTOR, marginCosts, netMargin } from "@/lib/creative-pipeline/margin-model";
+import { readStore } from "@/lib/creative-pipeline/store";
+import { getSupplierGrids } from "@/lib/metrics/supplier-grid";
+import { buildPilotage } from "@/lib/pilotage/build";
 import { fxRates } from "@/lib/fx";
 import { buildAdsTree, restrictTreeToAccounts } from "@/lib/meta/tree";
 import type { AdsetNode, CampaignNode } from "@/lib/meta/types";
@@ -13,11 +17,14 @@ import { reportToday } from "@/lib/report-tz";
  * autorisé et le statut du jour, sur la vue 3 jours (J-3 à J-1, jamais la
  * journée en cours) :
  *  - MONTER (+30 %, arrondi à 5 €) : ROAS Meta 3 j ≥ seuil de montée, ≥ 10
- *    achats, ≥ 48 h depuis le dernier changement de budget, créé depuis ≥ 72 h,
+ *    achats, ≥ 48 h depuis la dernière HAUSSE de budget, créé depuis ≥ 72 h,
  *    et le cap global le permet ;
+ *  - COUPER : marge nette 7 j < 7,5 % ET ROAS Meta 3 j < break-even. Bloqué
+ *    seulement dans les 48 h qui suivent une hausse ; après une baisse ou un
+ *    retour au palier précédent, il s'applique tout de suite, sur les jours
+ *    complets déjà connus (ceux d'avant le changement) ;
  *  - REDESCENDRE au budget d'avant (la valeur exacte) : ROAS 3 j sous le
  *    minimum alors qu'un palier a été monté dans les 72 h ;
- *  - COUPER : ROAS 3 j < 1,2 avec ≥ 150 $ dépensés, ou 0 achat avec ≥ 100 $ ;
  *  - TEST (ne pas toucher) : ad set de moins de 72 h, CBO sous 400 € dépensés ;
  *  - TENIR sinon.
  * Le cap global vient du ROAS réel 3 jours (ventes ÷ toute la dépense Meta) :
@@ -55,6 +62,8 @@ export type RampRow = {
   allowedAt: string | null;
   /** Le cap global a bloqué une montée : de combien elle aurait été. */
   blockedByCap: number | null;
+  /** Marge nette sur 7 jours complets (en % du CA), null sans vente. */
+  margin7: number | null;
   /** Ad set de test : les créas à couper (0 achat avec ≥ 60 $). */
   cutAds: Array<{ name: string; spend: number }>;
   thresholds: { minimum: number | null; rise: number | null };
@@ -158,7 +167,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
   const d3 = addDays(today, -3);
   const from7 = addDays(today, -7);
 
-  const [objectives, fullTree, daily, entries] = await Promise.all([
+  const [objectives, fullTree, daily, entries, overview, pilotage, grids, store] = await Promise.all([
     buildObjectivesBar(d3, d1),
     buildAdsTree({ preset: "today" }),
     // La même fenêtre que la page Pilotage : la lecture Meta est partagée (2 min de cache).
@@ -167,6 +176,10 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
       return [];
     }),
     readJournal(),
+    buildAssociateOverview(from7, d1).catch(() => null),
+    buildPilotage().catch(() => null),
+    getSupplierGrids(),
+    readStore(),
   ]);
   const tree = restrictTreeToAccounts(fullTree, accountIds);
   if (tree.errors.some((error) => /adsets|campaigns/.test(error))) warnings.push("Meta n'a pas tout renvoyé : certains ad sets peuvent manquer.");
@@ -188,11 +201,26 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
   };
   const byAdset = new Map<string, Agg>();
   const byCampaign = new Map<string, Agg>();
+  // Les 7 jours complets (J-7 à J-1), dépense en $ : pour la marge nette.
+  const week = new Map<string, { spendUsd: number; purchases: number }>();
+  const addWeek = (key: string, spendUsd: number, purchases: number) => {
+    const agg = week.get(key) ?? { spendUsd: 0, purchases: 0 };
+    agg.spendUsd += spendUsd;
+    agg.purchases += purchases;
+    week.set(key, agg);
+  };
+  let weekPurchases = 0;
   const adsRecent = new Map<string, Agg & { currency: string }>();
   for (const row of daily) {
     if (row.date >= d3 && row.date <= d1) {
       add(byAdset, row.adsetId, row);
       add(byCampaign, row.campaignId, row);
+    }
+    if (row.date >= from7 && row.date <= d1) {
+      const spendUsd = toUsd(row.spend, row.currency);
+      addWeek(row.adsetId, spendUsd, row.purchases);
+      addWeek(row.campaignId, spendUsd, row.purchases);
+      weekPurchases += row.purchases;
     }
     if (row.date >= d3) {
       const agg = adsRecent.get(row.adId) ?? { spend: 0, value: 0, purchases: 0, currency: row.currency };
@@ -202,6 +230,11 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
       adsRecent.set(row.adId, agg);
     }
   }
+
+  // Le même modèle de marge que le pipeline créa (facteur réel 7 j, colis, frais, upsell).
+  const orders7 = (overview?.sales.series ?? []).filter((row) => row.date >= from7 && row.date <= d1).reduce((sum, row) => sum + row.orders, 0);
+  const factor7 = store.settings.factor ?? (orders7 > 0 && weekPurchases > 0 ? orders7 / weekPurchases : DEFAULT_FACTOR);
+  const costs = marginCosts({ grids, today, collarsPerOrder: pilotage?.objectives.collarsPerOrder, processingRate: pilotage?.objectives.processingRate, upsellRate: store.settings.upsellRate });
 
   const history = budgetHistory(entries);
   const products = objectives.products;
@@ -247,7 +280,6 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
   const rows: RampRow[] = sources.map(({ level, node, campaign, accountName, currency }) => {
     const agg = (level === "campaign" ? byCampaign.get(node.id) : byAdset.get(node.id)) ?? { spend: 0, value: 0, purchases: 0 };
     const roas3 = agg.spend > 0 ? round2(agg.value / agg.spend) : null;
-    const spendUsd = toUsd(agg.spend, currency);
     const product = productOf(campaign.name, products);
     const minimum = product?.meta.breakeven ?? product?.breakeven ?? null;
     const rise = (options.aggressive ? (product?.meta.hold ?? product?.hold) : (product?.meta.scale ?? product?.scale)) ?? null;
@@ -256,13 +288,22 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     const createdAt = iso(node.createdTime);
     const hoursSinceCreate = (now - Date.parse(createdAt)) / HOUR;
     const hoursSinceChange = lastChange ? (now - Date.parse(lastChange.at)) / HOUR : Infinity;
+    // L'attente de 48 h ne vaut qu'après une HAUSSE ; une baisse ou un retour au palier d'avant n'attend pas.
+    const lastWasRise = Boolean(lastChange && lastChange.before != null && lastChange.after != null && lastChange.after > lastChange.before);
+    const lastWasCut = Boolean(lastChange && lastChange.before != null && lastChange.after != null && lastChange.after < lastChange.before);
+    const riseWait = lastWasRise && hoursSinceChange < 48;
+    const weekAgg = week.get(node.id) ?? { spendUsd: 0, purchases: 0 };
+    const margin7 = weekAgg.spendUsd > 0 ? netMargin({ purchases: weekAgg.purchases, spendUsd: weekAgg.spendUsd, factor: factor7, price: product?.price ?? 29.99 }, costs).pct : null;
+    // Sans vente sur 7 jours mais avec de la dépense : marge négative, sous les 7,5 %.
+    const marginLow = weekAgg.spendUsd > 0 && (margin7 == null || margin7 < 7.5);
+    const cutRule = minimum != null && roas3 != null && roas3 < minimum && marginLow;
     const adsets = level === "campaign" ? (node as CampaignNode).adsets : [node as AdsetNode];
     const ads = adsets.flatMap((adset) => adset.ads).filter(live);
     const lifetimeSpend = adsets.flatMap((adset) => adset.ads).reduce((sum, ad) => sum + ad.lifetimeSpend, 0);
     const budget = node.dailyBudget;
     const reasons: string[] = [];
     const nextStep = stepUp(budget);
-    const allowedTimes = [Date.parse(createdAt) + 72 * HOUR, lastChange ? Date.parse(lastChange.at) + 48 * HOUR : 0];
+    const allowedTimes = [Date.parse(createdAt) + 72 * HOUR, lastChange && lastWasRise ? Date.parse(lastChange.at) + 48 * HOUR : 0];
     let allowedAt: string | null = new Date(Math.max(now, ...allowedTimes)).toISOString();
     let status: RampStatus = "TENIR";
     let nextBudget = budget;
@@ -282,14 +323,11 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
         .filter(({ agg }) => agg && agg.purchases === 0 && toUsd(agg.spend, agg.currency) >= 60)
         .map(({ ad, agg }) => ({ name: ad.name, spend: round2(agg?.spend ?? 0) }));
       if (cutAds.length) reasons.push(`Mais coupe ces créas (0 vente pour 60 $ et plus) : ${cutAds.map((ad) => ad.name).join(", ")}`);
-    } else if ((roas3 ?? 0) < 1.2 && spendUsd >= 150) {
+    } else if (cutRule && !riseWait) {
       status = "COUPER";
       nextBudget = 0;
-      reasons.push(`ROAS ${fr(roas3 ?? 0)} sur 3 jours pour ${Math.round(spendUsd)} $ dépensés : il perd de l'argent`);
-    } else if (agg.purchases === 0 && spendUsd >= 100) {
-      status = "COUPER";
-      nextBudget = 0;
-      reasons.push(`Aucune vente en 3 jours pour ${Math.round(spendUsd)} $ dépensés`);
+      reasons.push(`Marge 7 j ${margin7 == null ? "négative (aucune vente)" : `${fr(margin7)} %`} (< 7,5 %) et ROAS 3 j ${fr(roas3)} (< ${fr(minimum)}) : il perd de l'argent`);
+      if (lastWasCut && lastChange) reasons.push(`Budget baissé le ${shortDate(lastChange.at)} (${lastChange.before} → ${lastChange.after} €) : la coupe s'applique tout de suite, sur les chiffres d'avant`);
     } else if (minimum != null && roas3 != null && roas3 < minimum && lastChange && hoursSinceChange < 72 && lastChange.before != null && lastChange.after != null && lastChange.after > lastChange.before) {
       status = "REDESCENDRE";
       nextBudget = lastChange.before;
@@ -297,8 +335,9 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
     } else {
       const okRoas = rise != null && roas3 != null && roas3 >= rise;
       const okPurchases = agg.purchases >= 10;
-      const okDelay = hoursSinceChange >= 48;
-      if (!okDelay && lastChange) reasons.push(`Budget changé il y a ${Math.round(hoursSinceChange)} h : on attend 48 h, jusqu'au ${shortDate(Date.parse(lastChange.at) + 48 * HOUR)}`);
+      const okDelay = !riseWait;
+      if (riseWait && lastChange) reasons.push(`Budget monté il y a ${Math.round(hoursSinceChange)} h : on attend 48 h avant de juger, jusqu'au ${shortDate(Date.parse(lastChange.at) + 48 * HOUR)}`);
+      if (cutRule && riseWait) reasons.push(`Remplit la règle de coupe (marge 7 j < 7,5 %, ROAS 3 j < ${fr(minimum)}) : à couper après les 48 h si ça ne remonte pas`);
       if (!okRoas) reasons.push(roas3 == null ? "Pas encore de dépense sur 3 jours" : minimum != null && roas3 < minimum ? `ROAS ${fr(roas3)} sous le minimum ${fr(minimum)} : à surveiller` : `ROAS ${fr(roas3)} correct, mais il faut ${fr(rise)} pour monter`);
       if (!okPurchases) reasons.push(`Pas assez de ventes : ${agg.purchases} sur 3 jours, il en faut 10`);
       if (okRoas && okPurchases && okDelay) {
@@ -342,6 +381,7 @@ export async function buildScalingRamp(options: { aggressive: boolean }): Promis
       nextStep,
       allowedAt,
       blockedByCap: null,
+      margin7,
       cutAds,
       thresholds: { minimum, rise },
     };
