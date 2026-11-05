@@ -307,6 +307,11 @@ function loadSavedStructure() {
     // pas encore de fichier
   }
 }
+/** La dernière structure connue d'un compte (campagnes, ad sets, pubs non archivés), même ancienne : secours quand Meta limite les requêtes. */
+export function knownAccountStructure(accountId: string) {
+  loadSavedStructure();
+  return state.structure.get(accountId.replace(/^act_/, "")) ?? null;
+}
 let structureWrite: ReturnType<typeof setTimeout> | null = null;
 function saveStructureSoon() {
   if (structureWrite) return;

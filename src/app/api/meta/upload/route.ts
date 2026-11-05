@@ -49,7 +49,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ accounts, fx });
     }
     if (scoped) assertAccountInScope(accountId, scoped);
-    const tree = await listAccountStructure(accountId);
+    const tree = await listAccountStructure(accountId, params.get("refresh") === "1");
     return NextResponse.json(tree);
   } catch (error) {
     if (error instanceof OutOfScopeError) return NextResponse.json({ error: error.message }, { status: 403 });

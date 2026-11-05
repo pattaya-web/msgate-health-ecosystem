@@ -319,6 +319,8 @@ export function MetaUploader() {
       setCampaigns(body.campaigns || []);
       setAdsets(body.adsets || []);
       setAds(body.ads || []);
+      // Meta freine (limite de requêtes) : la dernière liste connue, avec la raison.
+      if (body.stale) toast.warning(body.stale, { duration: 8000 });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Tree Meta indisponible");
     } finally {

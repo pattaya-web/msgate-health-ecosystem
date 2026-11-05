@@ -1,7 +1,7 @@
 import { discoverAdAccounts, getMetaConfigWithExtras } from "@/lib/meta/client";
 import { centsToUnits, graphGet, graphPost, graphPostForm, unitsToCents, type GraphError } from "@/lib/meta/graph";
 import { resolveToken } from "@/lib/meta/token";
-import { invalidateTreeCache } from "@/lib/meta/tree";
+import { invalidateTreeCache, knownAccountStructure } from "@/lib/meta/tree";
 import {
   formatAdName,
   type PickerAd,
@@ -50,46 +50,84 @@ export async function listUploadAccounts(): Promise<UploadAccount[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function listAccountStructure(accountId: string) {
+/** Ce que l'uploader affiche d'un compte, gardé 3 min : changer de compte et revenir ne relit pas tout chez Meta. */
+type AccountStructure = { campaigns: PickerCampaign[]; adsets: PickerAdset[]; ads: PickerAd[]; stale?: string };
+const structureCache = ((globalThis as typeof globalThis & { __msgateUploaderStructure?: Map<string, { at: number; value: AccountStructure }> }).__msgateUploaderStructure ??= new Map());
+const STRUCTURE_TTL_MS = 3 * 60_000;
+// Les objets archivés ou supprimés ne servent pas de modèle et multipliaient les pages lues (et la limite de requêtes Meta).
+const LIVE_FILTER = encodeURIComponent(
+  JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED", "PENDING_BILLING_INFO", "IN_PROCESS", "WITH_ISSUES"] }])
+);
+
+/** « User request limit reached » (code 17), « too many calls » (4, 613, 80004…) : Meta freine, ça repart tout seul. */
+export function isMetaRateLimit(message: string) {
+  return /request limit|too many calls|rate limit|limit reached|#(4|17|32|613|80004)\b/i.test(message);
+}
+
+export async function listAccountStructure(accountId: string, force = false): Promise<AccountStructure> {
   const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
-  const token = await resolveToken(act);
-  const [campaigns, adsets, ads] = await Promise.all([
-    allPages<{ id: string; name: string; status: string; objective?: string; daily_budget?: string }>(
-      `${act}/campaigns?fields=id,name,status,objective,daily_budget&limit=200`,
-      token
-    ),
-    allPages<{ id: string; name: string; status: string; campaign_id: string; daily_budget?: string }>(
-      `${act}/adsets?fields=id,name,status,campaign_id,daily_budget&limit=300`,
-      token
-    ),
-    allPages<{ id: string; name: string; status: string; adset_id: string; campaign_id: string }>(
-      `${act}/ads?fields=id,name,status,adset_id,campaign_id&limit=500`,
-      token
-    ),
-  ]);
-  return {
-    campaigns: campaigns.map((row) => ({
-      id: row.id,
-      name: row.name,
-      status: row.status,
-      objective: row.objective || "",
-      dailyBudget: centsToUnits(row.daily_budget),
-    })) as PickerCampaign[],
-    adsets: adsets.map((row) => ({
-      id: row.id,
-      name: row.name,
-      status: row.status,
-      campaignId: row.campaign_id,
-      dailyBudget: centsToUnits(row.daily_budget),
-    })) as PickerAdset[],
-    ads: ads.map((row) => ({
-      id: row.id,
-      name: row.name,
-      status: row.status,
-      adsetId: row.adset_id,
-      campaignId: row.campaign_id,
-    })) as PickerAd[],
-  };
+  const hit = structureCache.get(act);
+  if (!force && hit && Date.now() - hit.at < STRUCTURE_TTL_MS) return hit.value;
+  try {
+    const token = await resolveToken(act);
+    const [campaigns, adsets, ads] = await Promise.all([
+      allPages<{ id: string; name: string; status: string; objective?: string; daily_budget?: string }>(
+        `${act}/campaigns?fields=id,name,status,objective,daily_budget&limit=200&filtering=${LIVE_FILTER}`,
+        token
+      ),
+      allPages<{ id: string; name: string; status: string; campaign_id: string; daily_budget?: string }>(
+        `${act}/adsets?fields=id,name,status,campaign_id,daily_budget&limit=300&filtering=${LIVE_FILTER}`,
+        token
+      ),
+      allPages<{ id: string; name: string; status: string; adset_id: string; campaign_id: string }>(
+        `${act}/ads?fields=id,name,status,adset_id,campaign_id&limit=500&filtering=${LIVE_FILTER}`,
+        token
+      ),
+    ]);
+    const value: AccountStructure = {
+      campaigns: campaigns.map((row) => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        objective: row.objective || "",
+        dailyBudget: centsToUnits(row.daily_budget),
+      })) as PickerCampaign[],
+      adsets: adsets.map((row) => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        campaignId: row.campaign_id,
+        dailyBudget: centsToUnits(row.daily_budget),
+      })) as PickerAdset[],
+      ads: ads.map((row) => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        adsetId: row.adset_id,
+        campaignId: row.campaign_id,
+      })) as PickerAd[],
+    };
+    structureCache.set(act, { at: Date.now(), value });
+    return value;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const limited = isMetaRateLimit(message);
+    const why = limited
+      ? "Meta limite les requêtes pour l'instant (« User request limit reached »)"
+      : `Meta ne répond pas (${message})`;
+    // Secours : la dernière liste de l'uploader, sinon celle de l'Ads Manager (gardée sur disque).
+    if (hit) return { ...hit.value, stale: `${why} : liste d'il y a ${Math.max(1, Math.round((Date.now() - hit.at) / 60_000))} min.` };
+    const known = knownAccountStructure(act);
+    if (known?.campaigns.length) {
+      const value: AccountStructure = {
+        campaigns: known.campaigns.map((row) => ({ id: row.id, name: row.name, status: row.status, objective: row.objective || "", dailyBudget: centsToUnits(row.daily_budget) })) as PickerCampaign[],
+        adsets: known.adsets.map((row) => ({ id: row.id, name: row.name, status: row.status, campaignId: row.campaign_id, dailyBudget: centsToUnits(row.daily_budget) })) as PickerAdset[],
+        ads: known.ads.map((row) => ({ id: row.id, name: row.name, status: row.status, adsetId: row.adset_id, campaignId: row.campaign_id })) as PickerAd[],
+      };
+      return { ...value, stale: `${why} : liste reprise de l'Ads Manager (dernière synchro).` };
+    }
+    throw new Error(limited ? `${why}. Ça repart tout seul : réessaie dans 10 à 15 min.` : message);
+  }
 }
 
 export async function uploadMediaFile(accountId: string, file: File): Promise<UploadedMedia> {
