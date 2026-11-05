@@ -496,6 +496,24 @@ export function MetaUploader() {
     if (!files.length && !postIds.length) return toast.error("Ajoute des photos / vidéos ou des Post ID d’abord");
     if (!adsetId && !campaignId) return toast.error("Sélectionne une campagne / un ad set source");
     if (target === "existing" && !adsetId) return toast.error("Choisis l'ad set où ajouter les pubs (colonne Ad Sets)");
+    // Meta refuse une pub sans lien (« Le champ link est requis ») : vérifié avant d'envoyer les médias.
+    let link = websiteUrl.trim();
+    if (files.length && !link && adId) {
+      try {
+        const res = await fetch(`/api/meta/upload?adId=${encodeURIComponent(adId)}`);
+        const body = (await res.json()) as { copy?: { websiteUrl?: string } };
+        link = body.copy?.websiteUrl?.trim() ?? "";
+        if (link) setWebsiteUrl(link);
+      } catch {
+        // lien illisible : le message ci-dessous le demande
+      }
+    }
+    if (files.length && !link) {
+      const field = document.querySelector<HTMLInputElement>("input[data-field='website-url']");
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      field?.focus();
+      return toast.error("Website URL est vide : Meta exige le lien de la page produit pour chaque pub. Colle-le dans « Website URL ».");
+    }
     if (
       plannedAdsets.length > 1 &&
       !window.confirm(
@@ -568,7 +586,7 @@ export function MetaUploader() {
                     ? { headlines: own.headline.trim() ? [own.headline] : [], bodies: own.body.trim() ? [own.body] : [], descriptions: [] }
                     : null;
                 }),
-          websiteUrl,
+          websiteUrl: link,
           displayUrl,
           cta,
           flexible,
@@ -1278,7 +1296,7 @@ export function MetaUploader() {
         </label>
         <label className="mt-3 block text-[13px] font-medium">
           Website URL
-          <input value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]" />
+          <input data-field="website-url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://venom-necklace.com/products/..." className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-[13px]" />
         </label>
         <label className="mt-3 block text-[13px] font-medium">
           Display URL
