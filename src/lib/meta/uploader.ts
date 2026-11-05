@@ -11,6 +11,7 @@ import {
   type UploadedMedia,
 } from "@/lib/meta/uploader-shared";
 import { dedupeNames } from "@/lib/creative-naming";
+import { guardedTtl, isMetaRateLimit } from "@/lib/meta/usage-log";
 
 export type { PickerAd, PickerAdset, PickerCampaign, UploadAccount, UploadedMedia };
 export {
@@ -59,15 +60,10 @@ const LIVE_FILTER = encodeURIComponent(
   JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED", "PENDING_BILLING_INFO", "IN_PROCESS", "WITH_ISSUES"] }])
 );
 
-/** « User request limit reached » (code 17), « too many calls » (4, 613, 80004…) : Meta freine, ça repart tout seul. */
-export function isMetaRateLimit(message: string) {
-  return /request limit|too many calls|rate limit|limit reached|#(4|17|32|613|80004)\b/i.test(message);
-}
-
 export async function listAccountStructure(accountId: string, force = false): Promise<AccountStructure> {
   const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
   const hit = structureCache.get(act);
-  if (!force && hit && Date.now() - hit.at < STRUCTURE_TTL_MS) return hit.value;
+  if (!force && hit && Date.now() - hit.at < guardedTtl(STRUCTURE_TTL_MS, [act.replace(/^act_/, "")])) return hit.value;
   try {
     const token = await resolveToken(act);
     const [campaigns, adsets, ads] = await Promise.all([

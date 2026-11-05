@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { mkdir, rename, writeFile } from "fs/promises";
 import path from "path";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, classifyCampaign } from "@/lib/meta/buckets";
+import { guardedTtl } from "@/lib/meta/usage-log";
 import { STORAGE_ROOT } from "@/lib/storage-root";
 import { getMetaConfigWithExtras } from "@/lib/meta/client";
 import { centsToUnits, graphBatch, graphGet, type GraphError } from "@/lib/meta/graph";
@@ -374,7 +375,7 @@ export async function buildAdsTree(params: {
   const cacheKey = `${params.preset}:${range.start}:${range.end}`;
 
   const hit = state.cache.get(cacheKey);
-  if (!params.force && hit && Date.now() - hit.at < ttlFor(params.preset, range)) return hit.tree;
+  if (!params.force && hit && Date.now() - hit.at < guardedTtl(ttlFor(params.preset, range), "all")) return hit.tree;
 
   const started = Date.now();
   const errors: string[] = [];
@@ -446,7 +447,7 @@ export async function buildAdsTree(params: {
   await Promise.all(
     [...byToken.entries()].map(async ([token, accounts]) => {
       const tick = Date.now();
-      const structTtl = params.preset === "today" ? STRUCTURE_TTL_TODAY_MS : STRUCTURE_TTL_MS;
+      const structTtl = guardedTtl(params.preset === "today" ? STRUCTURE_TTL_TODAY_MS : STRUCTURE_TTL_MS, accounts.map((account) => account.account_id));
       const requests = accounts.flatMap((account) => {
         const act = `act_${account.account_id}`;
         const id = account.account_id;

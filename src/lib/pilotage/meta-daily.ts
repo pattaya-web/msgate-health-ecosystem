@@ -1,4 +1,5 @@
 import { knownAccounts } from "@/lib/associate/meta-fast";
+import { guardedTtl, isMetaRateLimit } from "@/lib/meta/usage-log";
 
 /**
  * Meta jour par jour, au niveau de chaque pub, pour la page Pilotage : un
@@ -87,10 +88,16 @@ export async function adDailyInsights(accountIds: string[], start: string, end: 
 async function readDaily(accountIds: string[], start: string, end: string): Promise<AdDay[]> {
   const key = `${accountIds.join(",")}:${start}:${end}`;
   const hit = state.daily.get(key);
-  if (hit && Date.now() - hit.at < 5 * 60_000) return hit.rows;
+  if (hit && Date.now() - hit.at < guardedTtl(5 * 60_000, accountIds)) return hit.rows;
   const pending = state.inflight!.get(key);
   if (pending) return pending;
-  const promise = fetchDaily(accountIds, start, end, key).finally(() => state.inflight!.delete(key));
+  const promise = fetchDaily(accountIds, start, end, key)
+    // Meta freine : la dernière lecture plutôt qu'une erreur.
+    .catch((error: unknown) => {
+      if (hit && isMetaRateLimit(error instanceof Error ? error.message : "")) return hit.rows;
+      throw error;
+    })
+    .finally(() => state.inflight!.delete(key));
   state.inflight!.set(key, promise);
   return promise;
 }

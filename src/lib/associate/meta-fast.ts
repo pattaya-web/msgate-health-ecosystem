@@ -1,4 +1,5 @@
 import { discoverAdAccounts, getMetaConfigWithExtras } from "@/lib/meta/client";
+import { guardedTtl, isMetaRateLimit } from "@/lib/meta/usage-log";
 
 /**
  * La dépense Meta du périmètre associé, lue directement sur ses comptes.
@@ -109,11 +110,17 @@ async function scopedAccounts(params: { accountIds: string[]; keyword: string })
 export async function fastScopedSpend(params: { start: string; end: string; accountIds: string[]; keyword: string; force?: boolean }): Promise<FastAccountSpend[]> {
   const key = `${params.start}:${params.end}:${params.accountIds.join(",")}:${params.keyword}`;
   const hit = state.spend.get(key);
-  if (!params.force && hit && Date.now() - hit.at < SPEND_TTL_MS) return hit.rows;
-  const { picked, apiVersion } = await scopedAccounts(params);
-  const rows = await Promise.all(picked.map((account) => accountSpend(account, apiVersion, params.start, params.end)));
-  state.spend.set(key, { at: Date.now(), rows });
-  return rows;
+  if (hit && Date.now() - hit.at < (params.force ? 15_000 : guardedTtl(SPEND_TTL_MS, params.accountIds))) return hit.rows;
+  try {
+    const { picked, apiVersion } = await scopedAccounts(params);
+    const rows = await Promise.all(picked.map((account) => accountSpend(account, apiVersion, params.start, params.end)));
+    state.spend.set(key, { at: Date.now(), rows });
+    return rows;
+  } catch (error) {
+    // Meta freine : la dernière lecture plutôt qu'une erreur.
+    if (hit && isMetaRateLimit(error instanceof Error ? error.message : "")) return hit.rows;
+    throw error;
+  }
 }
 
 export type FastDailySpend = { account: FastAccount; days: Record<string, number> };
@@ -124,7 +131,7 @@ const daily = new Map<string, { at: number; rows: FastDailySpend[] }>();
 export async function fastScopedDailySpend(params: { start: string; end: string; accountIds: string[]; keyword: string }): Promise<FastDailySpend[]> {
   const key = `${params.start}:${params.end}:${params.accountIds.join(",")}:${params.keyword}`;
   const hit = daily.get(key);
-  if (hit && Date.now() - hit.at < SPEND_TTL_MS) return hit.rows;
+  if (hit && Date.now() - hit.at < guardedTtl(SPEND_TTL_MS, params.accountIds)) return hit.rows;
   const { picked, apiVersion } = await scopedAccounts(params);
   const range = `time_range=${encodeURIComponent(JSON.stringify({ since: params.start, until: params.end }))}`;
   const rows = await Promise.all(

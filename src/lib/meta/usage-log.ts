@@ -126,3 +126,29 @@ export function metaUsageReport() {
     gauges: [...state.gauges.entries()].map(([key, gauge]) => ({ account: key.split(":")[0], ...gauge, ageMin: Math.round((now - gauge.at) / 60_000) })),
   };
 }
+
+/**
+ * Combien de temps une lecture peut resservir son cache, selon la jauge Meta
+ * des comptes lus (« all » : le compte le plus chargé). Plus la jauge monte,
+ * plus on garde le cache : la marge restante sert aux créations de pubs
+ * (uploader), pas aux tableaux de bord qui se rafraîchissent.
+ */
+export function guardedTtl(baseMs: number, accountIds: string[] | "all") {
+  const ids = accountIds === "all" ? [...new Set([...state.gauges.keys()].map((key) => key.split(":")[0]))] : accountIds;
+  let pct = 0;
+  let blocked = false;
+  for (const id of ids) {
+    const pressure = metaPressure(id);
+    pct = Math.max(pct, pressure.pct);
+    if (pressure.regainMinutes > 0) blocked = true;
+  }
+  if (blocked || pct >= 75) return Math.max(baseMs, 20 * 60_000);
+  if (pct >= 50) return Math.max(baseMs, 10 * 60_000);
+  if (pct >= 30) return Math.max(baseMs, 5 * 60_000);
+  return baseMs;
+}
+
+/** « User request limit reached » (code 17), « too many calls » (4, 613, 80004…) : Meta freine, ça repart tout seul. */
+export function isMetaRateLimit(message: string) {
+  return /request limit|too many calls|rate limit|limit reached|#(4|17|32|613|80004)\b/i.test(message);
+}
