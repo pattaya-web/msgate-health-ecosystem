@@ -13,9 +13,9 @@
 type Call = { at: number; key: string; weight: number; status: number };
 type Gauge = { at: number; type: string; callCount: number; cpu: number; time: number; regainMinutes: number; tier?: string };
 
-const state = ((globalThis as typeof globalThis & {
-  __msgateMetaUsage?: { calls: Call[]; gauges: Map<string, Gauge>; installed: boolean };
-}).__msgateMetaUsage ??= { calls: [], gauges: new Map(), installed: false });
+type UsageState = { calls: Call[]; gauges: Map<string, Gauge>; installed: boolean };
+const holder = globalThis as typeof globalThis & { __msgateMetaUsage?: UsageState };
+const state: UsageState = (holder.__msgateMetaUsage ??= { calls: [], gauges: new Map(), installed: false });
 
 const KEEP_MS = 2 * 60 * 60_000;
 
