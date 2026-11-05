@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 
 function formatCity(timeZone: string) {
   const now = new Date();
@@ -80,26 +81,34 @@ const CITIES = [
   { country: "ae" as const, label: "Dubai", timeZone: "Asia/Dubai" },
 ];
 
-export function TimezoneClocks() {
+/**
+ * `always` : visibles aussi sur iPhone (header d'Alison), en version courte
+ * (drapeau + heure) sous 640 px. Relues chaque seconde : l'heure change pile à la minute.
+ */
+export function TimezoneClocks({ always = false }: { always?: boolean }) {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    const id = setInterval(() => setTick((t) => t + 1), 1_000);
     return () => clearInterval(id);
   }, []);
 
   void tick;
 
   return (
-    <div className="hidden items-center gap-1.5 sm:flex">
+    <div className={always ? "ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5" : "hidden items-center gap-1.5 sm:flex"}>
       {CITIES.map((city) => {
         const { time, day } = formatCity(city.timeZone);
         return (
-          <div key={city.label} title={city.timeZone} className="pill-chip">
+          <div
+            key={city.label}
+            title={`${city.label} · ${city.timeZone}`}
+            className={always ? "pill-chip !gap-1 !px-1.5 sm:!gap-1.5 sm:!px-2.5" : "pill-chip"}
+          >
             <Flag country={city.country} />
-            <span className="font-medium text-[var(--pill-foreground)]">{city.label}</span>
+            <span className={cn("font-medium text-[var(--pill-foreground)]", always && "hidden sm:inline")}>{city.label}</span>
             <span className="font-mono text-[11px]">{time}</span>
-            <span className="opacity-60">{day}</span>
+            <span className={cn("opacity-60", always && "hidden md:inline")}>{day}</span>
           </div>
         );
       })}

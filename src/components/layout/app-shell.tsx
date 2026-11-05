@@ -187,7 +187,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </button>
 
-            <div className="flex min-w-0 flex-1 items-center gap-2 pl-1">
+            <div className={cn("min-w-0 flex-1 items-center gap-2 pl-1", isAssociate ? "hidden sm:flex" : "flex")}>
               {page ? (
                 <>
                   <span className="eyebrow hidden truncate !text-[var(--pill-muted)] sm:inline">
@@ -205,7 +205,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             </div>
 
-            {isAssociate ? null : (
+            {/* Alison : NY, Paris et Dubaï en direct, aussi sur iPhone. */}
+            {isAssociate ? <TimezoneClocks always /> : (
               <>
                 <div className="hidden md:block">
                   <TimezoneClocks />
@@ -220,7 +221,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ThemeToggle />
 
             <div
-              className="ml-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-[var(--pill-foreground)] ring-1 ring-inset ring-white/10"
+              className={cn(
+                "ml-0.5 h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-[var(--pill-foreground)] ring-1 ring-inset ring-white/10",
+                // iPhone d'Alison : la place va aux trois horloges.
+                isAssociate ? "hidden sm:flex" : "flex"
+              )}
               title={user.email}
             >
               {initials(user.full_name)}
