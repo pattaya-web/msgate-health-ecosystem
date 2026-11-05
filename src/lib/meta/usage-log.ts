@@ -129,12 +129,13 @@ export function metaUsageReport() {
 
 /**
  * Combien de temps une lecture peut resservir son cache, selon la jauge Meta
- * des comptes lus (« all » : le compte le plus chargé). Plus la jauge monte,
+ * des comptes lus (« all » : les comptes pilotés, ceux du périmètre Venom ;
+ * les comptes des autres BM, souvent saturés, ne figent pas l'Ads Manager). Plus la jauge monte,
  * plus on garde le cache : la marge restante sert aux créations de pubs
  * (uploader), pas aux tableaux de bord qui se rafraîchissent.
  */
 export function guardedTtl(baseMs: number, accountIds: string[] | "all") {
-  const ids = accountIds === "all" ? [...new Set([...state.gauges.keys()].map((key) => key.split(":")[0]))] : accountIds;
+  const ids = accountIds === "all" ? [...priority] : accountIds;
   let pct = 0;
   let blocked = false;
   for (const id of ids) {
@@ -151,4 +152,10 @@ export function guardedTtl(baseMs: number, accountIds: string[] | "all") {
 /** « User request limit reached » (code 17), « too many calls » (4, 613, 80004…) : Meta freine, ça repart tout seul. */
 export function isMetaRateLimit(message: string) {
   return /request limit|too many calls|rate limit|limit reached|#(4|17|32|613|80004)\b/i.test(message);
+}
+
+/** Les comptes pilotés (périmètre associé) : ce sont eux qui servent à lancer les campagnes. */
+let priority = new Set<string>(["1172300475381112", "1043532936352398"]);
+export function setPriorityAccounts(ids: string[]) {
+  if (ids.length) priority = new Set(ids.map((id) => id.replace(/^act_/, "")));
 }

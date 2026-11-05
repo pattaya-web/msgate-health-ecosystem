@@ -3,6 +3,7 @@ import path from "path";
 import { getKnownAccounts } from "@/lib/meta/registry";
 import { buildAdsTree } from "@/lib/meta/tree";
 import { getMetaConfig } from "@/lib/meta/client";
+import { setPriorityAccounts } from "@/lib/meta/usage-log";
 import { classifyCategory, isApproved, isAttempt } from "@/lib/phoenix/analytics";
 import { focusIncludesToday, isStale } from "@/lib/phoenix/snapshot";
 import { resolveSource } from "@/lib/phoenix/sources";
@@ -143,6 +144,7 @@ export async function getAssociateScope(): Promise<AssociateScope> {
   } catch {
     state.scope = { ...empty(), ...VENOM_SCOPE };
   }
+  setPriorityAccounts(state.scope.metaAccountIds);
   return state.scope;
 }
 
@@ -163,6 +165,7 @@ export async function saveAssociateScope(
   await writeFile(tmp, JSON.stringify(next, null, 2));
   await rename(tmp, FILE);
   state.scope = next;
+  setPriorityAccounts(next.metaAccountIds);
   return next;
 }
 
