@@ -1002,9 +1002,11 @@ export function MetaUploader() {
           if (!pausedCampaign || pausedCampaign.status === "ACTIVE" || createNewCampaign || multiCampaigns) return null;
           return (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-800 ring-1 ring-amber-200">
-              La campagne « {pausedCampaign.name} » est <strong>en pause</strong> chez Meta : les pubs créées dedans ne tourneront pas et
-              n’apparaîtront pas dans l’Ads Manager (filtre « Actifs »). Coche « Create new campaign » pour une nouvelle campagne qui
-              part en live, ou rallume celle-ci dans l’Ads Manager.
+              Ton modèle « {pausedCampaign.name} » est <strong>en pause</strong> : des pubs ajoutées dedans ne tourneront pas. Pour
+              lancer une campagne neuve avec ses réglages, qui part allumée :{" "}
+              <button type="button" onClick={() => chooseTarget("campaign")} className="font-semibold underline">
+                Nouvelle campagne
+              </button>
             </p>
           );
         })()}
