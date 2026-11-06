@@ -13,11 +13,9 @@ import { cn } from "@/lib/utils";
  * d'il y a trois semaines.
  */
 
-const APEX_IP = "216.198.79.1";
-const WWW_CNAME = "cname.vercel-dns.com";
-/** Adresse de l'outil : son domaine mabillmafia.com (acheté le 31/10/2026) ; l'adresse Vercel reste valable en secours. */
-const APP_URL = "https://mabillmafia.com";
-const VERCEL_DOMAINS = "https://vercel.com/madys-projects-84d03991/msgate-health-ecosystem/settings/domains";
+/** Le VPS Hostinger (Coolify) qui sert l'outil et les boutiques depuis le 01/11/2026. */
+const APEX_IP = "185.97.146.171";
+const APP_URL = "https://www.mabillmafia.com";
 
 function CopyValue({ value }: { value: string }) {
   const [done, setDone] = useState(false);
@@ -55,9 +53,9 @@ const STEPS: Array<{ title: string; body: React.ReactNode }> = [
     title: "Crée le site dans l'outil et pose le domaine dedans",
     body: (
       <>
-        <strong>Boutique</strong> (onglet Sites e-commerce) : crée-la ou copie un modèle, puis dans <em>Identité</em> → champ <em>Domaine</em>, colle le nom acheté.
+        <strong>Boutique</strong> (onglet Boutiques) : crée-la avec le formulaire express, puis dans <em>Identité</em> → champ <em>Domaine</em>, colle le nom acheté.
         <br />
-        <strong>Page agence</strong> (onglet Bank pages) : remplis le formulaire, colle le nom dans le champ <em>Domaine</em>, puis Créer. Sur une page déjà créée, le
+        <strong>Page agence</strong> (onglet Pages agence) : remplis le formulaire, colle le nom dans le champ <em>Domaine</em>, puis Créer. Sur une page déjà créée, le
         champ domaine est sous son nom dans la liste.
         <br />
         C&apos;est ce champ qui dit à l&apos;outil « ce nom, c&apos;est ce site ». Sans lui, le domaine n&apos;affichera rien.
@@ -88,10 +86,10 @@ const STEPS: Array<{ title: string; body: React.ReactNode }> = [
                 </td>
               </tr>
               <tr>
-                <td className="pr-4 py-1 font-semibold">CNAME</td>
+                <td className="pr-4 py-1 font-semibold">A</td>
                 <td className="pr-4 py-1 font-mono">www</td>
                 <td className="py-1">
-                  <CopyValue value={WWW_CNAME} />
+                  <CopyValue value={APEX_IP} />
                 </td>
               </tr>
             </tbody>
@@ -102,16 +100,11 @@ const STEPS: Array<{ title: string; body: React.ReactNode }> = [
     ),
   },
   {
-    title: "Dans Vercel : déclare le domaine",
+    title: "Sur le serveur : déclare le domaine",
     body: (
       <>
-        Va sur{" "}
-        <a href={VERCEL_DOMAINS} target="_blank" rel="noreferrer" className="font-semibold underline">
-          Vercel → Domains
-        </a>{" "}
-        → <em>Add Existing</em>. Ajoute le nom nu (<code>sage-renew.com</code>) : Vercel propose d&apos;ajouter <code>www</code> en même temps, accepte. Il affiche
-        « Generating SSL Certificate » puis « Valid Configuration ». Si ça reste en attente plus d&apos;une heure, c&apos;est que l&apos;étape 3 n&apos;est pas passée :
-        relis les deux lignes DNS.
+        Depuis le PC, dans le dossier du projet : <code>node scripts/add-domain.mjs sage-renew.com</code> (ou demande-le à Claude). Le script ajoute le nom nu et{" "}
+        <code>www</code> dans Coolify puis relance le site ; le certificat HTTPS se crée tout seul dès que les deux lignes DNS de l&apos;étape 3 sont propagées.
       </>
     ),
   },

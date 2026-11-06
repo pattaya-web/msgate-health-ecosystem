@@ -20,6 +20,7 @@ import {
 import { ImagePromptDialog, type ImageTarget } from "@/components/ecom-sites/image-prompt";
 import { LivePreview } from "@/components/ecom-sites/live-preview";
 import { MessagesInbox } from "@/components/ecom-sites/messages-inbox";
+import { ExpressBuilder } from "@/components/ecom-sites/express-builder";
 import { assuranceItems, BLOCK_LABELS, newSectionId, sectionsOf } from "@/lib/ecom-sites/sections";
 import { blankPage, navItems } from "@/lib/ecom-sites/pages";
 import { applyTextEdit } from "@/lib/ecom-sites/text-edits";
@@ -32,9 +33,8 @@ import {
 } from "@/lib/ecom-sites/footer";
 import { cn } from "@/lib/utils";
 
-/** Enregistrements Vercel — ceux que pointent déjà les sites existants. */
-const APEX_IP = "216.198.79.1";
-const WWW_CNAME = "cname.vercel-dns.com";
+/** Le VPS Hostinger (Coolify) qui sert l'outil et les boutiques depuis le 01/11/2026 : @ et www pointent dessus. */
+const APEX_IP = "185.97.146.171";
 
 type Score = { total: number; ok: number; warns: number; fails: number; ready: boolean };
 
@@ -68,6 +68,8 @@ export function EcomSitesTab() {
   usePublishHermesContext("ecom-site", hermesSite ? { storeId: hermesSite.id, storeName: hermesSite.brandName } : null);
   const [checklist, setChecklist] = useState<CheckItem[]>([]);
   const [loading, setLoading] = useState(true);
+  /** L'ancien parcours en cinq étapes, replié derrière le formulaire express. */
+  const [detailed, setDetailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [newBrand, setNewBrand] = useState("");
   const [cloneOf, setCloneOf] = useState("");
@@ -1435,8 +1437,27 @@ export function EcomSitesTab() {
 
   const score = selectedId ? scores[selectedId] : null;
 
+  /** Une image du formulaire express arrive : elle se pose sur le brouillon si c'est cette boutique qui est ouverte. */
+  function updateFromExpress(siteId: string, patch: (site: EcomSite) => Partial<EcomSite>) {
+    setDraft((current) => (current && current.id === siteId ? { ...current, ...patch(current) } : current));
+  }
+
   return (
     <div className="space-y-4">
+      {/* L'essentiel d'abord : une boutique complète d'un seul bouton. */}
+      <ExpressBuilder onOpen={loadSite} onListChange={loadList} onSiteUpdate={updateFromExpress} />
+
+      <button
+        type="button"
+        onClick={() => setDetailed((value) => !value)}
+        className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
+      >
+        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", detailed && "rotate-180")} />
+        Mode détaillé : modèles enregistrés, choix produit par produit
+      </button>
+
+      {detailed ? (
+      <>
       {/* Le parcours, énoncé une fois en haut.
           Un écran qui offre douze boutons sans dire par lequel commencer se
           traverse à tâtons. Cinq lignes suffisent à savoir où on va. */}
@@ -1730,6 +1751,8 @@ export function EcomSitesTab() {
           </div>
         ) : null}
       </div>
+      </>
+      ) : null}
 
       {/* Trois colonnes quand l'apercu est ouvert : la liste, les reglages,
           la boutique. En dessous de 1536 px il n'y a pas la place pour les
@@ -3207,17 +3230,17 @@ export function EcomSitesTab() {
           <Section title="Mise en ligne">
             <div className="space-y-2">
               <DnsRow label="A" host="@" value={APEX_IP} />
-              <DnsRow label="CNAME" host="www" value={WWW_CNAME} />
+              <DnsRow label="A" host="www" value={APEX_IP} />
               <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-relaxed text-slate-500">
                 <li>
                   Renseigne le <strong>Domaine</strong> dans Identité, exactement comme acheté (<code>{draft.domain || "marque.com"}</code>) : c&apos;est lui qui
                   fait le lien entre le nom et cette boutique.
                 </li>
-                <li>Déploie l&apos;outil sur Vercel (le dépôt GitHub) avec les mêmes variables que ton .env.local, Supabase compris : les boutiques y sont copiées à chaque enregistrement.</li>
+                <li>Chez Namecheap (Advanced DNS), supprime les lignes de parking puis pose les deux enregistrements ci-dessus.</li>
                 <li>
-                  Sur le projet Vercel, Settings → Domains → ajoute <code>{draft.domain || "marque.com"}</code> et <code>www.{draft.domain || "marque.com"}</code>.
+                  Déclare le domaine sur le serveur : <code>node scripts/add-domain.mjs {draft.domain || "marque.com"}</code> depuis le PC (ou demande-le à Claude). Il ajoute{" "}
+                  <code>{draft.domain || "marque.com"}</code> et <code>www.{draft.domain || "marque.com"}</code> dans Coolify et relance le site ; le HTTPS se fait tout seul une fois le DNS propagé.
                 </li>
-                <li>Chez le registrar, pose les deux enregistrements ci-dessus. Le HTTPS est automatique une fois le DNS propagé (quelques minutes à quelques heures).</li>
                 <li>Ouvre le domaine : la boutique s&apos;affiche à la racine, sans /s/… dans l&apos;adresse. Envoie ensuite l&apos;URL au processeur une fois la checklist au vert.</li>
               </ol>
             </div>

@@ -22,6 +22,8 @@ const FETCH_TIMEOUT_MS = 20_000;
 export type ReferenceProduct = {
   handle: string;
   name: string;
+  /** La marque du modèle (champ vendor de Shopify) : à remplacer par la nôtre dans les textes repris. */
+  vendor?: string;
   /** Ligne courte type « Daily · 2 gummies ». */
   dosage: string;
   price: number;
@@ -202,6 +204,7 @@ function handleOf(url: string) {
 type ShopifyJsonProduct = {
   handle?: string;
   title?: string;
+  vendor?: string;
   body_html?: string;
   product_type?: string;
   variants?: Array<{ price?: string; title?: string }>;
@@ -227,6 +230,7 @@ async function readShopify(domain: string): Promise<ReferenceRead | null> {
     return {
       handle: product.handle || "",
       name: product.title || "",
+      vendor: product.vendor || "",
       dosage: product.variants?.[0]?.title && product.variants[0].title !== "Default Title"
         ? product.variants[0].title
         : product.product_type || "",

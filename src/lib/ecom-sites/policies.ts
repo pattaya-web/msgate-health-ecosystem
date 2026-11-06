@@ -134,6 +134,7 @@ function terms(site: EcomSite): PolicySection[] {
       heading: "Orders and pricing",
       body: [
         `All prices are shown in ${site.currency} and include the item price. Shipping and any applicable tax are calculated and displayed at checkout before you confirm payment. No charge is taken until you confirm the order.`,
+        `Every order is a one-time purchase. We do not sell subscriptions, memberships or automatic refills, and your card is never charged again without a new order placed by you.`,
         `We may decline or cancel an order where an item is out of stock, a price or description contains an obvious error, or where payment cannot be verified. If we cancel a paid order, it is refunded in full.`,
       ],
     },

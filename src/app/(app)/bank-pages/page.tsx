@@ -10,21 +10,21 @@ import { BANK_THEMES, bankPageText, defaultBankPage, withTextEdit, type BankPage
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  { id: "bank", label: "Bank pages" },
-  { id: "ecom", label: "Sites e-commerce" },
+  { id: "ecom", label: "Boutiques (générateur)" },
+  { id: "bank", label: "Pages agence" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
 export default function BankPagesAdminPage() {
-  const [tab, setTab] = useState<TabId>("bank");
+  const [tab, setTab] = useState<TabId>("ecom");
 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">Bank pages</h1>
+        <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">Bank pages · générateur de boutiques</h1>
         <p className="text-[12px] text-slate-500">
-          Pages agence pour les dossiers bancaires, et boutiques e-commerce pour les demandes de MID.
+          Colle un site modèle, donne un nom, dépose la LLC : la boutique US (achat unique) sort avec ses images de marque, modifiable dans l&apos;aperçu.
         </p>
       </div>
 

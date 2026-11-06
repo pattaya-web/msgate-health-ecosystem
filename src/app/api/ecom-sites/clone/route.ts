@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { readReferenceSite, type ReferenceProduct } from "@/lib/ecom-sites/reference";
 import { noteReferenceRead } from "@/lib/ecom-sites/reference-store";
 import { createEcomSite } from "@/lib/ecom-sites/store";
-import { MAX_PRICE, type EcomProduct, type EcomThemeId } from "@/lib/ecom-sites/types";
+import { MAX_PRICE, ONE_TIME_PROMO, SUBSCRIPTION_WORDS, type EcomProduct, type EcomThemeId, type PageBlock } from "@/lib/ecom-sites/types";
 import { kieClaude } from "@/lib/studio/kie";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +67,35 @@ function handleOf(value: string) {
     .slice(0, 60);
 }
 
+/**
+ * Le nom du site modèle, remplacé par le nôtre dans tout ce qu'on reprend.
+ *
+ * Les descriptions sont copiées telles quelles : « Goli® Ashwa Gummies »
+ * restait écrit sur la fiche d'une boutique qui s'appelle autrement. Les noms
+ * cherchés : la marque Shopify (vendor) et le nom de domaine du modèle.
+ */
+function sourceBrandSwap(domain: string, vendors: string[], brandName: string) {
+  const generic = new Set(["shop", "store", "get", "try", "the", "official", "my", "buy"]);
+  const root = domain.replace(/^www\./, "").split(".")[0] ?? "";
+  const names = [...vendors, root, root.replace(/-/g, " ")]
+    .map((name) => name.trim())
+    .filter((name) => name.length >= 3 && !generic.has(name.toLowerCase()));
+  const unique = [...new Set(names.map((name) => name.toLowerCase()))].sort((a, b) => b.length - a.length);
+  if (!unique.length) return (text: string) => text;
+  const escaped = unique.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
+  const pattern = new RegExp(`(?<![\\w])(?:${escaped.join("|")})(?![\\w])\\s*[®™]?`, "gi");
+  return (text: string) => text.replace(pattern, (match) => brandName + (/\s$/.test(match) ? " " : ""));
+}
+
+function swapBlocks(blocks: PageBlock[] | undefined, swap: (text: string) => string): PageBlock[] | undefined {
+  return blocks?.map((block) => {
+    if (block.type === "heading" || block.type === "paragraph") return { ...block, text: swap(block.text) };
+    if (block.type === "list") return { ...block, items: block.items.map(swap) };
+    if (block.type === "table") return { ...block, header: block.header.map(swap), rows: block.rows.map((row) => row.map(swap)) };
+    return block;
+  });
+}
+
 function parseJson(raw: string): Rebranded {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced ? fenced[1] : raw;
@@ -104,6 +133,7 @@ Hard rules:
 - Never invent customer reviews, ratings or review counts.
 - Keep ingredient names and doses realistic and consistent with the source format.
 - Plain, concrete English. No em dashes.
+- Every sale is a one-time purchase. Never mention subscriptions, subscribe & save, auto-ship, auto-refill, memberships or recurring billing anywhere.
 
 Return ONLY a JSON object shaped exactly like this, with one entry in "products" per source product, in the same order, and "sourceHandle" copied from the source:
 {
@@ -112,7 +142,7 @@ Return ONLY a JSON object shaped exactly like this, with one entry in "products"
   "heroSubtitle": "two sentences: what the brand sells and who it is for",
   "promise": "one paragraph on sourcing, testing and honest labelling",
   "productDisclaimer": "the standard US disclaimer for this category, or empty string",
-  "promoBar": "short uppercase marquee line with shipping and guarantee",
+  "promoBar": "short uppercase marquee line with shipping, guarantee and ONE-TIME PURCHASE, NO SUBSCRIPTION",
   "pillars": [ { "title": "short", "body": "two sentences" } ],
   "categories": [ { "id": "kebab-case", "label": "short", "blurb": "one line" } ],
   "products": [
@@ -173,7 +203,7 @@ function fallbackCopy(brandName: string, products: ReferenceProduct[]): Rebrande
       "We keep the range small so we can stand behind it. Every batch is made by an established manufacturer, the full ingredient list and doses are printed on the label, and what is on the label is what is in the bottle. If a product is not right for you, send it back within the return window.",
     productDisclaimer:
       "These statements have not been evaluated by the Food and Drug Administration. This product is not intended to diagnose, treat, cure, or prevent any disease.",
-    promoBar: "FREE US SHIPPING OVER $50 - 30-DAY GUARANTEE",
+    promoBar: ONE_TIME_PROMO,
     pillars: [
       { title: "Short range", body: "We sell a handful of products, not a catalogue. Each one earns its place." },
       { title: "Full labels", body: "Every active and its dose is printed on the pack. Nothing hides behind a blend." },
@@ -272,6 +302,8 @@ export async function POST(request: Request) {
     const seenSource = new Set<string>();
     const uniqueSources = read.products.filter((source) => {
       if (wanted && !wanted.has(source.handle)) return false;
+      // Achat unique seulement : une offre d'abonnement du modèle ne passe pas.
+      if (SUBSCRIPTION_WORDS.test(source.name || "")) return false;
       const key = (source.name || source.handle).trim().toLowerCase();
       if (!key || seenSource.has(key)) return false;
       seenSource.add(key);
@@ -313,6 +345,12 @@ export async function POST(request: Request) {
       return candidate;
     };
 
+    const swap = sourceBrandSwap(
+      read.domain,
+      read.products.map((product) => product.vendor || ""),
+      body.brandName.trim()
+    );
+
     const products: EcomProduct[] = uniqueSources.map((source, index) => {
       const product = rebrandedByHandle.get(source.handle) ||
         (rebranded.products || [])[index] || {
@@ -343,21 +381,21 @@ export async function POST(request: Request) {
        * gabarit à la génération de packaging : le produit garde sa forme, seuls
        * la couleur et le logo changent.
        */
-      const name = source?.name || product.name || "";
+      const name = swap(source?.name || product.name || "");
 
       return {
         handle: uniqueHandle(handleOf(name || `product-${index + 1}`)),
         name,
-        subtitle: product.subtitle || "",
+        subtitle: swap(product.subtitle || ""),
         category: categoryIds.has(product.category) ? product.category : categories[0]?.id || "",
         price,
         compareAtPrice: null,
-        dosage: source?.dosage || product.dosage || "",
-        description: source?.description || product.description || "",
-        descriptionBlocks: source?.descriptionBlocks,
-        bullets: Array.isArray(product.bullets) ? product.bullets.slice(0, 6) : [],
-        usage: product.usage || "",
-        ingredients: product.ingredients || "",
+        dosage: swap(source?.dosage || product.dosage || ""),
+        description: swap(source?.description || product.description || ""),
+        descriptionBlocks: swapBlocks(source?.descriptionBlocks, swap),
+        bullets: Array.isArray(product.bullets) ? product.bullets.slice(0, 6).map(swap) : [],
+        usage: swap(product.usage || ""),
+        ingredients: swap(product.ingredients || ""),
         badge: product.badge || "",
         imageUrl: source?.imageUrl || "",
         sourceImageUrl: source?.imageUrl || "",
@@ -382,7 +420,7 @@ export async function POST(request: Request) {
       heroSubtitle: rebranded.heroSubtitle || "",
       promise: rebranded.promise || "",
       productDisclaimer: rebranded.productDisclaimer || "",
-      promoBar: rebranded.promoBar || "FREE US SHIPPING OVER $50 ✦ 30-DAY GUARANTEE",
+      promoBar: rebranded.promoBar && !SUBSCRIPTION_WORDS.test(rebranded.promoBar) ? rebranded.promoBar : ONE_TIME_PROMO,
       pillars: (rebranded.pillars || []).slice(0, 4),
       categories,
       products,

@@ -760,6 +760,10 @@ export function ProductView({ site, product }: { site: EcomSite; product: EcomPr
             il tombait à plus de 1 100 px du haut. On lit le prix, on peut
             acheter ; le détail reste dessous pour qui veut le lire. */}
         <AddToCartButton product={product} />
+        {/* Achat unique : le client le lit avant de payer, l'underwriter aussi. */}
+        <p className="mt-2 text-[12px] font-medium text-[color:var(--muted)]">
+          One-time purchase · No subscription · No recurring charges
+        </p>
 
         {/* La description en accordéon, avec sa mise en page d'origine :
             paragraphes, intertitres, tableau d'ingrédients. Ouvert d'emblée. */}

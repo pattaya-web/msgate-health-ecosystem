@@ -330,6 +330,12 @@ export function editedText(site: Pick<EcomSite, "textEdits">, text: string) {
   return site.textEdits?.[text] ?? text;
 }
 
+/** Achat unique seulement : aucune boutique ne vend d'abonnement. */
+export const ONE_TIME_PROMO = "FREE US SHIPPING OVER $50 ✦ ONE-TIME PURCHASE, NO SUBSCRIPTION ✦ 30-DAY GUARANTEE";
+
+/** Un texte qui parle d'abonnement, de réassort automatique ou de prélèvement récurrent. */
+export const SUBSCRIPTION_WORDS = /subscri|auto-?ship|auto-?refill|auto-?renew|membership|recurring/i;
+
 export type EcomSiteInput = Omit<EcomSite, "id" | "slug" | "createdAt" | "updatedAt">;
 
 export function fullAddress(site: Pick<EcomSite, "addressLine" | "city" | "region" | "postalCode">) {
@@ -343,7 +349,7 @@ export function defaultEcomSite(): EcomSiteInput {
     tagline: "",
     heroTitle: "",
     heroSubtitle: "",
-    promoBar: "FREE US SHIPPING OVER $50 ✦ 30-DAY GUARANTEE ✦ SUBSCRIBE & SAVE 15%",
+    promoBar: ONE_TIME_PROMO,
     logoDataUrl: "",
     heroImageUrl: "",
     layout: [],

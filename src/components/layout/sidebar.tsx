@@ -166,6 +166,14 @@ const ADMIN_SECTIONS: NavSection[] = [
     items: [{ href: "/studio-ia", label: "Studio IA", icon: Clapperboard }],
   },
   {
+    id: "admin-boutiques",
+    label: "Boutiques & MID",
+    items: [
+      { href: "/bank-pages", label: "Bank pages · boutiques", icon: Landmark },
+      { href: "/shopify-scraper", label: "Shopify scraper", icon: ShoppingBag },
+    ],
+  },
+  {
     id: "admin-shop",
     label: "Shop & clients",
     items: [
