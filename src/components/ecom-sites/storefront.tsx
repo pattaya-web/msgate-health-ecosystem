@@ -802,7 +802,8 @@ export function ProductView({ site, product }: { site: EcomSite; product: EcomPr
           ) : null}
           {product.ingredients ? (
             <details className="fold">
-              <summary>Ingredients</summary>
+              {/* Des doses : des ingrédients. Sinon (jouet, accessoire…), des matières. */}
+              <summary>{/\d\s?(mg|mcg|iu|ml|%)/i.test(product.ingredients) ? "Ingredients" : "Materials"}</summary>
               <p className="pb-3 pt-1 text-[color:var(--muted)] whitespace-pre-line">{product.ingredients}</p>
             </details>
           ) : null}

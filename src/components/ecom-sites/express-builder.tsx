@@ -96,6 +96,46 @@ async function readSite(siteId: string) {
   return json.site ?? null;
 }
 
+function dataUrlOf(file: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Une photo de document, réduite à 2000 px de côté en JPEG : un scan de
+ * téléphone pèse 5 à 10 Mo, la vision n'a pas besoin de plus pour lire.
+ */
+async function shrinkImage(file: File) {
+  const url = await dataUrlOf(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("image illisible"));
+      element.src = url;
+    });
+    const scale = Math.min(1, 2000 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(image.naturalWidth * scale);
+    canvas.height = Math.round(image.naturalHeight * scale);
+    canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return url;
+  }
+}
+
+/** Un document de LLC tel que la route le lit : PDF, image (scan, photo, capture) ou texte. */
+export async function llcDoc(file: File) {
+  if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") return { fileName: file.name, pdfBase64: await dataUrlOf(file) };
+  if (file.type.startsWith("image/") || /\.(png|jpe?g|webp|heic|gif)$/i.test(file.name)) return { fileName: file.name, imageBase64: await shrinkImage(file) };
+  return { fileName: file.name, text: await file.text() };
+}
+
 /** Le descripteur bancaire : 22 caractères, lettres et chiffres. */
 function descriptorOf(brand: string) {
   return brand.toUpperCase().replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, 22);
@@ -152,19 +192,7 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
     setLlcBusy(true);
     setLlcNote("");
     try {
-      const docs = await Promise.all(
-        list.map(async (file) => {
-          const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
-          if (!isPdf) return { fileName: file.name, text: await file.text() };
-          const pdfBase64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ""));
-            reader.onerror = () => reject(new Error("Lecture du fichier impossible"));
-            reader.readAsDataURL(file);
-          });
-          return { fileName: file.name, pdfBase64 };
-        })
-      );
+      const docs = await Promise.all(list.map(llcDoc));
       const body = await postJson<{ entity: Llc & { supportEmail?: string; supportPhone?: string; missing?: string[] }; files?: Array<{ fileName: string; hint?: string }> }>(
         "/api/ecom-sites/llc",
         { docs }
@@ -472,9 +500,9 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
             {llcBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
             {llcBusy ? "Lecture…" : "Déposer les docs de la LLC"}
           </button>
-          <input ref={docInput} type="file" multiple accept=".pdf,.txt,application/pdf,text/plain" className="hidden" onChange={(event) => void readLlc(event.target.files)} />
+          <input ref={docInput} type="file" multiple accept=".pdf,.txt,application/pdf,text/plain,image/*" className="hidden" onChange={(event) => void readLlc(event.target.files)} />
           <span className="text-[11px] text-slate-400">
-            {llcNote || "Articles, EIN, statuts : raison sociale, État et adresse se remplissent seuls (PDF ou texte)."}
+            {llcNote || "Articles, EIN, statuts : raison sociale, État et adresse se remplissent seuls (PDF, même scanné, photo ou capture)."}
           </span>
           {llcFilled ? (
             <button type="button" onClick={() => { setLlc(EMPTY_LLC); setLlcNote(""); }} className="ml-auto inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-600">

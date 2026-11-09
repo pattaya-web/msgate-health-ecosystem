@@ -68,6 +68,12 @@ function buildPrompt(product: EcomProduct, site: EcomSite, hasTemplate: boolean)
       "Every other element keeps its position. Do not restyle, do not simplify, do",
       "not add or remove anything from the composition.",
       ...shared,
+      // Jouets, accessoires, mobilier, textile : pas de pack à repeindre.
+      "EXCEPTION: if IMAGE 1 shows a product with no packaging and no printed label",
+      "(a toy, accessory, tool, piece of furniture, garment or device), keep the product",
+      "itself exactly as photographed, with its own colours and materials, print no",
+      "product name on it, and only add the logo from IMAGE 2 small and discreet where",
+      "a maker's mark would naturally sit (a tag, the base, a small badge).",
     ].join(" ");
   }
 

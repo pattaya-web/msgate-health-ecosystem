@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readPdf } from "@/lib/ecom-sites/pdf-text";
+import { readLlcVisually, type VisualDoc } from "@/lib/ecom-sites/llc-vision";
 import { kieClaude } from "@/lib/studio/kie";
 
 export const dynamic = "force-dynamic";
@@ -20,13 +21,15 @@ type Doc = {
   text?: string;
   /** PDF déposé, en data URL ou base64 nu. */
   pdfBase64?: string;
+  /** Photo ou capture du document (data URL) : lue par le modèle de vision. */
+  imageBase64?: string;
 };
 
 /** `docs` permet de déposer tout le dossier d'un coup ; les champs se cumulent. */
 type Body = Doc & { docs?: Doc[] };
 
 const REASON_HINT: Record<string, string> = {
-  scanned: "PDF scanné (que des images) — ouvre-le, copie le texte et colle-le, ou fournis la version texte.",
+  scanned: "PDF scanné (que des images) : lu par la vision.",
   encrypted: "PDF protégé par mot de passe — enlève la protection puis redépose-le.",
   garbled: "Texte extrait illisible (police non standard) — copie-colle le texte plutôt.",
   unreadable: "Aucun texte exploitable dans ce PDF.",
@@ -246,6 +249,8 @@ export async function POST(request: Request) {
      */
     const perFile: Array<{ fileName: string; chars: number; reason: string; hint?: string }> = [];
     const texts: string[] = [];
+    /** Scans et photos : sans texte à lire, ils passent au modèle de vision. */
+    const visual: VisualDoc[] = [];
 
     for (const doc of docs) {
       const name = doc.fileName || "document";
@@ -253,6 +258,11 @@ export async function POST(request: Request) {
       if (direct) {
         texts.push(direct);
         perFile.push({ fileName: name, chars: direct.length, reason: "ok" });
+        continue;
+      }
+      if (doc.imageBase64) {
+        visual.push({ fileName: name, imageDataUrl: doc.imageBase64 });
+        perFile.push({ fileName: name, chars: 0, reason: "image", hint: "Image : lue par la vision." });
         continue;
       }
       if (!doc.pdfBase64) {
@@ -263,7 +273,9 @@ export async function POST(request: Request) {
         ? doc.pdfBase64.slice(doc.pdfBase64.indexOf("base64,") + 7)
         : doc.pdfBase64;
       const read = readPdf(Buffer.from(base64, "base64"));
-      if (read.text) texts.push(read.text);
+      if (read.text && read.reason === "ok") texts.push(read.text);
+      // Scanné, illisible ou police exotique : le PDF part tel quel à la vision.
+      else if (read.reason !== "encrypted") visual.push({ fileName: name, pdfBase64: base64 });
       perFile.push({
         fileName: name,
         chars: read.text.length,
@@ -274,7 +286,33 @@ export async function POST(request: Request) {
 
     const text = texts.join("\n\n").trim();
 
+    /*
+     * La vision d'abord quand il y a des scans : c'est le cas courant (statuts
+     * et lettre EIN scannés), et elle rend directement les champs. Le texte,
+     * s'il y en a, complète ensuite par motifs.
+     */
+    let seen: Partial<LlcExtract> = {};
+    let visionError = "";
+    if (visual.length) {
+      try {
+        seen = (await readLlcVisually(visual, buildPrompt("(see the attached documents)", visual.map((doc) => doc.fileName).join(", ")))) as Partial<LlcExtract>;
+      } catch (error) {
+        visionError = error instanceof Error ? error.message : "Lecture des scans impossible";
+      }
+    }
+    const seenAny = FIELDS.some((field) => String(seen[field] || "").trim());
+
+    if (text.length < 30 && seenAny) {
+      const entity: LlcExtract = { ...EMPTY, ...Object.fromEntries(Object.entries(seen).filter(([, v]) => v)), missing: [] };
+      entity.country = entity.country || "United States";
+      entity.missing = FIELDS.filter((field) => !String(entity[field] || "").trim());
+      return NextResponse.json({ entity, source: "vision", files: perFile });
+    }
+
     if (text.length < 30) {
+      if (visionError) {
+        return NextResponse.json({ error: visionError, files: perFile }, { status: 400 });
+      }
       return NextResponse.json(
         {
           error:
@@ -287,9 +325,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // Les motifs passent d'abord : instantanés et gratuits.
-    let found: Partial<LlcExtract> = extractByPattern(text);
-    let source: "pattern" | "claude" = "pattern";
+    // Les motifs passent d'abord : instantanés et gratuits. Ce que la vision a lu sur les scans comble les trous.
+    let found: Partial<LlcExtract> = {
+      ...Object.fromEntries(Object.entries(seen).filter(([, v]) => v)),
+      ...Object.fromEntries(Object.entries(extractByPattern(text)).filter(([, v]) => v)),
+    };
+    let source: "pattern" | "claude" | "vision" = seenAny ? "vision" : "pattern";
 
     // Claude ne sert qu'à compléter ce que les motifs n'ont pas trouvé.
     const stillMissing = FIELDS.filter((field) => !found[field] && field !== "country");

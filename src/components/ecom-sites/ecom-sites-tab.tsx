@@ -20,7 +20,7 @@ import {
 import { ImagePromptDialog, type ImageTarget } from "@/components/ecom-sites/image-prompt";
 import { LivePreview } from "@/components/ecom-sites/live-preview";
 import { MessagesInbox } from "@/components/ecom-sites/messages-inbox";
-import { ExpressBuilder } from "@/components/ecom-sites/express-builder";
+import { ExpressBuilder, llcDoc } from "@/components/ecom-sites/express-builder";
 import { assuranceItems, BLOCK_LABELS, newSectionId, sectionsOf } from "@/lib/ecom-sites/sections";
 import { blankPage, navItems } from "@/lib/ecom-sites/pages";
 import { applyTextEdit } from "@/lib/ecom-sites/text-edits";
@@ -187,19 +187,8 @@ export function EcomSitesTab() {
     try {
       // Tout le dossier part en une requête : les champs se cumulent entre
       // pièces, aucune ne les porte toutes.
-      const docs = await Promise.all(
-        list.map(async (file) => {
-          const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
-          if (!isPdf) return { fileName: file.name, text: await file.text() };
-          const pdfBase64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ""));
-            reader.onerror = () => reject(new Error("Lecture du fichier impossible"));
-            reader.readAsDataURL(file);
-          });
-          return { fileName: file.name, pdfBase64 };
-        })
-      );
+      // PDF (même scanné), photo ou capture : la route lit le texte ou passe par la vision.
+      const docs = await Promise.all(list.map(llcDoc));
 
       const res = await fetch("/api/ecom-sites/llc", {
         method: "POST",
@@ -2152,7 +2141,7 @@ export function EcomSitesTab() {
                 : "Glisse tous les documents de la LLC d'un coup (PDF ou .txt)"}
               <input
                 type="file"
-                accept=".pdf,.txt,text/plain,application/pdf"
+                accept=".pdf,.txt,text/plain,application/pdf,image/*"
                 className="hidden"
                 multiple
                 onChange={(event) => void readLlcDocument(event.target.files)}

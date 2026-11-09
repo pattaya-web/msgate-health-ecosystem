@@ -4,6 +4,7 @@ import { noteReferenceRead } from "@/lib/ecom-sites/reference-store";
 import { createEcomSite } from "@/lib/ecom-sites/store";
 import { MAX_PRICE, ONE_TIME_PROMO, SUBSCRIPTION_WORDS, type EcomProduct, type EcomThemeId, type PageBlock } from "@/lib/ecom-sites/types";
 import { kieClaude } from "@/lib/studio/kie";
+import { openaiJsonText } from "@/lib/openai-chat";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -96,6 +97,15 @@ function swapBlocks(blocks: PageBlock[] | undefined, swap: (text: string) => str
   });
 }
 
+/** Seuls les produits retenus partent à la réécriture : moins long, et le modèle ne s'éparpille pas. */
+function uniqueCatalogue(products: ReferenceProduct[], handles?: string[]) {
+  const wanted = handles?.length ? new Set(handles) : null;
+  return products.filter((product) => !wanted || wanted.has(product.handle)).slice(0, 40);
+}
+
+/** Compléments, soins, boissons : ce qui a des ingrédients, des doses et une mention FDA. */
+const CONSUMABLE = /capsule|gumm|tablet|powder|collagen|vitamin|supplement|drops|serum|cream|cleanser|toner|lotion|shampoo|oil|tea|coffee|protein|probiotic|elixir|tincture|balm|spf/i;
+
 function parseJson(raw: string): Rebranded {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced ? fenced[1] : raw;
@@ -131,7 +141,7 @@ Hard rules:
 - Never claim a product treats, cures or prevents any disease.
 - Never invent clinical trials, doctor endorsements, press mentions, certifications or awards.
 - Never invent customer reviews, ratings or review counts.
-- Keep ingredient names and doses realistic and consistent with the source format.
+- Match the product category. For supplements and skincare, keep ingredient names and doses realistic and consistent with the source. For any other goods (pet products, home, accessories, apparel, tools), never mention ingredients, doses, supplements or the FDA: write about materials, size, use and care instead, and leave "productDisclaimer" empty.
 - Plain, concrete English. No em dashes.
 - Every sale is a one-time purchase. Never mention subscriptions, subscribe & save, auto-ship, auto-refill, memberships or recurring billing anywhere.
 
@@ -140,7 +150,7 @@ Return ONLY a JSON object shaped exactly like this, with one entry in "products"
   "tagline": "three to five words",
   "heroTitle": "short sentence under 60 characters",
   "heroSubtitle": "two sentences: what the brand sells and who it is for",
-  "promise": "one paragraph on sourcing, testing and honest labelling",
+  "promise": "one paragraph on how products are chosen, checked and described honestly",
   "productDisclaimer": "the standard US disclaimer for this category, or empty string",
   "promoBar": "short uppercase marquee line with shipping, guarantee and ONE-TIME PURCHASE, NO SUBSCRIPTION",
   "pillars": [ { "title": "short", "body": "two sentences" } ],
@@ -151,11 +161,11 @@ Return ONLY a JSON object shaped exactly like this, with one entry in "products"
       "name": "new product name",
       "subtitle": "one short line",
       "category": "must match one category id",
-      "dosage": "e.g. Daily . 2 gummies",
+      "dosage": "short format line, e.g. Daily . 2 gummies for a supplement, or size / material for other goods",
       "description": "150 to 220 characters",
       "bullets": ["four short benefit lines"],
       "usage": "one sentence",
-      "ingredients": "comma separated actives with doses",
+      "ingredients": "supplements and skincare: comma separated actives with doses; other goods: main materials; empty if not applicable",
       "badge": "Bestseller, Hero, New, or empty string"
     }
   ]
@@ -194,6 +204,42 @@ function fallbackCopy(brandName: string, products: ReferenceProduct[]): Rebrande
 
   const categoryFor = (name: string) =>
     (used.find((bucket) => bucket.test.test(name)) || { id: categories[0].id }).id;
+
+  /*
+   * Hors compléments et soins, aucun mot de formule, de dose ou de FDA : une
+   * boutique d'accessoires pour chat qui affiche « every active and its dose is
+   * printed on the pack » se voit immédiatement, et un souscripteur aussi.
+   */
+  if (!products.some((product) => CONSUMABLE.test(product.name))) {
+    return {
+      tagline: "Well-made everyday essentials",
+      heroTitle: `${brandName}: the essentials, done right`,
+      heroSubtitle: `${brandName} sells a short, focused range of everyday products, each described exactly as it arrives. Fair prices, fast US shipping and easy returns.`,
+      promise:
+        "We keep the range small so we can stand behind every product. Each item is checked before it ships, the photos and descriptions match what arrives at your door, and if something is not right you can send it back within the return window.",
+      productDisclaimer: "",
+      promoBar: ONE_TIME_PROMO,
+      pillars: [
+        { title: "Short range", body: "We sell a handful of products, not a catalogue. Each one earns its place." },
+        { title: "Clear descriptions", body: "Sizes, materials and what is in the box are written plainly on every product page." },
+        { title: "Easy returns", body: "Send it back within the return window for a refund. No forms, no argument." },
+      ],
+      categories,
+      products: products.map((product) => ({
+        sourceHandle: product.handle,
+        name: product.name,
+        subtitle: product.dosage || "",
+        category: categoryFor(product.name),
+        dosage: product.dosage || "",
+        description: product.description || "",
+        descriptionBlocks: product.descriptionBlocks,
+        bullets: [],
+        usage: "",
+        ingredients: "",
+        badge: "",
+      })),
+    };
+  }
 
   return {
     tagline: "Simple formulas, honest labels",
@@ -254,12 +300,19 @@ export async function POST(request: Request) {
 
     if (!body.fast) {
       try {
-        const raw = await Promise.race([
-          kieClaude(buildPrompt(body.brandName, read.products), 8000),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("Réécriture trop longue")), REWRITE_TIMEOUT_MS)
-          ),
-        ]);
+        const prompt = buildPrompt(body.brandName, uniqueCatalogue(read.products, body.handles));
+        let raw = "";
+        try {
+          raw = await Promise.race([
+            kieClaude(prompt, 8000),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Réécriture trop longue")), REWRITE_TIMEOUT_MS)
+            ),
+          ]);
+        } catch {
+          // Claude chez Kie saturé : OpenAI prend le relais.
+          raw = await openaiJsonText(prompt, 8000);
+        }
         rebranded = parseJson(raw);
         rewritten = true;
       } catch {

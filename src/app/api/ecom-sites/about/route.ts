@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createKieTask, getKieTask, kieClaude } from "@/lib/studio/kie";
+import { openaiJsonText } from "@/lib/openai-chat";
 import { getEcomSite, updateEcomSite } from "@/lib/ecom-sites/store";
 import { sitePalette, type EcomSite } from "@/lib/ecom-sites/types";
 
@@ -59,7 +60,7 @@ function buildPrompt(site: EcomSite) {
     "WHAT TO WRITE INSTEAD, positioning rather than history:",
     "- Why this range and not a bigger catalogue",
     "- Who the products are for, in plain terms",
-    "- How the brand decides what goes on a label and what stays off",
+    "- How the brand chooses its products and describes them honestly (for supplements or skincare: what goes on the label; for other goods: materials, sizes and what is in the box)",
     "- What the customer can expect after ordering: shipping, returns, reaching support",
     "- The brand's point of view on its category",
     "",
@@ -101,12 +102,12 @@ function fallbackStory(site: EcomSite): Story {
     heading: `About ${site.brandName}`,
     paragraphs: [
       `${site.brandName} sells a short range in ${range}. We would rather stand behind a handful of products than list a catalogue we cannot answer questions about. Every item here earns its place, and we drop the ones that stop earning it.`,
-      "We print the full formula on the label, including the parts that are not exciting. If an ingredient is in there at a token amount, we leave it out rather than list it for the sake of the label. What is on the pack is what is in the pack.",
+      "Every product page says plainly what you get: what it is, what it is made of, its size and what comes in the box. If a detail matters to you and it is not on the page, ask us and we will answer before you order.",
       `Orders ship from ${site.shipsFrom || "the United States"} in ${site.deliveryMinDays} to ${site.deliveryMaxDays} business days, and you have ${site.returnWindowDays} days to send anything back. Support answers on ${site.supportEmail || "email"} and ${site.supportPhone || "the phone"}, ${site.supportHours || "on weekdays"}.`,
     ],
     points: [
       { title: "A short range", body: "We sell a handful of products, not a catalogue. Each one has a reason to exist." },
-      { title: "Full labels", body: "Every active and its dose is printed on the pack. Nothing hides behind a proprietary blend." },
+      { title: "Plain descriptions", body: "Each product page says what it is, what it is made of and what comes in the box." },
       { title: "Easy returns", body: `Send it back within ${site.returnWindowDays} days for a refund. No forms, no argument.` },
     ],
   };
@@ -170,12 +171,18 @@ export async function POST(request: Request) {
     let story = fallbackStory(site);
     let written = false;
     try {
-      const raw = await Promise.race([
-        kieClaude(buildPrompt(site), 2000),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("trop long")), REWRITE_TIMEOUT_MS)
-        ),
-      ]);
+      let raw = "";
+      try {
+        raw = await Promise.race([
+          kieClaude(buildPrompt(site), 2000),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("trop long")), REWRITE_TIMEOUT_MS)
+          ),
+        ]);
+      } catch {
+        // Claude chez Kie saturé : OpenAI prend le relais.
+        raw = await openaiJsonText(buildPrompt(site), 2000);
+      }
       const parsed = parseJson(raw);
       if (parsed.paragraphs?.length) {
         story = {
