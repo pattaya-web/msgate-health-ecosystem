@@ -46,13 +46,31 @@ function keepBrandedPacks(current: EcomSite, patch: Partial<EcomSite>) {
   };
 }
 
+/**
+ * Un brouillon ne retire pas un produit qu'il n'a jamais vu.
+ *
+ * « Produits manquants du modèle » ajoute des produits côté serveur ; un onglet
+ * ouvert depuis plus longtemps renvoie sa liste sans eux. Un produit absent du
+ * patch mais ajouté après la dernière version connue du brouillon est gardé :
+ * c'est un oubli du brouillon, pas une suppression.
+ */
+function keepServerAdditions(current: EcomSite, patch: Partial<EcomSite>) {
+  if (!patch.products || !patch.updatedAt) return patch;
+  const seen = Date.parse(patch.updatedAt);
+  const sent = new Set(patch.products.map((product) => product.handle));
+  const unseen = current.products.filter(
+    (product) => !sent.has(product.handle) && product.addedAt && Date.parse(product.addedAt) > seen
+  );
+  return unseen.length ? { ...patch, products: [...patch.products, ...unseen] } : patch;
+}
+
 export async function PATCH(request: Request, { params }: Ctx) {
   const { id } = await params;
   try {
     const patch = (await request.json()) as Partial<EcomSite>;
     const current = await getEcomSite(id);
     if (!current) return NextResponse.json({ error: "Site introuvable" }, { status: 404 });
-    const site = await updateEcomSite(id, keepBrandedPacks(current, patch));
+    const site = await updateEcomSite(id, keepServerAdditions(current, keepBrandedPacks(current, patch)));
     if (!site) return NextResponse.json({ error: "Site introuvable" }, { status: 404 });
     const checklist = evaluateSite(site);
     return NextResponse.json({ site, checklist, score: checklistScore(checklist) });

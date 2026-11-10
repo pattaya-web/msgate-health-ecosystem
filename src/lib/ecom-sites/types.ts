@@ -85,6 +85,8 @@ export type EcomProduct = {
   /** Tâche Kie en cours, le temps que le packaging sorte. */
   packagingTaskId: string | null;
   badge: string;
+  /** Ajouté côté serveur après la création (catalogue complété). */
+  addedAt?: string;
 };
 
 /** Aucun avis inventé : la liste reste vide tant que de vrais retours ne sont pas saisis. */

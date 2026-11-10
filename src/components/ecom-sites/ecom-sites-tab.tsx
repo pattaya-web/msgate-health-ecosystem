@@ -1038,6 +1038,7 @@ export function EcomSitesTab() {
       const body = (await res.json()) as { site?: EcomSite; added?: string[]; total?: number; error?: string };
       if (!res.ok || !body.site) throw new Error(body.error || "Ajout impossible");
       setDraft(body.site);
+      setSaved(JSON.stringify(body.site));
       if (!body.added?.length) {
         toast.success(`Rien ne manque : les ${body.total ?? 0} produits du modèle sont déjà là`);
         return;
@@ -1214,8 +1215,15 @@ export function EcomSitesTab() {
       });
       if (!res.ok) return;
       const body = await res.json();
-      // On ne remplace pas le brouillon : la frappe en cours passerait a la trappe.
-      setSaved(JSON.stringify(body.site));
+      /*
+       * Le repère devient ce qu'on vient d'envoyer, pas la réponse du serveur.
+       *
+       * La réponse porte un nouvel horodatage : comparée au brouillon, elle
+       * différait toujours, et la sauvegarde repartait chaque seconde avec un
+       * brouillon figé — effaçant ce que le serveur ajoutait entre-temps
+       * (produits, packs posés par une génération).
+       */
+      setSaved(payload);
       setChecklist(body.checklist || []);
     } catch {
       // Hors ligne ou serveur qui recompile : la prochaine frappe reessaiera.

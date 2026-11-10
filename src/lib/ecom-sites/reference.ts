@@ -242,7 +242,7 @@ async function readShopify(domain: string): Promise<ReferenceRead | null> {
       descriptionBlocks: descriptionBlocks.length ? descriptionBlocks : undefined,
       raw: description.slice(0, 2000),
       // La photo du pack : affichée telle quelle d'abord, gabarit ensuite.
-      imageUrl: product.images?.[0]?.src || "",
+      imageUrl: readableImage(product.images?.[0]),
       imageRatio:
         product.images?.[0]?.width && product.images?.[0]?.height
           ? product.images[0].width / product.images[0].height
@@ -275,10 +275,29 @@ type WooProduct = {
   description?: string;
   short_description?: string;
   prices?: { price?: string; currency_minor_unit?: number };
-  images?: Array<{ src?: string }>;
+  images?: Array<{ src?: string; srcset?: string }>;
   categories?: Array<{ name?: string }>;
   brands?: Array<{ name?: string }>;
 };
+
+/**
+ * Une photo que le modèle d'image sait lire.
+ *
+ * WordPress sert parfois l'original en AVIF, que Kie refuse (« File type not
+ * supported ») : le pack de ce produit ne sortait jamais. Les déclinaisons du
+ * srcset, elles, sont en JPG ; on prend la plus grande.
+ */
+function readableImage(image?: { src?: string; srcset?: string }) {
+  const src = image?.src || "";
+  if (!/\.(avif|heic)(\?|$)/i.test(src)) return src;
+  const options = (image?.srcset || "")
+    .split(",")
+    .map((entry) => entry.trim().split(/\s+/))
+    .filter(([url]) => url && /\.(jpe?g|png|webp)(\?|$)/i.test(url))
+    .map(([url, size]) => ({ url, width: parseInt(size || "0", 10) || 0 }))
+    .sort((a, b) => b.width - a.width);
+  return options[0]?.url || src;
+}
 
 /**
  * L'API publique d'une boutique WooCommerce (Store API) : noms, prix,
@@ -313,7 +332,7 @@ async function readWooCommerce(domain: string): Promise<ReferenceRead | null> {
       description: description.slice(0, 700),
       descriptionBlocks: descriptionBlocks.length ? descriptionBlocks : undefined,
       raw: description.slice(0, 2000),
-      imageUrl: product.images?.[0]?.src || "",
+      imageUrl: readableImage(product.images?.[0]),
       imageRatio: 0,
     };
   });

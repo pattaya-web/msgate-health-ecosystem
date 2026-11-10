@@ -489,8 +489,10 @@ export async function POST(request: Request) {
 
     if (target) {
       const targetIds = new Set(target.categories.map((category) => category.id));
+      const addedAt = new Date().toISOString();
       const added = products.map((product) => ({
         ...product,
+        addedAt,
         category: targetIds.has(product.category) ? product.category : target.categories[0]?.id || "",
       }));
       const site = await updateEcomSite(target.id, {
