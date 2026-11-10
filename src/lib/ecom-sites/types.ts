@@ -176,6 +176,8 @@ export type EcomSite = {
 
   /* Identité */
   domain: string;
+  /** Le site modèle copié, pour compléter le catalogue plus tard. */
+  modelDomain?: string;
   brandName: string;
   tagline: string;
   heroTitle: string;

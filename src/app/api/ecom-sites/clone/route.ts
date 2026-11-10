@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readReferenceSite, type ReferenceProduct } from "@/lib/ecom-sites/reference";
 import { noteReferenceRead } from "@/lib/ecom-sites/reference-store";
-import { createEcomSite } from "@/lib/ecom-sites/store";
+import { createEcomSite, getEcomSite, updateEcomSite } from "@/lib/ecom-sites/store";
 import { MAX_PRICE, ONE_TIME_PROMO, SUBSCRIPTION_WORDS, type EcomProduct, type EcomThemeId, type PageBlock } from "@/lib/ecom-sites/types";
 import { kieClaude } from "@/lib/studio/kie";
 import { openaiJsonText } from "@/lib/openai-chat";
@@ -35,6 +35,13 @@ type Body = {
    * sauter fait passer la copie de deux minutes à deux secondes.
    */
   fast?: boolean;
+  /**
+   * Compléter une boutique existante au lieu d'en créer une.
+   *
+   * Seuls les produits du modèle absents de la boutique (même nom une fois la
+   * marque remplacée, ou même photo source) sont copiés et ajoutés à la suite.
+   */
+  intoSiteId?: string;
 };
 
 type Rebranded = {
@@ -276,7 +283,10 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Body;
     if (!body.domain?.trim()) return NextResponse.json({ error: "Modèle requis" }, { status: 400 });
-    if (!body.brandName?.trim()) return NextResponse.json({ error: "Nom de marque requis" }, { status: 400 });
+    const target = body.intoSiteId ? await getEcomSite(body.intoSiteId) : null;
+    if (body.intoSiteId && !target) return NextResponse.json({ error: "Site introuvable" }, { status: 404 });
+    const brandName = (target?.brandName || body.brandName || "").trim();
+    if (!brandName) return NextResponse.json({ error: "Nom de marque requis" }, { status: 400 });
 
     const read = await readReferenceSite(body.domain);
     await noteReferenceRead(read.domain, read.products.length);
@@ -295,12 +305,32 @@ export async function POST(request: Request) {
      * est maintenant bornée dans le temps, et son échec fait retomber sur des
      * textes écrits ici — le catalogue, lui, ne dépend d'aucun modèle.
      */
-    let rebranded = fallbackCopy(body.brandName, read.products);
+    /*
+     * Boutique à compléter : on ne garde du modèle que ce qu'elle n'a pas.
+     */
+    let handles = body.handles;
+    if (target) {
+      const swapTarget = sourceBrandSwap(read.domain, read.products.map((product) => product.vendor || ""), brandName);
+      const haveNames = new Set(target.products.map((product) => product.name.trim().toLowerCase()));
+      const haveImages = new Set(target.products.map((product) => product.sourceImageUrl).filter(Boolean));
+      const missing = read.products.filter(
+        (source) =>
+          !SUBSCRIPTION_WORDS.test(source.name || "") &&
+          !haveNames.has(swapTarget(source.name || "").trim().toLowerCase()) &&
+          !(source.imageUrl && haveImages.has(source.imageUrl))
+      );
+      if (!missing.length) {
+        return NextResponse.json({ site: target, added: [], copiedFrom: read.domain, total: read.products.length });
+      }
+      handles = missing.map((source) => source.handle);
+    }
+
+    let rebranded = fallbackCopy(brandName, read.products);
     let rewritten = false;
 
     if (!body.fast) {
       try {
-        const prompt = buildPrompt(body.brandName, uniqueCatalogue(read.products, body.handles));
+        const prompt = buildPrompt(brandName, uniqueCatalogue(read.products, handles));
         let raw = "";
         try {
           raw = await Promise.race([
@@ -350,7 +380,7 @@ export async function POST(request: Request) {
      * gel se voit immédiatement, et se corrige ici une bonne fois.
      */
     // Une sélection faite à l'aperçu restreint le catalogue dès la copie.
-    const wanted = body.handles?.length ? new Set(body.handles) : null;
+    const wanted = handles?.length ? new Set(handles) : null;
 
     const seenSource = new Set<string>();
     const uniqueSources = read.products.filter((source) => {
@@ -388,7 +418,7 @@ export async function POST(request: Request) {
      * les deux comme un seul : cocher l'un cochait l'autre, et générer le
      * packaging de l'un écrasait celui de l'autre.
      */
-    const usedHandles = new Set<string>();
+    const usedHandles = new Set<string>(target?.products.map((product) => product.handle) ?? []);
     const uniqueHandle = (base: string) => {
       const root = base || "product";
       let candidate = root;
@@ -401,7 +431,7 @@ export async function POST(request: Request) {
     const swap = sourceBrandSwap(
       read.domain,
       read.products.map((product) => product.vendor || ""),
-      body.brandName.trim()
+      brandName
     );
 
     const products: EcomProduct[] = uniqueSources.map((source, index) => {
@@ -457,8 +487,28 @@ export async function POST(request: Request) {
       };
     });
 
+    if (target) {
+      const targetIds = new Set(target.categories.map((category) => category.id));
+      const added = products.map((product) => ({
+        ...product,
+        category: targetIds.has(product.category) ? product.category : target.categories[0]?.id || "",
+      }));
+      const site = await updateEcomSite(target.id, {
+        products: [...target.products, ...added],
+        modelDomain: read.domain,
+      });
+      return NextResponse.json({
+        site,
+        added: added.map((product) => product.handle),
+        copiedFrom: read.domain,
+        total: read.products.length,
+        rewritten,
+      });
+    }
+
     const site = await createEcomSite({
-      brandName: body.brandName,
+      brandName,
+      modelDomain: read.domain,
       themeId: body.themeId || "glow",
       // Le site naît déjà brandé : les générations qui suivent ont de quoi travailler.
       logoDataUrl: body.logoDataUrl || "",

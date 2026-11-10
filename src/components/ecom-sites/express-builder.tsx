@@ -167,7 +167,7 @@ function Field({ label, children, className }: { label: string; children: React.
 export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
   const [url, setUrl] = useState("");
   const [brand, setBrand] = useState("");
-  const [maxProducts, setMaxProducts] = useState(12);
+  const [maxProducts, setMaxProducts] = useState(0);
   const [primary, setPrimary] = useState("#1f2937");
   const [secondary, setSecondary] = useState("#f3f4f6");
   const [logo, setLogo] = useState("");
@@ -341,7 +341,7 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
       const read = await postJson<{ products: Array<{ handle: string; name: string; price: number }> }>("/api/ecom-sites/reference", { action: "read", domain: model });
       const usable = (read.products ?? []).filter((product) => !SUBSCRIPTION_WORDS.test(product.name));
       if (!usable.length) throw new Error("Aucun produit lisible sur ce site");
-      const handles = usable.slice(0, maxProducts).map((product) => product.handle);
+      const handles = (maxProducts ? usable.slice(0, maxProducts) : usable).map((product) => product.handle);
 
       setCreating(`${handles.length} produits — copie et textes de marque`);
       const logoDataUrl = logo || (await renderWordmark(name, primary, style));
@@ -409,7 +409,8 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
         </Field>
         <Field label="Produits max">
           <select value={maxProducts} onChange={(e) => setMaxProducts(Number(e.target.value))} className={field}>
-            {[6, 8, 12, 20, 40].map((count) => (
+            <option value={0}>Tous</option>
+            {[6, 8, 12, 20].map((count) => (
               <option key={count} value={count}>{count}</option>
             ))}
           </select>

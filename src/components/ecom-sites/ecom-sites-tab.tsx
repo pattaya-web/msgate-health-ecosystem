@@ -1014,20 +1014,59 @@ export function EcomSitesTab() {
     }
   }
 
-  /** Packagings brandés : Kie gpt-image-2, le logo du site en référence. */
-  async function generatePackaging() {
+  /**
+   * Ajoute les produits du modèle qui manquent à la boutique ouverte,
+   * puis lance leurs packagings brandés.
+   */
+  async function completeCatalogue() {
     if (!draft) return;
-    if (!draft.logoDataUrl) {
+    const model = window.prompt("Site modèle à reprendre (les produits déjà présents ne sont pas dupliqués)", draft.modelDomain || "");
+    if (!model?.trim()) return;
+    setBusy("complete");
+    try {
+      // Les modifications en cours d'abord : la route repart du site stocké.
+      await fetch(`/api/ecom-sites/${draft.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const res = await fetch("/api/ecom-sites/clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: model.trim(), intoSiteId: draft.id }),
+      });
+      const body = (await res.json()) as { site?: EcomSite; added?: string[]; total?: number; error?: string };
+      if (!res.ok || !body.site) throw new Error(body.error || "Ajout impossible");
+      setDraft(body.site);
+      if (!body.added?.length) {
+        toast.success(`Rien ne manque : les ${body.total ?? 0} produits du modèle sont déjà là`);
+        return;
+      }
+      toast.success(`${body.added.length} produit(s) ajouté(s), packagings lancés`);
+      setBusy(null);
+      await generatePackaging(body.added, body.site);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Ajout impossible");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Packagings brandés : Kie gpt-image-2, le logo du site en référence. */
+  async function generatePackaging(only?: string[], base?: EcomSite) {
+    const site = base ?? draft;
+    if (!site) return;
+    if (!site.logoDataUrl) {
       toast.error("Charge le logo avant de générer les packagings");
       return;
     }
     setBusy("packaging");
     try {
       // Le site doit être à jour côté serveur : la route lit les produits stockés.
-      await fetch(`/api/ecom-sites/${draft.id}`, {
+      await fetch(`/api/ecom-sites/${site.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(site),
       });
 
       const res = await fetch("/api/ecom-sites/packaging", {
@@ -1036,8 +1075,8 @@ export function EcomSitesTab() {
         // Une sélection restreint la fournée ; sans sélection, tout y passe.
         body: JSON.stringify({
           action: "generate",
-          siteId: draft.id,
-          handles: pickedProducts.length ? pickedProducts : undefined,
+          siteId: site.id,
+          handles: only?.length ? only : pickedProducts.length ? pickedProducts : undefined,
         }),
       });
       const body = await res.json();
@@ -1050,7 +1089,7 @@ export function EcomSitesTab() {
       toast.success(`${launched.length} packagings en génération`);
       setPackRun({ done: 0, total: launched.length });
       startClock();
-      startPolling(draft.id, launched);
+      startPolling(site.id, launched);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Génération impossible");
     } finally {
@@ -2943,6 +2982,16 @@ export function EcomSitesTab() {
               >
                 {busy === "packaging" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
                 Générer les packagings
+              </button>
+              <button
+                type="button"
+                onClick={() => void completeCatalogue()}
+                disabled={busy === "complete"}
+                title="Reprend sur le site modèle les produits absents de cette boutique"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-100 px-3 text-[12px] font-semibold disabled:opacity-50 dark:bg-slate-800"
+              >
+                {busy === "complete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Produits manquants du modèle
               </button>
 
               <button
