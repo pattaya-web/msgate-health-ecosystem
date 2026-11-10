@@ -3,6 +3,7 @@ import path from "path";
 import { persistJson, readMirror } from "@/lib/storage";
 import { defaultEcomSite, type EcomSite } from "@/lib/ecom-sites/types";
 import { STORAGE_ROOT } from "@/lib/storage-root";
+import { keepImagesIn } from "@/lib/ecom-sites/media-store";
 
 const CACHE_DIR = path.join(STORAGE_ROOT, ".msgate-cache");
 const CACHE_FILE = path.join(CACHE_DIR, "ecom-sites.json");
@@ -237,7 +238,9 @@ export async function createEcomSite(input: Partial<EcomSite> & { brandName: str
   return site;
 }
 
-export async function updateEcomSite(id: string, patch: Partial<EcomSite>) {
+export async function updateEcomSite(id: string, rawPatch: Partial<EcomSite>) {
+  // Les images Kie temporaires sont recopiées avant d'entrer dans la boutique.
+  const patch = await keepImagesIn(rawPatch);
   const store = await load();
   const site = store.sites.find((item) => item.id === id);
   if (!site) return null;

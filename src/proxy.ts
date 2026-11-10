@@ -93,6 +93,8 @@ export async function proxy(request: NextRequest) {
    * fichiers internes de Next.
    */
   if (pathname.startsWith("/_next/")) return NextResponse.next();
+  // Les images de la boutique, gardées sur le disque du serveur.
+  if (pathname.startsWith("/api/media/") && (request.method === "GET" || request.method === "HEAD")) return NextResponse.next();
   if (pathname.startsWith("/api/")) {
     const allowed = ["/api/ecom-sites/messages", "/api/ecom-sites/orders"];
     if (allowed.some((route) => pathname === route || pathname.startsWith(`${route}/`)) && request.method === "POST") return NextResponse.next();

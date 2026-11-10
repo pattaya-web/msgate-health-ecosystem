@@ -46,10 +46,22 @@ export type KieTask = {
   raw?: unknown;
 };
 
+/**
+ * Une image gardée sur notre disque s'écrit « /api/media/… » ; Kie ne lit que
+ * des adresses complètes.
+ */
+function absoluteInputs(input: Record<string, unknown>) {
+  const base = process.env.PUBLIC_BASE_URL?.trim().replace(/\/+$/, "") || "https://www.mabillmafia.com";
+  const fix = (value: unknown) => (typeof value === "string" && value.startsWith("/api/media/") ? `${base}${value}` : value);
+  return Object.fromEntries(
+    Object.entries(input).map(([name, value]) => [name, Array.isArray(value) ? value.map(fix) : fix(value)])
+  );
+}
+
 export async function createKieTask(model: string, input: Record<string, unknown>) {
   const body = await kie<{ data?: { taskId?: string } }>("/jobs/createTask", {
     method: "POST",
-    body: JSON.stringify({ model, input }),
+    body: JSON.stringify({ model, input: absoluteInputs(input) }),
   });
   const taskId = body.data?.taskId;
   if (!taskId) throw new Error("Kie n’a pas renvoyé de taskId");
