@@ -67,7 +67,17 @@ export function loadAuthUsers(): AuthUsers {
       users.push({ email, role: role as UserRole, hash });
     }
     if (!users.length) return { users: [], source: "none", error: "AUTH_USERS est vide" };
-    return { users, source: "env" };
+    /*
+     * AUTH_REVOKED : les comptes coupés, séparés par des virgules (« alison »).
+     * Couper un accès ne demande pas de réécrire AUTH_USERS et ses hash ; le
+     * remettre, c'est retirer le nom de la liste.
+     */
+    const revoked = new Set(
+      (process.env.AUTH_REVOKED ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean)
+    );
+    const active = users.filter((user) => !revoked.has(user.email));
+    if (!active.length) return { users: [], source: "none", error: "Tous les comptes de AUTH_USERS sont coupés" };
+    return { users: active, source: "env" };
   }
   if (isProduction()) return { users: [], source: "none", error: "AUTH_USERS manquant en production" };
   // Développement local sans comptes configurés : les comptes de démonstration du code.
@@ -121,6 +131,18 @@ export function verifySession(value: string | null | undefined, secret: string |
     const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown; role?: unknown; exp?: unknown };
     if (typeof data.sub !== "string" || !ROLES.includes(data.role as UserRole) || typeof data.exp !== "number") return null;
     if (data.exp * 1000 <= now) return null;
+    /*
+     * Un compte retiré de AUTH_USERS est coupé tout de suite.
+     *
+     * Sans ce contrôle, un cookie signé restait valable jusqu'à 30 jours après
+     * le retrait de l'accès. Le rôle aussi doit correspondre : un compte
+     * rétrogradé ne garde pas ses anciens droits.
+     */
+    const accounts = loadAuthUsers();
+    if (accounts.source === "env") {
+      const account = accounts.users.find((user) => user.email === data.sub);
+      if (!account || account.role !== data.role) return null;
+    }
     return { email: data.sub, role: data.role as UserRole };
   } catch {
     return null;
