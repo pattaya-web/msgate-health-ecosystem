@@ -66,20 +66,42 @@ export async function listAccountStructure(accountId: string, force = false): Pr
   if (!force && hit && Date.now() - hit.at < guardedTtl(STRUCTURE_TTL_MS, [act.replace(/^act_/, "")])) return hit.value;
   try {
     const token = await resolveToken(act);
-    const [campaigns, adsets, ads] = await Promise.all([
+    type AdsetRow = { id: string; name: string; status: string; campaign_id: string; daily_budget?: string };
+    const [campaigns, adsetsRead, ads] = await Promise.all([
       allPages<{ id: string; name: string; status: string; objective?: string; daily_budget?: string }>(
         `${act}/campaigns?fields=id,name,status,objective,daily_budget&limit=200&filtering=${LIVE_FILTER}`,
         token
       ),
-      allPages<{ id: string; name: string; status: string; campaign_id: string; daily_budget?: string }>(
-        `${act}/adsets?fields=id,name,status,campaign_id,daily_budget&limit=300&filtering=${LIVE_FILTER}`,
-        token
+      allPages<AdsetRow>(`${act}/adsets?fields=id,name,status,campaign_id,daily_budget&limit=300&filtering=${LIVE_FILTER}`, token).catch(
+        (error: unknown) => {
+          if (isMetaRateLimit(error instanceof Error ? error.message : String(error))) return null;
+          throw error;
+        }
       ),
-      allPages<{ id: string; name: string; status: string; adset_id: string; campaign_id: string }>(
-        `${act}/ads?fields=id,name,status,adset_id,campaign_id&limit=500&filtering=${LIVE_FILTER}`,
+      allPages<{ id: string; name: string; status: string; adset_id: string; campaign_id: string; adset?: AdsetRow }>(
+        `${act}/ads?fields=id,name,status,adset_id,campaign_id,adset{id,name,status,campaign_id,daily_budget}&limit=500&filtering=${LIVE_FILTER}`,
         token
       ),
     ]);
+    /*
+     * Meta refuse souvent la seule liste des ad sets (« User request limit
+     * reached ») alors que campagnes et pubs passent : chaque pub ramène son ad
+     * set, on la reconstruit sans appel en plus. Les ad sets encore sans pub
+     * viennent de la dernière liste connue. Refresh ne retombe plus sur le
+     * message d'erreur pour ça.
+     */
+    let adsets = adsetsRead ?? [];
+    let previousAdsets: PickerAdset[] = [];
+    if (!adsetsRead) {
+      const rebuilt = new Map<string, AdsetRow>();
+      for (const ad of ads) if (ad.adset?.id && !rebuilt.has(ad.adset.id)) rebuilt.set(ad.adset.id, { ...ad.adset, campaign_id: ad.adset.campaign_id || ad.campaign_id });
+      adsets = [...rebuilt.values()];
+      const liveCampaigns = new Set(campaigns.map((row) => row.id));
+      const known: PickerAdset[] = hit
+        ? hit.value.adsets
+        : (knownAccountStructure(act)?.adsets ?? []).map((row) => ({ id: row.id, name: row.name, status: row.status, campaignId: row.campaign_id, dailyBudget: centsToUnits(row.daily_budget) }) as PickerAdset);
+      previousAdsets = known.filter((row) => !rebuilt.has(row.id) && liveCampaigns.has(row.campaignId));
+    }
     const value: AccountStructure = {
       campaigns: campaigns.map((row) => ({
         id: row.id,
@@ -88,13 +110,16 @@ export async function listAccountStructure(accountId: string, force = false): Pr
         objective: row.objective || "",
         dailyBudget: centsToUnits(row.daily_budget),
       })) as PickerCampaign[],
-      adsets: adsets.map((row) => ({
-        id: row.id,
-        name: row.name,
-        status: row.status,
-        campaignId: row.campaign_id,
-        dailyBudget: centsToUnits(row.daily_budget),
-      })) as PickerAdset[],
+      adsets: [
+        ...(adsets.map((row) => ({
+          id: row.id,
+          name: row.name,
+          status: row.status,
+          campaignId: row.campaign_id,
+          dailyBudget: centsToUnits(row.daily_budget),
+        })) as PickerAdset[]),
+        ...previousAdsets,
+      ],
       ads: ads.map((row) => ({
         id: row.id,
         name: row.name,
