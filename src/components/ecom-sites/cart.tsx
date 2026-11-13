@@ -14,6 +14,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore } from "react";
 import { money, type EcomProduct, type EcomSite } from "@/lib/ecom-sites/types";
+import { fastImage } from "@/lib/ecom-sites/fast-image";
 
 export type CartLine = { handle: string; name: string; price: number; image: string; qty: number };
 
@@ -223,7 +224,7 @@ export function CartView({ site }: { site: EcomSite }) {
           >
             {line.image ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={line.image} alt={line.name} className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+              <img src={fastImage(line.image, 800)} alt={line.name} className="h-16 w-16 shrink-0 rounded-lg object-cover" />
             ) : (
               <div className="h-16 w-16 shrink-0 rounded-lg bg-[color:var(--wash)]" />
             )}
@@ -432,7 +433,7 @@ export function CheckoutView({ site }: { site: EcomSite }) {
               <div key={line.handle} className="flex items-center gap-3">
                 {line.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={line.image} alt={line.name} className="h-12 w-12 rounded-lg object-cover" />
+                  <img src={fastImage(line.image, 800)} alt={line.name} className="h-12 w-12 rounded-lg object-cover" />
                 ) : (
                   <div className="h-12 w-12 rounded-lg bg-[color:var(--wash)]" />
                 )}

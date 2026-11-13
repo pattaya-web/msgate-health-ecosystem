@@ -62,7 +62,8 @@ export function thumbKind(file: string): "video" | "image" | null {
   return null;
 }
 
-const ALLOWED_WIDTHS = new Set([240, 360, 480]);
+/* 800 et 1200 : les photos des boutiques (PNG de 2 Mo sortis de Kie), servies en JPEG de ~150 Ko. */
+const ALLOWED_WIDTHS = new Set([240, 360, 480, 800, 1200]);
 export function thumbWidth(raw: string | null): number {
   const n = Number(raw);
   return ALLOWED_WIDTHS.has(n) ? n : WIDTH;
@@ -75,15 +76,17 @@ async function generate(src: string, out: string, kind: "video" | "image", width
   // Lecture reseau bornee a 10 s : une URL de CDN expiree ne doit pas bloquer la file.
   const base = ["-hide_banner", "-loglevel", "error", "-y", ...(remote ? ["-rw_timeout", "10000000"] : [])];
   const scale = `scale='min(${width},iw)':-2`;
+  // Grandes tailles (photos de boutique) : meilleure qualité que les vignettes de galerie.
+  const quality = width >= 800 ? "3" : "6";
   const attempts: string[][] =
     kind === "video"
       ? [
           // Une demi-seconde apres le debut : evite l'image noire des fondus d'ouverture.
-          [...base, "-ss", "0.5", "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", "6", tmp],
+          [...base, "-ss", "0.5", "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", quality, tmp],
           // Clip plus court que 0,5 s : premiere image.
-          [...base, "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", "6", tmp],
+          [...base, "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", quality, tmp],
         ]
-      : [[...base, "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", "6", tmp]];
+      : [[...base, "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", quality, tmp]];
   for (const args of attempts) {
     try {
       await run("ffmpeg", args, { timeout: remote ? 15_000 : 30_000, maxBuffer: 4 * 1024 * 1024 });

@@ -11,6 +11,7 @@ import {
   footerPayments,
 } from "@/lib/ecom-sites/footer";
 import { navItems } from "@/lib/ecom-sites/pages";
+import { fastImage } from "@/lib/ecom-sites/fast-image";
 import { fullAddress, money, sitePalette, type EcomPage, type EcomProduct, type EcomSite } from "@/lib/ecom-sites/types";
 import { alignClass, assuranceItems, sectionStyle, sectionsOf, spaceClass } from "@/lib/ecom-sites/sections";
 import type { EcomSection } from "@/lib/ecom-sites/types";
@@ -499,7 +500,7 @@ export function ProductCard({ site, product }: { site: EcomSite; product: EcomPr
         {product.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={product.imageUrl}
+            src={fastImage(product.imageUrl, 800)}
             alt={product.name}
             data-image-key={`product:${product.handle}`}
             className={cn(
@@ -591,7 +592,7 @@ export function HomeView({ site }: { site: EcomSite }) {
         <section className="relative isolate overflow-hidden bg-[color:var(--wash)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={site.heroImageUrl}
+            src={fastImage(site.heroImageUrl)}
             alt=""
             data-image-key="hero"
             className="hero-media absolute inset-0 -z-10 h-full w-full object-cover"
@@ -646,7 +647,7 @@ export function HomeView({ site }: { site: EcomSite }) {
             {featured[0]?.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={featured[0].imageUrl}
+                src={fastImage(featured[0].imageUrl)}
                 alt={featured[0].name}
                 className="w-full rounded-3xl bg-white/50 object-contain p-4"
                 style={{ aspectRatio: frameRatio(site) }}
@@ -727,7 +728,7 @@ export function ProductView({ site, product }: { site: EcomSite; product: EcomPr
         {product.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={product.imageUrl}
+            src={fastImage(product.imageUrl, 800)}
             alt={product.name}
             data-image-key={`product:${product.handle}`}
             className="h-full w-full object-cover"
@@ -945,7 +946,7 @@ export function BlocksView({ site, blocks, compact = false }: { site: EcomSite; 
           if (!block.src) return null;
           return (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={index} src={block.src} alt={block.alt ?? ""} loading="lazy" className="w-full rounded-2xl" />
+            <img key={index} src={fastImage(block.src)} alt={block.alt ?? ""} loading="lazy" className="w-full rounded-2xl" />
           );
         })}
     </>
@@ -1008,7 +1009,7 @@ export function AboutView({ site }: { site: EcomSite }) {
       {site.aboutImageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={site.aboutImageUrl}
+          src={fastImage(site.aboutImageUrl)}
           alt=""
           className="mt-8 aspect-[4/3] w-full rounded-3xl object-cover"
         />
@@ -1120,7 +1121,7 @@ function CategoriesBlock({ site, root, section }: { site: EcomSite; root: string
                     <div className="aspect-[4/5] overflow-hidden bg-[color:var(--wash)]">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={category.imageUrl}
+                        src={fastImage(category.imageUrl, 800)}
                         alt=""
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
                       />
@@ -1160,7 +1161,7 @@ function LifestyleBlock({ site, section }: { site: EcomSite; section: EcomSectio
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={url}
-                  src={url}
+                  src={fastImage(url)}
                   alt=""
                   data-image-key={`lifestyle:${index}`}
                   className={
@@ -1262,7 +1263,7 @@ function AboutBlock({ site, root, section }: { site: EcomSite; root: string; sec
         {site.aboutImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={site.aboutImageUrl}
+            src={fastImage(site.aboutImageUrl)}
             alt=""
             data-image-key="about"
             className="aspect-[4/3] w-full rounded-3xl object-cover"
@@ -1368,7 +1369,7 @@ function FreeImageBlock({ section }: { section: EcomSection }) {
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={section.imageUrl}
+        src={fastImage(section.imageUrl)}
         alt={section.title || ""}
         data-image-key={`section:${section.id}`}
         className="w-full rounded-3xl object-cover"

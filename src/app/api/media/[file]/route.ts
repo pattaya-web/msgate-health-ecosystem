@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
-import { ensureThumb, thumbWidth } from "@/lib/thumbs";
+import { ensureThumb, thumbKind, thumbWidth } from "@/lib/thumbs";
 import { STORAGE_ROOT } from "@/lib/storage-root";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +48,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ file: strin
    */
   if (req.nextUrl.searchParams.get("poster") === "1") {
     const thumb = await ensureThumb(file, thumbWidth(req.nextUrl.searchParams.get("w")));
-    if (!thumb) return NextResponse.json({ error: "Pas de vignette" }, { status: 404 });
+    // Une photo dont la version allégée échoue est servie telle quelle (les boutiques n'ont pas de repli) ; une vidéo répond 404.
+    if (!thumb && thumbKind(file) !== "image") return NextResponse.json({ error: "Pas de vignette" }, { status: 404 });
+    if (thumb) {
     const tstat = fs.statSync(thumb);
     return new NextResponse(fs.createReadStream(thumb) as unknown as ReadableStream, {
       headers: {
@@ -57,6 +59,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ file: strin
         "Cache-Control": "public, max-age=31536000, immutable",
       },
     });
+    }
   }
 
   const stat = fs.statSync(full);
