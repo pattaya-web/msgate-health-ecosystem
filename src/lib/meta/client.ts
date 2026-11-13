@@ -121,42 +121,68 @@ async function graphAll<T>(firstUrl: string): Promise<{ rows: T[]; error?: strin
   return { rows };
 }
 
+type DiscoveredRow = { account_id: string; name: string; currency: string; account_status: number };
+type DiscoveryEntry = { at: number; rows?: DiscoveredRow[]; error?: string; pending?: Promise<DiscoveryEntry> };
+
+/*
+ * Les comptes de chaque jeton, gardés 10 min (une erreur : 2 min).
+ *
+ * Sans ce cache, chaque ouverture de l'uploader, du tableau associé ou du
+ * cockpit relisait me/adaccounts avec tous les jetons : plus de 350 appels en
+ * 5 min, et Meta (app en development_access) répondait « User request limit
+ * reached » au compte suivant. Si Meta refuse une relecture, la dernière liste
+ * connue du jeton reste servie.
+ */
+const discovery = ((globalThis as typeof globalThis & { __msgateDiscovery?: Map<string, DiscoveryEntry> }).__msgateDiscovery ??= new Map());
+const DISCOVERY_TTL_MS = 10 * 60_000;
+const DISCOVERY_ERROR_TTL_MS = 2 * 60_000;
+
+async function accountsOfToken(token: string, apiVersion: string): Promise<DiscoveryEntry> {
+  const hit = discovery.get(token);
+  if (hit?.pending) return hit.pending;
+  if (hit && Date.now() - hit.at < (hit.error ? DISCOVERY_ERROR_TTL_MS : DISCOVERY_TTL_MS)) return hit;
+  const pending = (async (): Promise<DiscoveryEntry> => {
+    const url = `${GRAPH}/${apiVersion}/me/adaccounts?fields=account_id,name,currency,account_status&limit=200&access_token=${encodeURIComponent(token)}`;
+    const body = await graph<GraphError & { data?: DiscoveredRow[] }>(url).catch((error: unknown) => ({
+      error: { message: error instanceof Error ? error.message : String(error) },
+    }) as GraphError & { data?: DiscoveredRow[] });
+    if (!body.error) return { at: Date.now(), rows: body.data || [] };
+    // Refus passager : on garde la liste d'avant, réessayée dans 2 min.
+    if (hit?.rows) return { at: Date.now() - DISCOVERY_TTL_MS + DISCOVERY_ERROR_TTL_MS, rows: hit.rows };
+    return { at: Date.now(), error: body.error.message };
+  })();
+  discovery.set(token, { ...(hit ?? { at: 0 }), pending });
+  const entry = await pending;
+  discovery.set(token, entry);
+  return entry;
+}
+
 export async function discoverAdAccounts(config: MetaConfig) {
   const accounts = new Map<string, MetaAdAccount & { token: string }>();
   const errors: string[] = [];
   let working = 0;
 
-  await Promise.all(
-    config.tokens.map(async (token, index) => {
-      const url =
-        `${GRAPH}/${config.apiVersion}/me/adaccounts` +
-        `?fields=account_id,name,currency,account_status&limit=200&access_token=${encodeURIComponent(token)}`;
-      const body = await graph<
-        GraphError & {
-          data?: Array<{ account_id: string; name: string; currency: string; account_status: number }>;
-        }
-      >(url);
-
-      if (body.error) {
-        errors.push(`Token #${index + 1} : ${body.error.message}`);
-        return;
-      }
-      working += 1;
-
-      for (const row of body.data || []) {
-        if (accounts.has(row.account_id)) continue;
-        if (config.accountFilter.length && !config.accountFilter.includes(row.account_id)) continue;
-        accounts.set(row.account_id, {
-          id: `act_${row.account_id}`,
-          accountId: row.account_id,
-          name: row.name,
-          currency: row.currency,
-          status: row.account_status,
-          token,
-        });
-      }
-    })
-  );
+  const results = await Promise.all(config.tokens.map((token) => accountsOfToken(token, config.apiVersion)));
+  config.tokens.forEach((token, index) => {
+    const { rows, error } = results[index];
+    if (error) {
+      errors.push(`Token #${index + 1} : ${error}`);
+      return;
+    }
+    working += 1;
+    for (const row of rows || []) {
+      if (accounts.has(row.account_id)) continue;
+      if (config.accountFilter.length && !config.accountFilter.includes(row.account_id)) continue;
+      accounts.set(row.account_id, {
+        id: `act_${row.account_id}`,
+        accountId: row.account_id,
+        name: row.name,
+        currency: row.currency,
+        status: row.account_status,
+        token,
+      });
+    }
+  });
 
   return { accounts: [...accounts.values()], errors, working };
 }
