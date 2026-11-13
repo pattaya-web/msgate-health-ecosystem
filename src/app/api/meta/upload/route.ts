@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const adId = params.get("adId")?.trim();
     if (adId) {
       if (scoped) await assertObjectsInScope([adId], scoped);
-      return NextResponse.json({ copy: await readAdCopy(adId) });
+      return NextResponse.json({ copy: await readAdCopy(adId, params.get("access") === "1") });
     }
     // ?adsetId= : placements, pays et audience de l'ad set modèle (récap avant création).
     const adsetId = params.get("adsetId")?.trim();

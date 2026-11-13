@@ -217,7 +217,7 @@ type AdClone = GraphError & {
   name?: string;
   creative?: {
     id?: string;
-    object_story_spec?: { page_id?: string; instagram_actor_id?: string };
+    object_story_spec?: { page_id?: string; instagram_actor_id?: string; instagram_user_id?: string };
     asset_feed_spec?: { call_to_action_types?: string[]; link_urls?: Array<{ website_url?: string; display_url?: string }> };
   };
 };
@@ -270,6 +270,30 @@ function enroll(enhancements: Record<string, boolean>) {
  * Le message de Meta en clair : son titre et son explication pour l'utilisateur
  * (« Autorisation de Page manquante : … ») plutôt que « Invalid parameter ».
  */
+/**
+ * Pourquoi Meta répond « Permission Error » sur une créa : le jeton du compte
+ * ne voit pas la Page Facebook ou le compte Instagram repris de la pub
+ * modèle (actifs pas donnés à l'utilisateur système dans le BM). Lecture
+ * seule ; renvoie une phrase à ajouter au message, ou "".
+ */
+export async function explainCreativeAccess(pageId: string | undefined, instagramId: string | undefined, token: string) {
+  const problems: string[] = [];
+  if (pageId) {
+    const pages = await graphGet<GraphError & { data?: Array<{ id: string; name?: string; tasks?: string[] }> }>("me/accounts?fields=id,name,tasks&limit=200", token);
+    const page = pages.data?.find((row) => row.id === pageId);
+    const direct = await graphGet<GraphError & { name?: string }>(`${pageId}?fields=name`, token);
+    const label = page?.name || direct.name || pageId;
+    if (!page && pages.data) problems.push(`la Page Facebook « ${label} » (${pageId}) n'est pas donnée au jeton de ce BM`);
+    else if (page && !page.tasks?.some((task) => task === "ADVERTISE" || task === "MANAGE")) problems.push(`le jeton n'a pas le droit « Publicité » sur la Page « ${label} »`);
+  }
+  if (instagramId) {
+    const ig = await graphGet<GraphError & { username?: string }>(`${instagramId}?fields=username`, token);
+    if (ig.error) problems.push(`le compte Instagram de la pub modèle (${instagramId}) n'est pas visible par le jeton`);
+  }
+  if (!problems.length) return "";
+  return ` Cause : ${problems.join(" et ")}. Dans le BM : Paramètres → Utilisateurs système → l'utilisateur du jeton → Ajouter des actifs → Pages (et comptes Instagram), droits complets ; ou choisis une pub modèle sur une autre Page.`;
+}
+
 function metaMessage(error: GraphError["error"] | undefined) {
   if (!error) return "réponse vide de Meta.";
   const detail = error as { message: string; error_user_title?: string; error_user_msg?: string };
@@ -340,7 +364,9 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
   if (!pageId) throw new Error("Impossible de trouver la Facebook Page liée à ce compte / cet ad set.");
 
   const instagramActorId =
-    sourceAd?.creative?.object_story_spec?.instagram_actor_id || sourceAdset?.instagram_actor_id;
+    sourceAd?.creative?.object_story_spec?.instagram_user_id ||
+    sourceAd?.creative?.object_story_spec?.instagram_actor_id ||
+    sourceAdset?.instagram_actor_id;
 
   const website =
     input.websiteUrl ||
@@ -508,8 +534,11 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
         creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
       }
       if (creative.error || !creative.id) {
-        onProgress({ kind: "creative", label: name, ok: false, message: metaMessage(creative.error) });
-        throw new Error(`Créa refusée par Meta (${media.fileName}) — ${metaMessage(creative.error)} Rien n'a été créé dans le compte.`);
+        const why = /permission|not visible|restricted/i.test(metaMessage(creative.error))
+          ? await explainCreativeAccess(pageId, instagramActorId, token).catch(() => "")
+          : "";
+        onProgress({ kind: "creative", label: name, ok: false, message: metaMessage(creative.error) + why });
+        throw new Error(`Créa refusée par Meta (${media.fileName}) — ${metaMessage(creative.error)}${why} Rien n'a été créé dans le compte.`);
       }
       planned.push({ group: g, media, name, creativeId: creative.id });
       onProgress({ kind: "creative", label: name, ok: true });
@@ -615,6 +644,9 @@ type CreativeCopy = GraphError & {
     body?: string;
     call_to_action_type?: string;
     object_story_spec?: {
+      page_id?: string;
+      instagram_user_id?: string;
+      instagram_actor_id?: string;
       link_data?: { name?: string; message?: string; description?: string; link?: string; call_to_action?: { type?: string } };
       video_data?: { title?: string; message?: string; link_description?: string; call_to_action?: { type?: string; value?: { link?: string } } };
     };
@@ -633,7 +665,7 @@ type CreativeCopy = GraphError & {
  * lien, bouton) : l'uploader s'en sert pour « se calquer » sur une créa qui
  * tourne déjà. Lecture seule.
  */
-export async function readAdCopy(adId: string) {
+export async function readAdCopy(adId: string, checkAccess = false) {
   const token = await resolveToken(adId);
   const body = await graphGet<CreativeCopy>(
     `${adId}?fields=creative{title,body,call_to_action_type,object_story_spec,asset_feed_spec}`,
@@ -653,6 +685,9 @@ export async function readAdCopy(adId: string) {
     websiteUrl: feed?.link_urls?.[0]?.website_url || link?.link || video?.call_to_action?.value?.link || "",
     displayUrl: feed?.link_urls?.[0]?.display_url || "",
     cta: feed?.call_to_action_types?.[0] || link?.call_to_action?.type || video?.call_to_action?.type || creative.call_to_action_type || "",
+    pageId: creative.object_story_spec?.page_id || "",
+    instagramId: creative.object_story_spec?.instagram_user_id || creative.object_story_spec?.instagram_actor_id || "",
+    access: !checkAccess ? "" : await explainCreativeAccess(creative.object_story_spec?.page_id, creative.object_story_spec?.instagram_user_id || creative.object_story_spec?.instagram_actor_id, token).catch(() => ""),
   };
 }
 
