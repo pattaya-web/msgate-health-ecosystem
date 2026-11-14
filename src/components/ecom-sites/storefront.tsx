@@ -12,6 +12,7 @@ import {
 } from "@/lib/ecom-sites/footer";
 import { navItems } from "@/lib/ecom-sites/pages";
 import { fastImage } from "@/lib/ecom-sites/fast-image";
+import { publicProduct } from "@/lib/ecom-sites/product-facts";
 import { fullAddress, money, sitePalette, type EcomPage, type EcomProduct, type EcomSite } from "@/lib/ecom-sites/types";
 import { alignClass, assuranceItems, pillarsOf, sectionStyle, sectionsOf, spaceClass } from "@/lib/ecom-sites/sections";
 import type { EcomSection } from "@/lib/ecom-sites/types";
@@ -44,7 +45,7 @@ export function Storefront({ site, children }: { site: EcomSite; children: React
   } as CSSProperties;
 
   return (
-    <CartProvider slug={site.slug} products={site.products}>
+    <CartProvider slug={site.slug} products={site.products.map(publicProduct)}>
     <div className="shopfront min-h-screen bg-white text-[15px] antialiased" style={vars}>
       {/* Les mots du gabarit corrigés depuis l'aperçu, appliqués à la page rendue. */}
       <ApplyTextEdits edits={site.textEdits} />
@@ -760,7 +761,7 @@ export function ProductView({ site, product }: { site: EcomSite; product: EcomPr
             téléphone, avec les descriptions complètes reprises du site copié,
             il tombait à plus de 1 100 px du haut. On lit le prix, on peut
             acheter ; le détail reste dessous pour qui veut le lire. */}
-        <AddToCartButton product={product} />
+        <AddToCartButton product={publicProduct(product)} />
         {/* Achat unique : le client le lit avant de payer, l'underwriter aussi. */}
         <p className="mt-2 text-[12px] font-medium text-[color:var(--muted)]">
           One-time purchase · No subscription · No recurring charges

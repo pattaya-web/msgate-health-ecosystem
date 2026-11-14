@@ -1,3 +1,4 @@
+import { publicSite } from "@/lib/ecom-sites/product-facts";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { CartView } from "@/components/ecom-sites/cart";
@@ -18,7 +19,7 @@ export default async function EcomCartPage({ params }: { params: Promise<{ slug:
   if (!site) notFound();
   return (
     <Storefront site={site}>
-      <CartView site={site} />
+      <CartView site={publicSite(site)} />
     </Storefront>
   );
 }

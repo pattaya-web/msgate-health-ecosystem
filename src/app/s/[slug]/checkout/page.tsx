@@ -1,3 +1,4 @@
+import { publicSite } from "@/lib/ecom-sites/product-facts";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { CheckoutView } from "@/components/ecom-sites/cart";
@@ -18,7 +19,7 @@ export default async function EcomCheckoutPage({ params }: { params: Promise<{ s
   if (!site) notFound();
   return (
     <Storefront site={site}>
-      <CheckoutView site={site} />
+      <CheckoutView site={publicSite(site)} />
     </Storefront>
   );
 }

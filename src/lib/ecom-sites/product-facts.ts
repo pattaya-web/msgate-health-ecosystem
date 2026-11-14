@@ -65,6 +65,38 @@ export function alignHandle(product: EcomProduct, takenHandles: string[]): EcomP
   return { ...product, handle, previousHandles };
 }
 
+/**
+ * Ce qu'un navigateur reçoit d'un produit.
+ *
+ * Les composants du panier tournent dans le navigateur : leurs données se
+ * lisent dans le code source de la page. Les champs de travail — page et
+ * photos du site d'origine, anciens noms, validations, notes de génération —
+ * n'ont rien à y faire.
+ */
+export function publicProduct(product: EcomProduct): EcomProduct {
+  const rest = { ...product };
+  delete rest.sourceUrl;
+  delete rest.sourceImageUrl;
+  delete rest.sourceImageUrls;
+  delete rest.aiFields;
+  delete rest.review;
+  delete rest.imageInfo;
+  delete rest.previousNames;
+  delete rest.packagingReferenceUrl;
+  rest.packagingTaskId = null;
+  return rest;
+}
+
+/** La boutique telle qu'un navigateur la reçoit (panier, paiement). */
+export function publicSite(site: EcomSite): EcomSite {
+  const rest = { ...site, products: site.products.map(publicProduct) };
+  delete rest.modelDomain;
+  delete rest.publishApproval;
+  delete rest.claimProofs;
+  delete rest.sectionTitles;
+  return rest;
+}
+
 /** Le produit derrière une adresse, ancienne comprise. */
 export function findProduct(products: EcomProduct[], handle: string) {
   const current = products.find((product) => product.handle === handle);
