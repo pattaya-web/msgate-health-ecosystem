@@ -47,6 +47,34 @@ function identity(site: EcomSite) {
   ];
 }
 
+/**
+ * Comment la boutique fonctionne vraiment, en phrases.
+ *
+ * Les politiques ne décrivent un entrepôt, un suivi ou une étiquette prépayée
+ * que si l'opérateur l'a confirmé (EcomSite.operations). Sinon, la phrase reste
+ * vraie quel que soit le fonctionnement.
+ */
+function dispatchLine(site: EcomSite) {
+  const fulfilment = site.operations?.fulfilment;
+  if (fulfilment === "own-stock") return `Orders are picked, packed and dispatched from our own stock in ${site.shipsFrom}.`;
+  if (fulfilment === "third-party-warehouse") return `Orders are picked, packed and dispatched by our fulfilment partner's warehouse in ${site.shipsFrom}.`;
+  if (fulfilment === "supplier-direct") return `Orders are dispatched directly by our supplier from ${site.shipsFrom}.`;
+  return `Orders ship from ${site.shipsFrom}.`;
+}
+
+function trackingLine(site: EcomSite) {
+  if (site.operations?.tracking === true) return "Every parcel ships with a tracking number, sent by email as soon as it leaves.";
+  if (site.operations?.tracking === false) return "Tracking is not available on every order; contact us for the status of yours.";
+  return "";
+}
+
+function returnLabelLine(site: EcomSite) {
+  const ret = site.operations?.returnShipping;
+  if (ret === "prepaid-label") return "We reply with a prepaid return label and instructions. Do not ship anything back before you receive the label.";
+  if (ret === "customer-paid") return "We reply with the return address and instructions. Return shipping is paid by the customer, except when the item arrived damaged, faulty or not as described.";
+  return "We reply with return instructions. Do not ship anything back before you receive them.";
+}
+
 function shipping(site: EcomSite): PolicySection[] {
   const handling = site.handlingTimeDays === 1 ? "1 business day" : `${site.handlingTimeDays} business days`;
   return [
@@ -54,7 +82,9 @@ function shipping(site: EcomSite): PolicySection[] {
       heading: "Processing time",
       body: [
         `Orders are picked and packed within ${handling} of payment clearing. Orders placed after 2 PM EST, on weekends or on US public holidays begin processing the next business day.`,
-        `You receive a confirmation email as soon as the order is placed, and a second email with tracking as soon as the parcel leaves our fulfilment centre.`,
+        site.operations?.tracking === true
+          ? `You receive a confirmation email as soon as the order is placed, and a second email with tracking as soon as the parcel ships.`
+          : `You receive a confirmation email as soon as the order is placed, and a second email when it ships.`,
       ],
     },
     {
@@ -76,14 +106,14 @@ function shipping(site: EcomSite): PolicySection[] {
     {
       heading: "Where we ship from",
       body: [
-        `Orders are picked, packed and dispatched from our fulfilment centre in ${site.shipsFrom}. Every parcel ships domestically with a US carrier and a tracking number.`,
+        [dispatchLine(site), trackingLine(site)].filter(Boolean).join(" "),
         `We currently ship to addresses within the United States. We do not deliver to PO boxes or freight-forwarding addresses.`,
       ],
     },
     {
       heading: "Lost, delayed or damaged parcels",
       body: [
-        `If tracking has not moved for five business days, or your parcel arrives damaged, contact ${site.supportEmail} or call ${site.supportPhone} within 30 days of dispatch. We open a carrier claim and reship or refund the order — you are not asked to wait for the claim to close.`,
+        `If your parcel has not arrived within five business days of the delivery estimate, or arrives damaged, contact ${site.supportEmail} or call ${site.supportPhone} within 30 days of dispatch. We open a carrier claim and reship or refund the order — you are not asked to wait for the claim to close.`,
       ],
     },
     { heading: "Who we are", body: identity(site) },
@@ -96,7 +126,7 @@ function refund(site: EcomSite): PolicySection[] {
       heading: `${site.returnWindowDays}-day returns`,
       body: [
         `You may return any item within ${site.returnWindowDays} days of delivery for a full refund of the purchase price. Items should be returned in resalable condition, and opened products are accepted where the item did not suit you — tell us what went wrong and we will make it right.`,
-        `To start a return, email ${site.supportEmail} or call ${site.supportPhone} with your order number. We reply with a prepaid return label and instructions. Do not ship anything back before you receive the label.`,
+        `To start a return, email ${site.supportEmail} or call ${site.supportPhone} with your order number. ${returnLabelLine(site)}`,
       ],
     },
     {
@@ -109,7 +139,7 @@ function refund(site: EcomSite): PolicySection[] {
     {
       heading: "Cancellations",
       body: [
-        `An order can be cancelled free of charge at any point before it is dispatched. Email ${site.supportEmail} or call ${site.supportPhone} and we will stop the order if it has not yet left the warehouse. Once dispatched, treat it as a return.`,
+        `An order can be cancelled free of charge at any point before it is dispatched. Email ${site.supportEmail} or call ${site.supportPhone} and we will stop the order if it has not yet shipped. Once dispatched, treat it as a return.`,
       ],
     },
     {

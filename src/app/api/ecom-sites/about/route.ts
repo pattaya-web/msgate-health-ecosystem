@@ -108,7 +108,7 @@ function fallbackStory(site: EcomSite): Story {
     points: [
       { title: "A short range", body: "We sell a handful of products, not a catalogue. Each one has a reason to exist." },
       { title: "Plain descriptions", body: "Each product page says what it is, what it is made of and what comes in the box." },
-      { title: "Easy returns", body: `Send it back within ${site.returnWindowDays} days for a refund. No forms, no argument.` },
+      { title: "Returns", body: `Returns are accepted within ${site.returnWindowDays} days of delivery, as set out in the Refund Policy.` },
     ],
   };
 }
@@ -124,19 +124,27 @@ function fallbackStory(site: EcomSite): Story {
  */
 function imagePrompt(site: EcomSite, hasPack: boolean) {
   const theme = sitePalette(site.themeId, site.brandColors);
+  /*
+   * Un atelier d'expédition n'est montré que si la boutique expédie elle-même
+   * son stock. Sinon, la photo laisserait croire à des locaux qu'elle n'a pas :
+   * on montre le produit chez quelqu'un, comme il sert.
+   */
+  const ownStock = site.operations?.fulfilment === "own-stock";
   return [
     hasPack
-      ? "THE ATTACHED IMAGES ARE MY REAL PRODUCTS, and they are the only packaging allowed in this photograph. Reproduce each pack exactly as supplied, with its brand logo readable. Never invent another container."
-      : "No branded packaging, no invented logos, no legible label text.",
-    "Photograph for a brand's About page: a small workspace where orders are prepared.",
-    "A clean table, a few packs set out, kraft mailers, a notebook, a roll of tape,",
-    "one pair of hands mid-task. HANDS ONLY: no face, no portrait, no person identifiable.",
+      ? "THE ATTACHED IMAGE IS THE EXACT PRODUCT SOLD. Show it once, exactly as photographed, without adding any box, packaging or second product."
+      : "No product packaging, no invented logos, no legible label text.",
+    ownStock
+      ? "Photograph for a brand's About page: a small workspace where orders are prepared. A clean table, plain kraft mailers, a roll of tape, one pair of hands mid-task."
+      : hasPack
+        ? "Photograph for a brand's About page: the product in an ordinary home, where and how it is used, calm and lived-in."
+        : "Photograph for a brand's About page: a calm, lived-in home corner in soft daylight. No product is shown: without a product photo, none may be invented.",
+    "HANDS ONLY if a person appears: no face, no portrait, no person identifiable.",
+    "Keep real-world proportions between the product, hands and furniture. Every other object is an ordinary household item that is clearly not for sale.",
     `Colour world: ${theme.accent} accents against ${theme.sand}.`,
-    "Shot on a 50mm lens at f/2.0, soft north-facing window light from the left with",
-    "one consistent shadow, muted slightly desaturated grade, gentle film grain.",
-    "Real surfaces with dust and small marks, real skin with pores, slight asymmetry.",
-    "AVOID: airbrushed skin, glowing rim light with no source, perfect symmetry,",
-    "CGI renders, stock-photo blandness, mangled fingers, garbled text, invented logos.",
+    "Shot on a 50mm lens at f/2.0, soft window light with one consistent shadow, muted slightly desaturated grade, gentle film grain.",
+    "Real surfaces with dust and small marks, slight asymmetry.",
+    "AVOID: airbrushed skin, glowing rim light with no source, perfect symmetry, CGI renders, stock-photo blandness, mangled fingers, garbled text, invented logos.",
   ].join(" ");
 }
 
@@ -196,11 +204,12 @@ export async function POST(request: Request) {
       // Texte de repli : la page existe quand même.
     }
 
-    // Les packs déjà brandés entrent dans la scène, comme pour les visuels.
+    // Un seul produit, sa photo de fiche comme référence (jamais celle du site modèle).
     const packs = site.products
-      .filter((product) => product.imageUrl && product.imageUrl !== product.sourceImageUrl)
+      .filter((product) => product.imageUrl && product.imageUrl !== product.sourceImageUrl && product.imageInfo?.kind !== "source")
+      // Une adresse /api/media/… est complétée en adresse publique par createKieTask.
       .map((product) => product.imageUrl)
-      .slice(0, 3);
+      .slice(0, 1);
 
     let taskId: string | null = null;
     let imageError: string | null = null;

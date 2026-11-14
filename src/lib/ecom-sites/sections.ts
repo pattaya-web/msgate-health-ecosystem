@@ -56,7 +56,15 @@ export function sectionsOf(site: EcomSite): EcomSection[] {
   const order = [...fromModel, ...SITE_BLOCKS.filter((block) => !fromModel.includes(block))];
 
   /* Les titres relevés sur le modèle se distribuent dans l'ordre de la page. */
-  const titles = [...(site.sectionTitles ?? [])];
+  /*
+   * Sauf ceux qui sont des noms de produits : le modèle titrait une rangée de
+   * produits avec le nom de l'un d'eux, et la copie affichait « Cat scratching
+   * post tower » au-dessus d'un griffoir mural. Le bloc garde alors son titre
+   * générique.
+   */
+  const names = site.products.flatMap((product) => [product.name, ...(product.previousNames ?? [])]);
+  const clean = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const titles = (site.sectionTitles ?? []).filter((title) => !names.some((name) => clean(name) === clean(title)));
 
   return order.map((block) => ({
     id: `${block}-0`,
@@ -105,17 +113,64 @@ export function defaultAssurances(site: EcomSite): Array<{ title: string; body: 
     .filter((item) => item.title.trim() || item.body.trim());
 }
 
+/**
+ * Les cartes de réassurance, écrites à partir du fonctionnement réel.
+ *
+ * Elles promettaient « Tracked end to end » et « We send a prepaid label »
+ * quel que soit le fonctionnement de la boutique. Elles ne disent désormais
+ * que ce que les réglages confirment : le suivi seulement s'il est fourni,
+ * l'étiquette prépayée seulement si c'est la boutique qui paie le retour.
+ */
 function rawAssurances(site: EcomSite): Array<{ title: string; body: string }> {
+  const ops = site.operations ?? {};
+  const tracking = ops.tracking === true ? " Every order ships with tracking." : "";
+  const returns =
+    ops.returnShipping === "prepaid-label"
+      ? "Email us with your order number and we send a prepaid return label."
+      : ops.returnShipping === "customer-paid"
+        ? "Email us with your order number for return instructions. Return shipping is paid by the customer unless the item is faulty or not as described."
+        : "Email us with your order number to start a return. Full terms in the Refund Policy.";
+  const channels = site.supportPhone.trim() ? "email and phone" : "email";
   return [
     site.freeShippingThreshold > 0
       ? {
           title: "Free US shipping",
-          body: `On orders over ${money(site.freeShippingThreshold, site.currency)}. Tracked end to end.`,
+          body: `On orders over ${money(site.freeShippingThreshold, site.currency)}. Delivery in ${site.deliveryMinDays}–${site.deliveryMaxDays} business days.${tracking}`,
         }
-      : { title: "Tracked US shipping", body: "Every order ships with tracking." },
-    { title: `${site.returnWindowDays}-day returns`, body: "Not right for you? We send a prepaid label." },
-    { title: "Real people on support", body: `${site.supportHours || "Weekdays"} — phone and email.` },
+      : { title: "US shipping", body: `Delivery in ${site.deliveryMinDays}–${site.deliveryMaxDays} business days.${tracking}` },
+    { title: `${site.returnWindowDays}-day returns`, body: returns },
+    { title: "Customer support", body: `${site.supportHours || "Weekdays"} by ${channels}.` },
   ];
+}
+
+/**
+ * Les piliers de la page d'accueil, quand la boutique n'en a pas écrit.
+ *
+ * Des faits tirés des réglages (d'où partent les colis, en combien de temps,
+ * comment on retourne, quand le support répond) plutôt que « Trusted
+ * materials » ou « Premium quality », qu'on ne peut pas justifier.
+ */
+export function factPillars(site: EcomSite): Array<{ title: string; body: string }> {
+  const handling = Math.max(1, site.handlingTimeDays || 1);
+  return [
+    {
+      title: `Ships from ${site.shipsFrom || "the United States"}`,
+      body: `Orders leave within ${handling} business day${handling > 1 ? "s" : ""} and arrive in ${site.deliveryMinDays}–${site.deliveryMaxDays} business days.`,
+    },
+    {
+      title: `${site.returnWindowDays}-day returns`,
+      body: `Write to ${site.supportEmail || "our support team"} with your order number to start a return. Full terms in the Refund Policy.`,
+    },
+    {
+      title: "Plain product pages",
+      body: "Each page lists the product's specifications and what comes in the box. Ask us before you order if something is missing.",
+    },
+  ];
+}
+
+/** Les piliers affichés : ceux de la boutique, sinon les faits tirés des réglages. */
+export function pillarsOf(site: EcomSite) {
+  return site.pillars.length ? site.pillars : factPillars(site);
 }
 
 /** L'espacement vertical d'une section, du plus serré au plus aéré. */

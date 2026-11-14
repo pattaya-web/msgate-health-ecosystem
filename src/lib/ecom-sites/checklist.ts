@@ -8,12 +8,31 @@
  */
 
 import { fullAddress, MAX_PRICE, type EcomSite } from "@/lib/ecom-sites/types";
+import {
+  brokenLinks,
+  handleForName,
+  imageIssue,
+  missingFacts,
+  productLikeTitles,
+  reviewState,
+  staleNameHits,
+  unprovenClaims,
+} from "@/lib/ecom-sites/product-facts";
 
 export type CheckStatus = "ok" | "warn" | "fail";
 
 export type CheckItem = {
   id: string;
-  group: "Identité légale" | "Support" | "Politiques" | "Catalogue" | "Paiement" | "Mise en ligne";
+  group:
+    | "Identité légale"
+    | "Support"
+    | "Politiques"
+    | "Catalogue"
+    | "Fiches produit"
+    | "Cohérence"
+    | "Promesses"
+    | "Paiement"
+    | "Mise en ligne";
   label: string;
   status: CheckStatus;
   detail: string;
@@ -161,8 +180,8 @@ export function evaluateSite(site: EcomSite): CheckItem[] {
   const noImage = products.filter((product) => !product.imageUrl);
   items.push(
     noImage.length
-      ? check("images", "Catalogue", "Chaque produit a son packaging", "warn", `${noImage.length} sans visuel : ${noImage.map((p) => p.name).join(", ")}`)
-      : check("images", "Catalogue", "Chaque produit a son packaging", products.length ? "ok" : "warn", products.length ? "Tous les produits ont une image" : "Aucun produit")
+      ? check("images", "Catalogue", "Chaque produit a sa photo", "warn", `${noImage.length} sans visuel : ${noImage.map((p) => p.name).join(", ")}`)
+      : check("images", "Catalogue", "Chaque produit a sa photo", products.length ? "ok" : "warn", products.length ? "Tous les produits ont une image" : "Aucun produit")
   );
 
   const thin = products.filter((product) => product.description.trim().length < 120);
@@ -185,6 +204,154 @@ export function evaluateSite(site: EcomSite): CheckItem[] {
       : check("categories", "Catalogue", "Catalogue structuré en catégories", "warn", "Deux catégories minimum pour que /shop ne soit pas une liste plate.")
   );
 
+  /* ---------------- Modalités réelles ---------------- */
+
+  /*
+   * Les politiques et la réassurance décrivent un fonctionnement : délais,
+   * retours, suivi, descripteur. Le générateur ne peut pas savoir s'il est
+   * vrai. Tant que l'opérateur ne l'a pas confirmé, c'est bloquant.
+   */
+  const ops = site.operations ?? {};
+  const opsMissing = [
+    !ops.returnShipping || ops.returnShipping === "unset" ? "qui paie le retour" : "",
+    !ops.fulfilment || ops.fulfilment === "unset" ? "d'où partent les colis" : "",
+    ops.tracking === undefined || ops.tracking === null ? "suivi fourni ou non" : "",
+  ].filter(Boolean);
+  items.push(
+    opsMissing.length
+      ? check("operations", "Politiques", "Modalités réelles renseignées", "fail", `À préciser : ${opsMissing.join(", ")}. Les politiques restent neutres en attendant.`)
+      : ops.confirmedAt
+        ? check("operations", "Politiques", "Modalités réelles renseignées", "ok", `Confirmées le ${ops.confirmedAt.slice(0, 10)}${ops.confirmedBy ? ` par ${ops.confirmedBy}` : ""}`)
+        : check("operations", "Politiques", "Modalités réelles renseignées", "fail", "Renseignées mais pas confirmées : coche « délais, retours et facturation conformes à la réalité ».")
+  );
+
+  /* ---------------- Fiches produit ---------------- */
+
+  const unvalidated = products.filter((product) => reviewState(product) !== "validated");
+  const changed = unvalidated.filter((product) => reviewState(product) === "changed");
+  items.push(
+    unvalidated.length
+      ? check(
+          "facts-review",
+          "Fiches produit",
+          "Fiches produit validées",
+          "fail",
+          `${unvalidated.length}/${products.length} à valider${changed.length ? ` (dont ${changed.length} modifiée(s) depuis leur validation)` : ""} : ${unvalidated.map((p) => p.name).slice(0, 6).join(", ")}${unvalidated.length > 6 ? "…" : ""}`
+        )
+      : check("facts-review", "Fiches produit", "Fiches produit validées", products.length ? "ok" : "warn", products.length ? "Chaque fiche a été relue et validée" : "Aucun produit")
+  );
+
+  const withMissing = products
+    .map((product) => ({ product, missing: missingFacts(product) }))
+    .filter((entry) => entry.missing.length);
+  items.push(
+    withMissing.length
+      ? check(
+          "facts-missing",
+          "Fiches produit",
+          "Données produit complètes",
+          withMissing.some((entry) => entry.missing.some((m) => m.field === "image" || m.field === "specs")) ? "fail" : "warn",
+          withMissing
+            .slice(0, 5)
+            .map((entry) => `${entry.product.name} : ${entry.missing.map((m) => m.label).join(", ")}`)
+            .join(" · ") + (withMissing.length > 5 ? ` · +${withMissing.length - 5}` : "")
+        )
+      : check("facts-missing", "Fiches produit", "Données produit complètes", products.length ? "ok" : "warn", "Référence, colis, caractéristiques et source renseignés")
+  );
+
+  const written = products.filter((product) => product.aiFields?.length && reviewState(product) !== "validated");
+  if (written.length) {
+    items.push(
+      check(
+        "facts-ai",
+        "Fiches produit",
+        "Textes rédigés par l'IA à relire",
+        "warn",
+        `${written.length} fiche(s) contiennent des textes rédigés et non repris de la source (${[...new Set(written.flatMap((p) => p.aiFields ?? []))].join(", ")}).`
+      )
+    );
+  }
+
+  const imageProblems = products.map((product) => ({ product, issue: imageIssue(product) })).filter((entry) => entry.issue);
+  items.push(
+    imageProblems.length
+      ? check(
+          "image-match",
+          "Fiches produit",
+          "Photos fidèles au produit",
+          imageProblems.some((entry) => entry.issue?.level === "fail") ? "fail" : "warn",
+          imageProblems
+            .slice(0, 5)
+            .map((entry) => `${entry.product.name} : ${entry.issue?.text}`)
+            .join(" · ") + (imageProblems.length > 5 ? ` · +${imageProblems.length - 5}` : "")
+        )
+      : check("image-match", "Fiches produit", "Photos fidèles au produit", products.length ? "ok" : "warn", "Chaque photo a été faite pour son produit, sans emballage inventé")
+  );
+
+  /* ---------------- Cohérence ---------------- */
+
+  const stale = staleNameHits(site);
+  const titled = productLikeTitles(site);
+  items.push(
+    stale.length || titled.length
+      ? check(
+          "stale-names",
+          "Cohérence",
+          "Plus d'ancien nom ni de titre trompeur",
+          "fail",
+          [
+            ...stale.slice(0, 4).map((hit) => `« ${hit.name} » (devenu « ${hit.current} ») dans ${hit.where}`),
+            ...titled.slice(0, 3).map((title) => `section titrée avec un nom de produit : « ${title} »`),
+          ].join(" · ")
+        )
+      : check("stale-names", "Cohérence", "Plus d'ancien nom ni de titre trompeur", "ok", "Titres et textes correspondent aux produits vendus")
+  );
+
+  const misaligned = products.filter((product) => !product.handle.startsWith(handleForName(product.name)));
+  items.push(
+    misaligned.length
+      ? check(
+          "handles",
+          "Cohérence",
+          "Adresses produit alignées sur les noms",
+          "warn",
+          misaligned.slice(0, 4).map((p) => `/product/${p.handle} pour « ${p.name} »`).join(" · ") + " — « Aligner l'URL » garde l'ancienne en redirection."
+        )
+      : check("handles", "Cohérence", "Adresses produit alignées sur les noms", products.length ? "ok" : "warn", "Chaque URL reprend le nom du produit")
+  );
+
+  const broken = brokenLinks(site);
+  items.push(
+    broken.length
+      ? check(
+          "links",
+          "Cohérence",
+          "Liens internes valides",
+          broken.some((link) => !link.moved) ? "fail" : "warn",
+          broken.slice(0, 5).map((link) => (link.moved ? `${link.where} : ${link.href} redirige vers /product/${link.moved}` : `${link.where} : ${link.label} → ${link.href} introuvable`)).join(" · ")
+        )
+      : check("links", "Cohérence", "Liens internes valides", "ok", "Menu et pied de page mènent à des pages existantes")
+  );
+
+  /* ---------------- Promesses ---------------- */
+
+  const claims = unprovenClaims(site);
+  const strong = claims.filter((claim) => claim.strong);
+  const soft = claims.filter((claim) => !claim.strong);
+  const describe = (list: typeof claims) =>
+    [...new Map(list.map((claim) => [`${claim.key}|${claim.where}`, claim])).values()]
+      .slice(0, 5)
+      .map((claim) => `${claim.label} — ${claim.where} : « ${claim.excerpt} »`)
+      .join(" · ");
+  items.push(
+    strong.length
+      ? check("claims", "Promesses", "Promesses justifiées", "fail", describe(strong))
+      : check("claims", "Promesses", "Promesses justifiées", "ok", "Aucune garantie, certification ou superlatif sans justificatif")
+  );
+  if (soft.length) {
+    items.push(check("claims-soft", "Promesses", "Qualificatifs vagues à remplacer par des faits", "warn", describe(soft)));
+  }
+
   /* ---------------- Mise en ligne ---------------- */
 
   items.push(
@@ -200,6 +367,11 @@ export function evaluateSite(site: EcomSite): CheckItem[] {
   );
 
   return items;
+}
+
+/** Les points qui empêchent la publication tant qu'ils ne sont ni résolus ni acceptés. */
+export function blockingItems(items: CheckItem[]) {
+  return items.filter((item) => item.status === "fail");
 }
 
 export function checklistScore(items: CheckItem[]) {

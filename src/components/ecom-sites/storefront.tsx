@@ -13,7 +13,7 @@ import {
 import { navItems } from "@/lib/ecom-sites/pages";
 import { fastImage } from "@/lib/ecom-sites/fast-image";
 import { fullAddress, money, sitePalette, type EcomPage, type EcomProduct, type EcomSite } from "@/lib/ecom-sites/types";
-import { alignClass, assuranceItems, sectionStyle, sectionsOf, spaceClass } from "@/lib/ecom-sites/sections";
+import { alignClass, assuranceItems, pillarsOf, sectionStyle, sectionsOf, spaceClass } from "@/lib/ecom-sites/sections";
 import type { EcomSection } from "@/lib/ecom-sites/types";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +44,7 @@ export function Storefront({ site, children }: { site: EcomSite; children: React
   } as CSSProperties;
 
   return (
-    <CartProvider slug={site.slug}>
+    <CartProvider slug={site.slug} products={site.products}>
     <div className="shopfront min-h-screen bg-white text-[15px] antialiased" style={vars}>
       {/* Les mots du gabarit corrigés depuis l'aperçu, appliqués à la page rendue. */}
       <ApplyTextEdits edits={site.textEdits} />
@@ -795,6 +795,49 @@ export function ProductView({ site, product }: { site: EcomSite; product: EcomPr
 
         {/* Le reste en accordéons repliés : on ouvre ce qu'on veut lire. */}
         <div className="mt-4 text-[13px]">
+          {/* Ce que contient le colis : affiché seulement quand la fiche le dit,
+              jamais deviné. Ouvert d'emblée, c'est ce qu'on vérifie avant d'acheter. */}
+          {product.includedItems?.some((item) => item.trim()) ? (
+            <details open className="fold">
+              <summary>What&apos;s in the box</summary>
+              <ul className="list-disc space-y-1 pb-3 pl-5 pt-1 text-[color:var(--muted)]">
+                {product.includedItems
+                  .filter((item) => item.trim())
+                  .map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+              </ul>
+            </details>
+          ) : null}
+          {product.sku?.trim() || product.dosage.trim() || product.variants?.length ? (
+            <details className="fold">
+              <summary>Product details</summary>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 pb-3 pt-1 text-[color:var(--muted)]">
+                {product.dosage.trim() ? (
+                  <>
+                    <dt className="font-semibold text-[color:var(--ink)]">Specifications</dt>
+                    <dd className="whitespace-pre-line">{product.dosage}</dd>
+                  </>
+                ) : null}
+                {product.variants?.length ? (
+                  <>
+                    <dt className="font-semibold text-[color:var(--ink)]">Options</dt>
+                    <dd>
+                      {product.variants
+                        .map((variant) => (variant.price ? `${variant.label} (${money(variant.price, site.currency)})` : variant.label))
+                        .join(" · ")}
+                    </dd>
+                  </>
+                ) : null}
+                {product.sku?.trim() ? (
+                  <>
+                    <dt className="font-semibold text-[color:var(--ink)]">SKU</dt>
+                    <dd>{product.sku}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </details>
+          ) : null}
           {product.usage ? (
             <details className="fold">
               <summary>How to use</summary>
@@ -1043,9 +1086,9 @@ export function AboutView({ site }: { site: EcomSite }) {
         </div>
       ) : null}
 
-      {site.pillars.length ? (
+      {pillarsOf(site).length ? (
         <div className="mt-10 space-y-6">
-          {site.pillars.map((pillar) => (
+          {pillarsOf(site).map((pillar) => (
             <div key={pillar.title} className="border-t border-[color:var(--line)] pt-5">
               <h2 className="text-[16px] font-bold">{pillar.title}</h2>
               <p className="mt-2 text-[14px] leading-relaxed text-[color:var(--muted)] whitespace-pre-line">{pillar.body}</p>
@@ -1066,7 +1109,7 @@ function PillarsBlock({ site, section }: { site: EcomSite; section: EcomSection 
   const title = section.title || `The ${site.brandName} difference`;
   return (
     <>
-        {site.pillars.length ? (
+        {pillarsOf(site).length ? (
           <section
       data-section-id={section.id}
       style={sectionStyle(section)}
@@ -1075,7 +1118,7 @@ function PillarsBlock({ site, section }: { site: EcomSite; section: EcomSection 
             <p className="eyebrow">{title}</p>
             {site.promise ? <p className="mt-4 max-w-3xl text-[20px] font-semibold leading-snug md:text-[26px]">{site.promise}</p> : null}
             <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3">
-              {site.pillars.map((pillar, index) => (
+              {pillarsOf(site).map((pillar, index) => (
                 <div key={pillar.title} className="border-t border-[color:var(--line)] pt-5">
                   <span className="text-[12px] font-bold text-[color:var(--accent)]">
                     {String(index + 1).padStart(2, "0")}

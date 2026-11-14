@@ -24,65 +24,66 @@ type Body = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Deux prompts, selon qu'on ait un pack de référence ou non.
+ * Les deux façons de montrer un produit.
  *
- * Avec gabarit, on ne demande pas « un joli packaging » mais la reprise du pack
- * source à l'identique — même forme, même disposition, mêmes zones — en ne
- * changeant que la marque et la couleur. C'est ce qui fait qu'une boutique
- * clonée ressemble vraiment à celle dont elle s'inspire, au lieu d'aligner des
- * pots génériques qui n'ont rien à voir.
+ * Par défaut (`product`), le produit seul, refait d'après les photos de la
+ * source : même forme, mêmes couleurs, mêmes accessoires, sans boîte, sans
+ * logo et sans texte. On ne fabrique pas un emballage que le client ne recevra
+ * pas, et une boîte au logo de la boutique posée sur chaque produit se repère
+ * immédiatement comme une image générée.
  *
- * Sans gabarit, on retombe sur la composition libre.
+ * `documented` : le produit est réellement livré dans un emballage de marque
+ * et on en a la référence (photo ou fichier). On reproduit alors CET emballage,
+ * avec le rendu d'une vraie photo de commerce, et le logo vient du fichier
+ * exact, pas d'une réinvention du modèle.
  */
-function buildPrompt(product: EcomProduct, site: EcomSite, hasTemplate: boolean) {
+const NO_INVENTION = [
+  "Do not add any packaging, box, sleeve, tag, sticker, barcode, QR code, certification mark, badge, seal,",
+  "rating, price or any text that is not visible on the reference. Do not add accessories, refills or props",
+  "that could be mistaken for part of the purchase.",
+].join(" ");
+
+const PHOTO_REALISM = [
+  "Commercial product photograph, shot on a real camera: natural material texture (fabric weave, wood grain,",
+  "matte or brushed plastic as on the reference), one soft key light, a real contact shadow on the surface,",
+  "correct perspective and true-to-life proportions. Avoid CGI smoothness, glossy plastic reflections,",
+  "floating objects, warped or garbled lettering and duplicated parts.",
+].join(" ");
+
+function productPrompt(product: EcomProduct, site: EcomSite, referenceCount: number) {
   const theme = sitePalette(site.themeId, site.brandColors);
-
-  /*
-   * Le logo est la marque, et rien d'autre ne la porte.
-   *
-   * La consigne demandait aussi d'imprimer le nom de marque en toutes lettres.
-   * Le modèle arbitrait alors entre les deux : certains packs recevaient le
-   * logo, d'autres un nom composé au hasard d'une police. On ne demande donc
-   * plus qu'une chose, et on interdit explicitement l'autre.
-   */
-  const shared = [
-    "The brand mark on this pack is the supplied logo image, reproduced as given.",
-    `NEVER typeset the brand name "${site.brandName}" as text: the logo already carries it.`,
-    `Product name printed on the pack: "${product.name}".`,
-    product.dosage ? `Secondary line on the pack: "${product.dosage}".` : "",
-    `Do not invent certification seals, award badges, medical claims, star ratings or any text beyond the product name and the line given above.`,
-  ].filter(Boolean);
-
-  if (hasTemplate) {
-    return [
-      "Product packaging photograph. You are given TWO reference images.",
-      "IMAGE 1 is the reference pack. IMAGE 2 is the brand logo.",
-      "Reproduce IMAGE 1 exactly: same container type and shape, same proportions,",
-      "same cap or closure, same label geometry, same placement and size of every",
-      "block on the label, same camera angle, same lighting, same shadow, same",
-      "background treatment and same crop.",
-      `ONLY TWO THINGS CHANGE: the colour scheme becomes ${theme.accent} against ${theme.sand}, and the branding becomes mine.`,
-      "Place the logo from IMAGE 2 exactly where the source brand mark sits, at the",
-      "same size and the same proportions, pixel-faithful — never redrawn, never",
-      "restyled, never replaced by typed letters. It must be legible and unrotated.",
-      "Every other element keeps its position. Do not restyle, do not simplify, do",
-      "not add or remove anything from the composition.",
-      ...shared,
-      // Jouets, accessoires, mobilier, textile : pas de pack à repeindre.
-      "EXCEPTION: if IMAGE 1 shows a product with no packaging and no printed label",
-      "(a toy, accessory, tool, piece of furniture, garment or device), keep the product",
-      "itself exactly as photographed, with its own colours and materials, print no",
-      "product name on it, and only add the logo from IMAGE 2 small and discreet where",
-      "a maker's mark would naturally sit (a tag, the base, a small badge).",
-    ].join(" ");
-  }
-
+  const included = (product.includedItems ?? []).map((item) => item.trim()).filter(Boolean);
   return [
-    `Product packaging photograph for a US direct-to-consumer brand.`,
-    `The attached image is the brand logo. Reproduce it exactly as given on the front of the packaging — pixel-faithful, unrotated, never redrawn and never replaced by typed letters.`,
-    ...shared,
-    `Packaging style: clean modern retail supplement packaging, matte finish, accent colour ${theme.accent} against ${theme.sand}.`,
-    `Single pack, centred, floating on a plain ${theme.wash} background, soft studio lighting, gentle contact shadow, square crop, photorealistic, sharp label text.`,
+    `Product photo of "${product.name}".`,
+    referenceCount > 1
+      ? `The ${referenceCount} attached images are photos of this exact product from the supplier: they show the same item.`
+      : "The attached image is a photo of this exact product from the supplier.",
+    "Reproduce the product itself faithfully: same shape, same proportions, same colours, same materials, same",
+    "number of parts and the same features. Change nothing about the product.",
+    "Remove everything that belongs to the supplier's photo rather than to the product: their logo, brand name,",
+    "printed text, watermark, price, retail box, people, food, and any background props.",
+    included.length
+      ? `Show exactly what the customer receives, and nothing else: ${included.join("; ")}.`
+      : "Show only the product as it appears in the reference, without any additional item.",
+    NO_INVENTION,
+    `Plain seamless background in a soft tone close to ${theme.sand}, the product centred and fully in frame.`,
+    PHOTO_REALISM,
+  ].join(" ");
+}
+
+function documentedPackPrompt(product: EcomProduct, hasLogo: boolean) {
+  return [
+    `Commercial photograph of the real retail packaging of "${product.name}".`,
+    "IMAGE 1 is the reference of this packaging: reproduce it faithfully — same box or pouch construction,",
+    "same proportions, same print layout, same colours, same panels and the same printed wording.",
+    hasLogo
+      ? "IMAGE 2 is the exact logo file: place it only where the reference shows the brand mark, once, copied as given — never redrawn, never retyped, never repeated."
+      : "Keep the brand mark exactly where and as the reference shows it.",
+    "Real cardboard or film: visible fibre texture, plausible folds, seams and glue flaps, crisp but physical",
+    "printing, slightly soft edges. The packaging sits on a surface with a contact shadow, at a size consistent",
+    "with the product it contains.",
+    NO_INVENTION,
+    PHOTO_REALISM,
   ].join(" ");
 }
 
@@ -127,7 +128,16 @@ export async function POST(request: Request) {
       await updateEcomSite(target.id, {
         products: target.products.map((product) =>
           byHandle.has(product.handle)
-            ? { ...product, imageUrl: byHandle.get(product.handle)!, packagingTaskId: null }
+            ? {
+                ...product,
+                imageUrl: byHandle.get(product.handle)!,
+                packagingTaskId: null,
+                // L'image est rattachée au nom du produit à cet instant, et à sa façon d'être faite.
+                imageInfo:
+                  product.packagingMode === "documented" && product.packagingReferenceUrl
+                    ? { kind: "brand-pack" as const, forName: product.name, reference: "verified-pack" as const, at: new Date().toISOString() }
+                    : { kind: "product-photo" as const, forName: product.name, reference: "source" as const, at: new Date().toISOString() },
+              }
             : product
         ),
       });
@@ -138,31 +148,37 @@ export async function POST(request: Request) {
 
     const site = await getEcomSite(body.siteId);
     if (!site) return NextResponse.json({ error: "Site introuvable" }, { status: 404 });
-    if (!site.logoDataUrl) {
-      return NextResponse.json(
-        { error: "Charge le logo du site avant de générer les packagings" },
-        { status: 400 }
-      );
-    }
-
     const wanted = new Set(body.handles?.length ? body.handles : site.products.map((p) => p.handle));
     const targets = site.products.filter((product) => wanted.has(product.handle));
     if (!targets.length) return NextResponse.json({ error: "Aucun produit sélectionné" }, { status: 400 });
 
-    // Un seul upload du logo pour toute la fournée.
-    const logoUrl = await uploadBase64(site.logoDataUrl, `${site.slug}-logo.png`);
+    // Le logo n'est envoyé que pour un emballage documenté, et une seule fois pour toute la fournée.
+    const needsLogo = targets.some((product) => product.packagingMode === "documented" && product.packagingReferenceUrl);
+    const logoUrl = needsLogo && site.logoDataUrl ? await uploadBase64(site.logoDataUrl, `${site.slug}-logo.png`) : "";
 
     const jobs: Array<{ handle: string; taskId: string | null; error: string | null }> = [];
     for (const product of targets) {
       try {
-        /*
-         * Le pack source passe en PREMIÈRE référence : le prompt s'y réfère
-         * comme « IMAGE 1 », et l'ordre des images est ce qui le rend lisible.
-         */
-        const template = product.sourceImageUrl?.trim();
+        let prompt: string;
+        let inputs: string[];
+        if (product.packagingMode === "documented") {
+          const reference = product.packagingReferenceUrl?.trim();
+          if (!reference) throw new Error("Emballage documenté sans référence : ajoute la photo ou le fichier de l'emballage réel");
+          inputs = logoUrl ? [reference, logoUrl] : [reference];
+          prompt = documentedPackPrompt(product, Boolean(logoUrl));
+        } else {
+          const references = [product.sourceImageUrl, ...(product.sourceImageUrls ?? [])]
+            .map((url) => url?.trim() || "")
+            .filter((url, index, all) => url && all.indexOf(url) === index)
+            .slice(0, 3);
+          // Sans photo du produit, on n'invente pas son apparence.
+          if (!references.length) throw new Error("Aucune photo de référence du produit : ajoute-en une avant de générer");
+          inputs = references;
+          prompt = productPrompt(product, site, references.length);
+        }
         const taskId = await createKieTask("gpt-image-2-image-to-image", {
-          prompt: buildPrompt(product, site, Boolean(template)),
-          input_urls: template ? [template, logoUrl] : [logoUrl],
+          prompt,
+          input_urls: inputs,
           aspect_ratio: RATIOS.includes(site.imageRatio || "") ? site.imageRatio : "1:1",
           resolution: body.resolution || "1K",
         });

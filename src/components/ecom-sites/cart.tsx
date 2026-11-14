@@ -15,6 +15,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore } from "react";
 import { money, type EcomProduct, type EcomSite } from "@/lib/ecom-sites/types";
 import { fastImage } from "@/lib/ecom-sites/fast-image";
+import { findProduct } from "@/lib/ecom-sites/product-facts";
 
 export type CartLine = { handle: string; name: string; price: number; image: string; qty: number };
 
@@ -82,17 +83,40 @@ type CartState = {
 
 const CartContext = createContext<CartState | null>(null);
 
-export function CartProvider({ slug, children }: { slug: string; children: React.ReactNode }) {
-  const lines = useSyncExternalStore(
+/**
+ * Le panier relu sur les fiches produit.
+ *
+ * Le localStorage gardait le nom, le prix et l'image du moment de l'ajout : un
+ * produit renommé ou dont la photo avait changé restait affiché à l'ancienne
+ * dans le panier. Seuls l'adresse et la quantité viennent du stockage ; tout le
+ * reste est relu sur la fiche, et une ligne dont le produit n'existe plus
+ * disparaît.
+ */
+function resolveLines(lines: CartLine[], products: EcomProduct[] | undefined): CartLine[] {
+  if (!products) return lines;
+  const out: CartLine[] = [];
+  for (const line of lines) {
+    const product = findProduct(products, line.handle)?.product;
+    if (!product) continue;
+    const existing = out.find((entry) => entry.handle === product.handle);
+    if (existing) existing.qty += line.qty;
+    else out.push({ handle: product.handle, name: product.name, price: product.price, image: product.imageUrl, qty: line.qty });
+  }
+  return out;
+}
+
+export function CartProvider({ slug, products, children }: { slug: string; products?: EcomProduct[]; children: React.ReactNode }) {
+  const stored = useSyncExternalStore(
     useCallback((notify: () => void) => subscribeCart(slug, notify), [slug]),
     useCallback(() => readCart(slug), [slug]),
     // Le serveur ne voit aucun panier : il rend la boutique vide.
     useCallback(() => EMPTY, [])
   );
+  const lines = useMemo(() => resolveLines(stored, products), [stored, products]);
 
   const add = useCallback(
     (product: EcomProduct, qty = 1) => {
-      const current = readCart(slug);
+      const current = resolveLines(readCart(slug), products);
       const existing = current.find((line) => line.handle === product.handle);
       writeCart(
         slug,
@@ -106,12 +130,12 @@ export function CartProvider({ slug, children }: { slug: string; children: React
             ]
       );
     },
-    [slug]
+    [slug, products]
   );
 
   const setQty = useCallback(
     (handle: string, qty: number) => {
-      const current = readCart(slug);
+      const current = resolveLines(readCart(slug), products);
       writeCart(
         slug,
         qty <= 0
@@ -119,14 +143,14 @@ export function CartProvider({ slug, children }: { slug: string; children: React
           : current.map((line) => (line.handle === handle ? { ...line, qty } : line))
       );
     },
-    [slug]
+    [slug, products]
   );
 
   const remove = useCallback(
     (handle: string) => {
-      writeCart(slug, readCart(slug).filter((line) => line.handle !== handle));
+      writeCart(slug, resolveLines(readCart(slug), products).filter((line) => line.handle !== handle));
     },
-    [slug]
+    [slug, products]
   );
 
   const clear = useCallback(() => writeCart(slug, EMPTY), [slug]);

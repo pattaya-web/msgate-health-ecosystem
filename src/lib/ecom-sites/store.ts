@@ -232,6 +232,8 @@ export async function createEcomSite(input: Partial<EcomSite> & { brandName: str
     createdAt: now,
     updatedAt: now,
     brandName: input.brandName.trim(),
+    // Toute boutique neuve naît en brouillon : elle passe en ligne par « Publier », après le contrôle.
+    status: input.status ?? "draft",
   };
   store.sites.unshift(site);
   await persist();
@@ -260,6 +262,10 @@ export async function cloneEcomSite(id: string, brandName: string) {
   delete copy.slug;
   delete copy.createdAt;
   delete copy.updatedAt;
+  // Une copie repart en brouillon, avec sa propre publication à valider.
+  delete copy.status;
+  delete copy.publishedAt;
+  delete copy.publishApproval;
   return createEcomSite({ ...copy, brandName, domain: "", billingDescriptor: "" });
 }
 

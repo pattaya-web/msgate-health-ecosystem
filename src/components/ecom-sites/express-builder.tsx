@@ -218,8 +218,8 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
   }
 
   /**
-   * Les images de marque, toutes seules après la copie : packagings au logo,
-   * puis bannière, catégories et scènes avec le pack dedans, et la page
+   * Les images, toutes seules après la copie : photos produit (le produit seul,
+   * d'après la source), puis bannière, catégories et scènes avec ce produit, et la page
    * « about ». Chaque image est enregistrée dès qu'elle sort.
    */
   async function runImages(siteId: string) {
@@ -248,7 +248,7 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
 
     let firstPack = "";
     try {
-      patchRun(siteId, { step: "Packagings à ta marque" });
+      patchRun(siteId, { step: "Photos produit" });
       const launched = await postJson<{ jobs: Array<{ handle: string; taskId: string | null }> }>("/api/ecom-sites/packaging", { action: "generate", siteId });
       const pending = new Map(launched.jobs.filter((job) => job.taskId).map((job) => [job.taskId as string, job.handle]));
       const total = pending.size;
@@ -396,7 +396,7 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
       <div className="flex flex-wrap items-baseline gap-2">
         <h3 className="text-[13px] font-semibold">Nouvelle boutique express</h3>
         <span className="text-[11px] text-slate-500">
-          Marché US · achat unique · prix du modèle (max ${MAX_PRICE}) · politiques, footer LLC et contact remplis · packagings et visuels à ta marque
+          Marché US · achat unique · prix du modèle (max ${MAX_PRICE}) · politiques, footer LLC et contact remplis · photos produit fidèles à la source · brouillon jusqu'à la publication
         </span>
       </div>
 

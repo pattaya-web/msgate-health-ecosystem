@@ -21,6 +21,7 @@ import { ImagePromptDialog, type ImageTarget } from "@/components/ecom-sites/ima
 import { LivePreview } from "@/components/ecom-sites/live-preview";
 import { MessagesInbox } from "@/components/ecom-sites/messages-inbox";
 import { ExpressBuilder, llcDoc } from "@/components/ecom-sites/express-builder";
+import { ClaimsPanel, OperationsPanel, ProductFactsPanel, PublishPanel, ReviewBadge } from "@/components/ecom-sites/review-panels";
 import { assuranceItems, BLOCK_LABELS, newSectionId, sectionsOf } from "@/lib/ecom-sites/sections";
 import { blankPage, navItems } from "@/lib/ecom-sites/pages";
 import { applyTextEdit } from "@/lib/ecom-sites/text-edits";
@@ -156,6 +157,8 @@ export function EcomSitesTab() {
   const [addFromSite, setAddFromSite] = useState("");
   /** Produits cochés : les actions ne portent que sur eux quand il y en a. */
   const [pickedProducts, setPickedProducts] = useState<string[]>([]);
+  /** La fiche produit ouverte dans la liste (son adresse). */
+  const [openFacts, setOpenFacts] = useState<string | null>(null);
   const [pickFilter, setPickFilter] = useState("");
 
   /* Modèles : les boutiques déjà en ligne servent de gabarit de catalogue. */
@@ -877,9 +880,9 @@ export function EcomSitesTab() {
       setSaved(JSON.stringify(body.site));
       setChecklist(body.checklist || []);
       await loadList();
-      // Enregistrer, c'est publier : la vitrine sert le site stocké.
+      // Un brouillon enregistré reste invisible du public : seule « Publier » le met en ligne.
       toast.success(
-        `En ligne — /s/${body.site.slug}`,
+        body.site.status === "draft" ? `Enregistré (brouillon) — /s/${body.site.slug}` : `En ligne — /s/${body.site.slug}`,
         {
           action: {
             label: "Ouvrir",
@@ -1057,8 +1060,10 @@ export function EcomSitesTab() {
   async function generatePackaging(only?: string[], base?: EcomSite) {
     const site = base ?? draft;
     if (!site) return;
-    if (!site.logoDataUrl) {
-      toast.error("Charge le logo avant de générer les packagings");
+    const targets = only?.length ? only : pickedProducts.length ? pickedProducts : site.products.map((product) => product.handle);
+    const documented = site.products.some((product) => targets.includes(product.handle) && product.packagingMode === "documented");
+    if (documented && !site.logoDataUrl) {
+      toast.error("Charge le logo : un emballage de marque documenté le reprend tel quel");
       return;
     }
     setBusy("packaging");
@@ -3123,8 +3128,8 @@ export function EcomSitesTab() {
             {draft.products.length ? (
               <div className="mt-3 space-y-1.5">
                 {draft.products.map((product, index) => (
+                  <div key={product.handle}>
                   <div
-                    key={product.handle}
                     className={cn(
                       "flex items-center gap-2.5 rounded-lg p-2",
                       // Un doublon se repère à la ligne, pas dans un compteur :
@@ -3162,6 +3167,7 @@ export function EcomSitesTab() {
                             doublon
                           </span>
                         ) : null}
+                        <ReviewBadge product={product} />
                       </p>
                       <p className="truncate text-[11px] text-slate-400">{product.subtitle}</p>
                     </div>
@@ -3175,9 +3181,13 @@ export function EcomSitesTab() {
                       }}
                       className="h-7 rounded-md bg-white px-1.5 text-[11px] dark:bg-slate-900"
                     >
-                      {PRICE_POINTS.map((price) => (
-                        <option key={price} value={price}>${price}</option>
-                      ))}
+                      {/* Le prix réel de la fiche est toujours proposé : hors grille, le menu
+                          affichait le premier palier ($19.99) pour un produit vendu $14.99. */}
+                      {[...new Set<number>([...PRICE_POINTS, product.price])]
+                        .sort((a, b) => a - b)
+                        .map((price) => (
+                          <option key={price} value={price}>${price}</option>
+                        ))}
                     </select>
                     <input
                       type="checkbox"
@@ -3194,11 +3204,34 @@ export function EcomSitesTab() {
                     />
                     <button
                       type="button"
+                      onClick={() => setOpenFacts(openFacts === product.handle ? null : product.handle)}
+                      className={cn(
+                        "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                        openFacts === product.handle ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-white dark:bg-slate-900"
+                      )}
+                    >
+                      Fiche
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => patchDraft({ products: draft.products.filter((_, i) => i !== index) })}
                       className="text-slate-400 hover:text-rose-600"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
+                  </div>
+                  {openFacts === product.handle ? (
+                    <ProductFactsPanel
+                      key={`${product.handle}-${product.name}`}
+                      product={product}
+                      products={draft.products}
+                      onChange={(next) => {
+                        patchDraft({ products: draft.products.map((item, i) => (i === index ? next : item)) });
+                        // L'adresse alignée sur le nom change la clé de la ligne : le panneau reste ouvert.
+                        if (next.handle !== product.handle) setOpenFacts(next.handle);
+                      }}
+                    />
+                  ) : null}
                   </div>
                 ))}
               </div>
@@ -3292,9 +3325,31 @@ export function EcomSitesTab() {
             </div>
           </Section>
 
+          {/* Publication : brouillon tant que le contrôle n'est pas passé. */}
+          <Section title="Publication">
+            <PublishPanel
+              site={draft}
+              dirty={JSON.stringify(draft) !== saved}
+              onResult={(body) => {
+                setDraft(body.site);
+                setSaved(JSON.stringify(body.site));
+                setChecklist(body.checklist || []);
+                void loadList();
+              }}
+            />
+          </Section>
+
+          <Section title="Fonctionnement réel">
+            <OperationsPanel site={draft} onPatch={patchDraft} />
+          </Section>
+
+          <Section title="Promesses à justifier">
+            <ClaimsPanel site={draft} onPatch={patchDraft} />
+          </Section>
+
           {/* Checklist */}
           <Section
-            title="Checklist underwriting"
+            title="Contrôle avant publication"
             right={
               score ? (
                 <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold", score.ready ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700")}>

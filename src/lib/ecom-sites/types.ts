@@ -87,6 +87,92 @@ export type EcomProduct = {
   badge: string;
   /** Ajouté côté serveur après la création (catalogue complété). */
   addedAt?: string;
+
+  /* ------------------------------------------------------------------
+   * Fiche de référence : la source unique du produit.
+   *
+   * Le titre, la description, l'image, la catégorie et la ligne du panier se
+   * lisent tous ici. Rien n'y est complété automatiquement quand une donnée
+   * manque : le back-office la signale et attend qu'on la saisisse.
+   * ------------------------------------------------------------------ */
+
+  /** Référence (SKU fournisseur ou interne). */
+  sku?: string;
+  /** Ce que le client reçoit dans le colis, une ligne par élément. */
+  includedItems?: string[];
+  /** Variantes réellement vendues (taille, couleur…), avec leur prix si différent. */
+  variants?: Array<{ label: string; price?: number }>;
+  /** La page du produit sur le site d'origine, pour relire la source. */
+  sourceUrl?: string;
+  /** Les autres photos de la source (vues, détails) : gabarits, jamais affichées telles quelles. */
+  sourceImageUrls?: string[];
+  /**
+   * Champs écrits par le modèle de langage et non repris de la source
+   * (« subtitle », « bullets », « usage », « ingredients », « dosage »). Ils
+   * restent signalés dans le back-office tant que la fiche n'est pas validée :
+   * un texte rédigé n'est pas une caractéristique vérifiée.
+   */
+  aiFields?: string[];
+  /**
+   * Validation de la fiche par un humain.
+   *
+   * `signature` est l'empreinte des données au moment de la validation : si le
+   * nom, le prix, les caractéristiques, le colis ou l'image changent ensuite,
+   * la fiche redevient « à valider » sans qu'on ait à y penser.
+   */
+  review?: { at: string; by?: string; signature: string };
+  /**
+   * D'où vient l'image affichée, et pour quel produit elle a été faite.
+   *
+   * - `product-photo` : le produit seul, refait d'après les photos de la source ;
+   * - `brand-pack` : un emballage de marque, généré ;
+   * - `manual` : une image choisie à la main dans l'éditeur ;
+   * - `source` : la photo du site d'origine, telle quelle.
+   *
+   * `forName` est le nom du produit au moment où l'image a été faite : s'il ne
+   * correspond plus, l'image montre peut-être un autre produit. `reference` dit
+   * si un emballage a été reproduit d'après une référence vérifiée
+   * (`verified-pack`), d'après la photo de la source (`source`), ou sans rien.
+   */
+  imageInfo?: {
+    kind: "product-photo" | "brand-pack" | "manual" | "source";
+    forName: string;
+    reference: "verified-pack" | "source" | "none";
+    at: string;
+  };
+  /**
+   * Comment montrer le produit.
+   *
+   * `product` (par défaut) : le produit seul, sans boîte ni logo inventés.
+   * `documented` : le produit est réellement livré dans un emballage de marque,
+   * dont `packagingReferenceUrl` est la photo ou le fichier de référence.
+   */
+  packagingMode?: "product" | "documented";
+  packagingReferenceUrl?: string;
+  /** Anciennes adresses du produit : elles redirigent vers la nouvelle. */
+  previousHandles?: string[];
+  /** Anciens noms : ils ne doivent plus apparaître nulle part sur la boutique. */
+  previousNames?: string[];
+};
+
+/**
+ * Le fonctionnement réel de la boutique, tel que l'opérateur le confirme.
+ *
+ * Les politiques et les cartes de réassurance s'écrivent à partir d'ici. Tant
+ * qu'une modalité n'est pas confirmée, le texte reste neutre (« nous répondons
+ * avec les instructions de retour ») plutôt que de promettre une étiquette
+ * prépayée ou un entrepôt qu'on n'a peut-être pas.
+ */
+export type EcomOperations = {
+  /** Qui paie le retour. */
+  returnShipping?: "prepaid-label" | "customer-paid" | "unset";
+  /** D'où partent réellement les colis. */
+  fulfilment?: "own-stock" | "third-party-warehouse" | "supplier-direct" | "unset";
+  /** Un numéro de suivi est-il fourni pour chaque commande ? */
+  tracking?: boolean | null;
+  /** Délais, retours et descripteur relus et conformes à la réalité. */
+  confirmedAt?: string;
+  confirmedBy?: string;
 };
 
 /** Aucun avis inventé : la liste reste vide tant que de vrais retours ne sont pas saisis. */
@@ -305,6 +391,26 @@ export type EcomSite = {
   nav?: Array<{ label: string; href: string }>;
   /** Le formulaire de contact sur la page Contact ; absent = affiché. */
   contactForm?: boolean;
+
+  /**
+   * Brouillon ou en ligne.
+   *
+   * Une boutique créée par le générateur naît en brouillon : seul un compte
+   * connecté la voit. Elle passe en ligne par « Publier », qui refuse tant
+   * qu'un point bloquant du contrôle n'est pas résolu ou validé explicitement.
+   * Absent = en ligne (les boutiques créées avant ce contrôle restent ouvertes).
+   */
+  status?: "draft" | "published";
+  publishedAt?: string;
+  /** Points bloquants acceptés à la publication, et par qui. */
+  publishApproval?: { at: string; by?: string; overrides: string[] };
+  /** Les modalités réelles (retours, expédition, suivi), confirmées à la main. */
+  operations?: EcomOperations;
+  /**
+   * Justificatifs des promesses commerciales, par expression relevée
+   * (« guarantee » → « remboursement intégral sous 30 jours, Refund Policy »).
+   */
+  claimProofs?: Record<string, string>;
 };
 
 /** Un bloc d'une page ajoutée : ce qu'on retrouve sur n'importe quelle page de contenu. */
@@ -335,7 +441,7 @@ export function editedText(site: Pick<EcomSite, "textEdits">, text: string) {
 }
 
 /** Achat unique seulement : aucune boutique ne vend d'abonnement. */
-export const ONE_TIME_PROMO = "FREE US SHIPPING OVER $50 ✦ ONE-TIME PURCHASE, NO SUBSCRIPTION ✦ 30-DAY GUARANTEE";
+export const ONE_TIME_PROMO = "FREE US SHIPPING OVER $50 ✦ ONE-TIME PURCHASE, NO SUBSCRIPTION ✦ 30-DAY RETURNS";
 
 /** Un texte qui parle d'abonnement, de réassort automatique ou de prélèvement récurrent. */
 export const SUBSCRIPTION_WORDS = /subscri|auto-?ship|auto-?refill|auto-?renew|membership|recurring/i;

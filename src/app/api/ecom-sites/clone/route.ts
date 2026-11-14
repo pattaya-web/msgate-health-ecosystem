@@ -140,7 +140,7 @@ function buildPrompt(brandName: string, products: ReferenceProduct[]) {
 
 New brand name: ${brandName}
 
-Below is the source catalogue. This store is being rebuilt as faithfully as possible: the lineup, the product names, the formats, the doses and the prices all stay exactly as they are — I keep them unchanged. Your job is only to write the pieces the source does not give me: the brand-level copy, the category labels, the short subtitles, the bullet lines, the usage line and the ingredient line. Write them so they sit naturally next to products I am not touching.
+Below is the source catalogue. This store is being rebuilt as faithfully as possible: the lineup, the product names, the formats, the doses and the prices all stay exactly as they are — I keep them unchanged. Your job is only to write the pieces the source does not give me: the brand-level copy, the category labels, the short subtitles, the bullet lines and the usage line. Write them so they sit naturally next to products I am not touching.
 
 ${catalogue}
 
@@ -148,6 +148,9 @@ Hard rules:
 - Never claim a product treats, cures or prevents any disease.
 - Never invent clinical trials, doctor endorsements, press mentions, certifications or awards.
 - Never invent customer reviews, ratings or review counts.
+- FACTS COME ONLY FROM THE SOURCE PAGE TEXT. Never invent a dimension, size, weight, capacity, material, colour, certification, warranty, guarantee or feature. If the page text does not state a material or a size, leave "dosage" and "ingredients" as empty strings — never fill them with a plausible guess like "Standard size" or "ABS plastic".
+- Bullets and usage may only restate what the page text says. If the page text says little, write fewer bullets rather than inventing benefits.
+- No vague quality or trust claims: never write "premium", "trusted", "high quality", "durable", "safe", "satisfaction guaranteed", "fast shipping" or similar unless the page text states it as a fact.
 - Match the product category. For supplements and skincare, keep ingredient names and doses realistic and consistent with the source. For any other goods (pet products, home, accessories, apparel, tools), never mention ingredients, doses, supplements or the FDA: write about materials, size, use and care instead, and leave "productDisclaimer" empty.
 - Plain, concrete English. No em dashes.
 - Every sale is a one-time purchase. Never mention subscriptions, subscribe & save, auto-ship, auto-refill, memberships or recurring billing anywhere.
@@ -157,10 +160,9 @@ Return ONLY a JSON object shaped exactly like this, with one entry in "products"
   "tagline": "three to five words",
   "heroTitle": "short sentence under 60 characters",
   "heroSubtitle": "two sentences: what the brand sells and who it is for",
-  "promise": "one paragraph on how products are chosen, checked and described honestly",
+  "promise": "one or two plain sentences on what the shop sells and for whom, with no quality, safety, satisfaction or speed claim",
   "productDisclaimer": "the standard US disclaimer for this category, or empty string",
-  "promoBar": "short uppercase marquee line with shipping, guarantee and ONE-TIME PURCHASE, NO SUBSCRIPTION",
-  "pillars": [ { "title": "short", "body": "two sentences" } ],
+
   "categories": [ { "id": "kebab-case", "label": "short", "blurb": "one line" } ],
   "products": [
     {
@@ -168,17 +170,17 @@ Return ONLY a JSON object shaped exactly like this, with one entry in "products"
       "name": "new product name",
       "subtitle": "one short line",
       "category": "must match one category id",
-      "dosage": "short format line, e.g. Daily . 2 gummies for a supplement, or size / material for other goods",
+      "dosage": "the format, size or capacity exactly as stated in the page text, or empty string",
       "description": "150 to 220 characters",
       "bullets": ["four short benefit lines"],
       "usage": "one sentence",
-      "ingredients": "supplements and skincare: comma separated actives with doses; other goods: main materials; empty if not applicable",
+      "ingredients": "ingredients or materials exactly as stated in the page text, comma separated; empty string if the page text does not state them",
       "badge": "Bestseller, Hero, New, or empty string"
     }
   ]
 }
 
-Give 3 pillars and 3 to 4 categories.`;
+Give 3 to 4 categories.`;
 }
 
 /**
@@ -465,6 +467,18 @@ export async function POST(request: Request) {
        * la couleur et le logo changent.
        */
       const name = swap(source?.name || product.name || "");
+      const sourceDosage = swap(source?.dosage || "");
+      /*
+       * Ce que le modèle de langage a écrit, par opposition à ce qui vient de la
+       * source : le back-office le signale jusqu'à ce qu'un humain valide la fiche.
+       */
+      const aiFields = [
+        product.subtitle ? "subtitle" : "",
+        product.bullets?.length ? "bullets" : "",
+        product.usage ? "usage" : "",
+        product.ingredients ? "ingredients" : "",
+        !sourceDosage && product.dosage ? "dosage" : "",
+      ].filter(Boolean);
 
       return {
         handle: uniqueHandle(handleOf(name || `product-${index + 1}`)),
@@ -473,7 +487,7 @@ export async function POST(request: Request) {
         category: categoryIds.has(product.category) ? product.category : categories[0]?.id || "",
         price,
         compareAtPrice: null,
-        dosage: swap(source?.dosage || product.dosage || ""),
+        dosage: sourceDosage || swap(product.dosage || ""),
         description: swap(source?.description || product.description || ""),
         descriptionBlocks: swapBlocks(source?.descriptionBlocks, swap),
         bullets: Array.isArray(product.bullets) ? product.bullets.slice(0, 6).map(swap) : [],
@@ -482,8 +496,16 @@ export async function POST(request: Request) {
         badge: product.badge || "",
         imageUrl: source?.imageUrl || "",
         sourceImageUrl: source?.imageUrl || "",
+        sourceImageUrls: (source?.imageUrls ?? []).filter((url) => url && url !== source?.imageUrl).slice(0, 4),
         sourceImageRatio: source?.imageRatio || 0,
+        sourceUrl: source?.url || "",
+        sku: source?.sku || "",
         packagingTaskId: null,
+        aiFields,
+        // Le produit seul par défaut : un emballage de marque demande une référence réelle.
+        packagingMode: "product",
+        // En attendant sa photo, la fiche affiche celle de la source, signalée comme telle.
+        imageInfo: source?.imageUrl ? { kind: "source", forName: name, reference: "none", at: new Date().toISOString() } : undefined,
       };
     });
 
@@ -519,14 +541,20 @@ export async function POST(request: Request) {
       imageRatio: read.imageRatio || "1:1",
       // Et la page d'accueil suivra l'enchaînement de blocs du modèle.
       layout: read.layout || [],
-      sectionTitles: read.headings || [],
+      // Un titre de section qui est le nom d'un produit du modèle tromperait sur ce qui est présenté dessous.
+      sectionTitles: (read.headings || []).filter(
+        (heading) => !read.products.some((item) => item.name.trim().toLowerCase() === heading.trim().toLowerCase())
+      ),
+      // Brouillon : la boutique n'est visible qu'une fois le contrôle passé et la publication validée.
+      status: "draft",
       tagline: rebranded.tagline || "",
       heroTitle: rebranded.heroTitle || "",
       heroSubtitle: rebranded.heroSubtitle || "",
       promise: rebranded.promise || "",
       productDisclaimer: rebranded.productDisclaimer || "",
-      promoBar: rebranded.promoBar && !SUBSCRIPTION_WORDS.test(rebranded.promoBar) ? rebranded.promoBar : ONE_TIME_PROMO,
-      pillars: (rebranded.pillars || []).slice(0, 4),
+      // Bandeau et piliers factuels (livraison, retours, achat unique) : pas de « satisfaction guaranteed » rédigé.
+      promoBar: ONE_TIME_PROMO,
+      pillars: [],
       categories,
       products,
     });

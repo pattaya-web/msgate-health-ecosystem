@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createOrder, listOrders } from "@/lib/ecom-sites/orders";
 import { getEcomSiteBySlug } from "@/lib/ecom-sites/store";
+import { findProduct } from "@/lib/ecom-sites/product-facts";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +39,10 @@ export async function POST(request: Request) {
      * intention, pas un montant. Un total calculé sur des prix venus du client
      * est un total qu'on peut choisir soi-même depuis la console.
      */
-    const byHandle = new Map(site.products.map((product) => [product.handle, product]));
     const lines = (body.lines || [])
       .map((line) => {
-        const product = line.handle ? byHandle.get(line.handle) : undefined;
+        // Un panier ouvert avant qu'un produit soit renommé garde son ancienne adresse.
+        const product = line.handle ? findProduct(site.products, line.handle)?.product : undefined;
         if (!product) return null;
         const qty = Math.min(Math.max(Math.round(Number(line.qty) || 1), 1), 20);
         return { handle: product.handle, name: product.name, price: product.price, qty };

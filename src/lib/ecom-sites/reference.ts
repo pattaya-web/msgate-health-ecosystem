@@ -42,6 +42,12 @@ export type ReferenceProduct = {
   imageUrl?: string;
   /** Rapport largeur/hauteur de la photo source, 0 si inconnu. */
   imageRatio?: number;
+  /** La page du produit sur le site modèle : la référence qu'on peut aller relire. */
+  url?: string;
+  /** Référence fournisseur (SKU), quand le site la publie. */
+  sku?: string;
+  /** Toutes les photos du produit (vues, détails), la première étant imageUrl. */
+  imageUrls?: string[];
 };
 
 export type ReferenceRead = {
@@ -210,7 +216,7 @@ type ShopifyJsonProduct = {
   vendor?: string;
   body_html?: string;
   product_type?: string;
-  variants?: Array<{ price?: string; title?: string }>;
+  variants?: Array<{ price?: string; title?: string; sku?: string }>;
   images?: Array<{ src?: string; width?: number; height?: number }>;
 };
 
@@ -247,6 +253,9 @@ async function readShopify(domain: string): Promise<ReferenceRead | null> {
         product.images?.[0]?.width && product.images?.[0]?.height
           ? product.images[0].width / product.images[0].height
           : 0,
+      url: product.handle ? `https://${domain}/products/${product.handle}` : "",
+      sku: product.variants?.[0]?.sku?.trim() || "",
+      imageUrls: (product.images ?? []).slice(0, 8).map((image) => readableImage(image)).filter((src): src is string => Boolean(src)),
     };
   });
 
@@ -278,6 +287,8 @@ type WooProduct = {
   images?: Array<{ src?: string; srcset?: string }>;
   categories?: Array<{ name?: string }>;
   brands?: Array<{ name?: string }>;
+  permalink?: string;
+  sku?: string;
 };
 
 /**
@@ -334,6 +345,9 @@ async function readWooCommerce(domain: string): Promise<ReferenceRead | null> {
       raw: description.slice(0, 2000),
       imageUrl: readableImage(product.images?.[0]),
       imageRatio: 0,
+      url: product.permalink || "",
+      sku: product.sku?.trim() || "",
+      imageUrls: (product.images ?? []).slice(0, 8).map((image) => readableImage(image)).filter((src): src is string => Boolean(src)),
     };
   });
 
@@ -426,6 +440,7 @@ async function scrapeProductPage(url: string): Promise<ReferenceProduct | null> 
     raw: body,
     imageUrl: imageUrl ? new URL(imageUrl.replace(/&amp;/g, "&"), url).href : "",
     imageRatio: 0,
+    url,
   };
 }
 
