@@ -52,7 +52,7 @@ export default function MrrTipsPage() {
       <div>
         <h1 className="text-[22px] font-semibold tracking-tight text-slate-900 dark:text-slate-50">MRR Tips &amp; Tricks</h1>
         <p className="mt-1 text-[13px] text-slate-500">
-          Les notes de @mr_mrr4, traduites et classées : support client, abonnement, chargebacks, MID, chiffres. {TIPS.length} fiches,
+          Les notes de @mr_mrr4, traduites et classées : support client, abonnement, chargebacks, MID, chiffres. {`${TIPS.length} fiches`},
           dans l&apos;ordre du document.
         </p>
       </div>
@@ -121,7 +121,7 @@ export default function MrrTipsPage() {
               </button>
 
               {isOpen ? (
-                <div className="space-y-3 border-t border-slate-900/[0.05] px-4 py-3 pl-[52px] text-[13.5px] leading-relaxed text-slate-700 dark:border-white/[0.05] dark:text-slate-300">
+                <div className="space-y-3 border-t border-slate-900/[0.05] px-4 py-3 sm:pl-[52px] text-[13.5px] leading-relaxed text-slate-700 dark:border-white/[0.05] dark:text-slate-300">
                   {tip.body.map((paragraph, index) => (
                     <p key={index}>{paragraph}</p>
                   ))}
