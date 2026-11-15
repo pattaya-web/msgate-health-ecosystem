@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getMetaConfig } from "@/lib/meta/client";
 import { listStoredTokens, getExtraTokens } from "@/lib/meta/registry";
 import { sessionFromRequest } from "@/lib/auth/request";
+import { resolveToken } from "@/lib/meta/token";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -44,7 +45,23 @@ export async function GET(request: Request) {
   const config = getMetaConfig();
   if (!config) return NextResponse.json({ error: "Meta non configuré" }, { status: 503 });
 
-  const target = (new URL(request.url).searchParams.get("account") ?? "").replace(/^act_/, "").trim();
+  /*
+   * ?object=<id>&fields=<champs> : lecture brute d'un objet Meta (compte, ad
+   * set, pixel…) avec le jeton qui l'ouvre — lecture seule, jeton jamais renvoyé.
+   * ?object=act_123/adsets&fields=name,promoted_object pour une liste.
+   */
+  const params = new URL(request.url).searchParams;
+  const object = params.get("object")?.trim();
+  if (object) {
+    if (!/^[A-Za-z0-9_]+(\/[a-z_]+)?$/.test(object)) return NextResponse.json({ error: "objet invalide" }, { status: 400 });
+    const fields = (params.get("fields") ?? "id,name").replace(/[^A-Za-z0-9_,{}.()]/g, "");
+    const token = await resolveToken(object.split("/")[0]);
+    const body = await read(`${GRAPH}/${config.apiVersion}/${object}?fields=${encodeURIComponent(fields)}&limit=100&access_token=${encodeURIComponent(token)}`);
+    const clean = { ...body, paging: body.paging ? { hasNext: Boolean(body.paging.next) } : undefined };
+    return NextResponse.json({ object, fields, result: clean });
+  }
+
+  const target = (params.get("account") ?? "").replace(/^act_/, "").trim();
   const stored = await listStoredTokens();
   const extra = await getExtraTokens();
   const tokens = [
