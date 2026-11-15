@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
+import { BarChart3, BookOpen, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { BrandLogo } from "@/components/layout/brand-logo";
@@ -83,6 +83,7 @@ export const SECTIONS: NavSection[] = [
     label: "Organisation",
     items: [
       { href: "/process", label: "Process", icon: Workflow },
+      { href: "/mrr-tips", label: "MRR Tips & Tricks", icon: BookOpen },
       { href: "/ecosystem", label: "Ecosystem", icon: Network },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
@@ -187,6 +188,7 @@ const ADMIN_SECTIONS: NavSection[] = [
     label: "Organisation",
     items: [
       { href: "/process", label: "Process", icon: Workflow },
+      { href: "/mrr-tips", label: "MRR Tips & Tricks", icon: BookOpen },
       { href: "/ecosystem", label: "Ecosystem", icon: Network },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
