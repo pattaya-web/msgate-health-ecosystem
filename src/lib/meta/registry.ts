@@ -36,7 +36,25 @@ type Registry = {
   tokens: StoredToken[];
   /** When true, newly discovered accounts stay highlighted until acknowledged. */
   autoDetect: boolean;
+  /**
+   * Jetons écartés parce que Meta les déclare morts (accès API désactivé,
+   * expirés, invalides), repérés par leur empreinte — jamais par leur valeur.
+   */
+  retired?: Record<string, RetiredToken>;
 };
+
+export type RetiredToken = { id: string; reason: string; at: string; source: "env" | "registre" };
+
+/** Une semaine d'écart, puis on retente : un jeton réactivé chez Meta revient tout seul. */
+const RETIRE_MS = 7 * 24 * 60 * 60_000;
+
+/** Ce que Meta répond pour un jeton qui ne servira plus (≠ limite de requêtes ou droit manquant sur un compte). */
+export function isDeadTokenError(message: string, subcode?: number) {
+  return (
+    subcode === 5258003 ||
+    /API access deactivated|has expired|Error validating access token|session has been invalidated|Invalid OAuth access token|user has not authorized application/i.test(message)
+  );
+}
 
 const state = ((globalThis as typeof globalThis & {
   __msgateMetaRegistry?: { store: Registry | null };
@@ -56,6 +74,7 @@ async function load(): Promise<Registry> {
       accounts: parsed?.accounts || {},
       tokens: Array.isArray(parsed?.tokens) ? parsed.tokens : [],
       autoDetect: parsed?.autoDetect !== false,
+      retired: parsed?.retired && typeof parsed.retired === "object" ? parsed.retired : {},
     };
   } catch {
     state.store = empty();
@@ -76,6 +95,42 @@ async function persist(store: Registry) {
 
 function tokenId(token: string) {
   return createHash("sha256").update(token).digest("hex").slice(0, 12);
+}
+
+/**
+ * Écarte un jeton mort : il n'est plus essayé pendant une semaine, sur aucune
+ * page (Ads Manager, uploader, tableaux). Un jeton du registre est seulement
+ * écarté, pas supprimé : c'est à l'opérateur de le retirer.
+ */
+export async function retireToken(token: string, reason: string) {
+  const store = await load();
+  const id = tokenId(token);
+  const existing = store.retired?.[id];
+  if (existing && Date.now() - Date.parse(existing.at) < RETIRE_MS) return;
+  store.retired = {
+    ...(store.retired ?? {}),
+    [id]: { id, reason: reason.slice(0, 160), at: new Date().toISOString(), source: store.tokens.some((row) => row.token === token) ? "registre" : "env" },
+  };
+  await persist(store);
+}
+
+/** Les jetons actuellement écartés (empreintes), pour filtrer la configuration. */
+export async function retiredTokenIds() {
+  const store = await load();
+  return new Set(
+    Object.values(store.retired ?? {})
+      .filter((row) => Date.now() - Date.parse(row.at) < RETIRE_MS)
+      .map((row) => row.id)
+  );
+}
+
+export async function listRetiredTokens() {
+  const store = await load();
+  return Object.values(store.retired ?? {}).filter((row) => Date.now() - Date.parse(row.at) < RETIRE_MS);
+}
+
+export function fingerprint(token: string) {
+  return tokenId(token);
 }
 
 /** Les comptes publicitaires déjà rencontrés, tels que l'arbre Meta les a nommés. */
@@ -106,6 +161,11 @@ export async function addStoredToken(label: string, token: string) {
 
   const store = await load();
   const id = tokenId(cleaned);
+  // Un jeton qu'on rebranche a répondu à la vérification : il n'est plus écarté.
+  if (store.retired?.[id]) {
+    delete store.retired[id];
+    await persist(store);
+  }
   if (store.tokens.some((row) => row.id === id)) {
     return { id, created: false };
   }

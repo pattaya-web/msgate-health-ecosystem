@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { isMetaConfigured, invalidateSpendCache } from "@/lib/meta/client";
+import { isMetaConfigured, invalidateSpendCache, invalidateAccountDiscovery } from "@/lib/meta/client";
 import { invalidateTreeCache } from "@/lib/meta/tree";
 import {
   acknowledgeAccounts,
   addStoredToken,
   getAutoDetect,
+  listRetiredTokens,
   listStoredTokens,
   removeStoredToken,
   setAutoDetect,
@@ -22,6 +23,8 @@ export async function GET() {
     ok: true,
     autoDetect: await getAutoDetect(),
     tokens: await listStoredTokens(),
+    // Jetons écartés automatiquement (morts chez Meta) : empreinte, raison, date — jamais la valeur.
+    retired: await listRetiredTokens(),
   });
 }
 
@@ -45,9 +48,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Colle le token Meta envoyé par l'agence." }, { status: 400 });
       }
 
-      // Smoke-check the token before storing it so a typo does not pollute the board.
-      const probe = await graphGet<GraphError & { data?: unknown[] }>(
-        "me/adaccounts?fields=account_id&limit=1",
+      // Vérifié avant d'être gardé : une faute de frappe ne pollue pas le tableau. La réponse
+      // liste les comptes publicitaires que le jeton voit, pour confirmer le bon branchement.
+      const probe = await graphGet<GraphError & { data?: Array<{ account_id: string; name: string; account_status: number; currency?: string; business?: { name?: string } }> }>(
+        "me/adaccounts?fields=account_id,name,account_status,currency,business{name}&limit=200",
         body.token.trim()
       );
       if (probe.error) {
@@ -59,10 +63,18 @@ export async function POST(request: Request) {
 
       const result = await addStoredToken(body.label || "Agence Meta", body.token);
       invalidateTreeCache();
+      invalidateAccountDiscovery();
       invalidateSpendCache();
       return NextResponse.json({
         ok: true,
         ...result,
+        accounts: (probe.data ?? []).map((row) => ({
+          accountId: row.account_id,
+          name: row.name,
+          status: row.account_status,
+          currency: row.currency ?? "",
+          business: row.business?.name ?? "",
+        })),
         tokens: await listStoredTokens(),
       });
     }

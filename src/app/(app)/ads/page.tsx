@@ -45,6 +45,7 @@ import { useAuth } from "@/lib/auth/auth-context";
 import { TzBadge } from "@/components/phoenix/source-clocks";
 import { SplitBar } from "@/components/phoenix/ui";
 import { AccountFlow } from "@/components/ads/account-flow";
+import { ConnectBmButton } from "@/components/ads/connect-bm-dialog";
 import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type PromoTarget } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
 import { ProductThresholdsContext, RoasBreakevenContext, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
@@ -1644,6 +1645,16 @@ export default function AdsPage() {
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Brancher un nouveau BM à l'API, en haut de la page plutôt que replié en bas. */}
+            {isAssociate ? null : (
+              <ConnectBmButton
+                onChanged={() => {
+                  hardRefresh.current = true;
+                  setRefreshing(true);
+                  setReloadKey((key) => key + 1);
+                }}
+              />
+            )}
             <DateRangePicker
               className="h-8 min-w-0 flex-1 truncate px-2 text-[10px] sm:h-9 sm:flex-none sm:text-xs"
               value={shown}

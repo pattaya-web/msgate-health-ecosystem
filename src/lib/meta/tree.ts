@@ -4,7 +4,7 @@ import path from "path";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, classifyCampaign } from "@/lib/meta/buckets";
 import { guardedTtl } from "@/lib/meta/usage-log";
 import { STORAGE_ROOT } from "@/lib/storage-root";
-import { getMetaConfigWithExtras, invalidateAccountDiscovery, keepAccount } from "@/lib/meta/client";
+import { getMetaConfigWithExtras, invalidateAccountDiscovery, keepAccount, noteDeadToken } from "@/lib/meta/client";
 import { centsToUnits, graphBatch, graphGet, type GraphError } from "@/lib/meta/graph";
 import { rememberAccounts } from "@/lib/meta/registry";
 import type {
@@ -409,6 +409,8 @@ export async function buildAdsTree(params: {
         );
         if (body.error) {
           discoverErrors.push(`Token #${index + 1} : ${body.error.message}`);
+          // Jeton mort (accès API désactivé, expiré) : écarté pour une semaine, il ne pollue plus chaque synchro.
+          await noteDeadToken(token, body.error.message);
           return;
         }
         tokensWorking += 1;

@@ -97,12 +97,14 @@ export function getMetaConfig(): MetaConfig | null {
 export async function getMetaConfigWithExtras(): Promise<MetaConfig | null> {
   const base = getMetaConfig();
   if (!base) return null;
-  const { getExtraTokens } = await import("@/lib/meta/registry");
+  const { getExtraTokens, retiredTokenIds, fingerprint } = await import("@/lib/meta/registry");
   const extra = await getExtraTokens();
+  // Les jetons que Meta a déclarés morts ne sont plus essayés (voir retireToken).
+  const retired = await retiredTokenIds();
   const seen = new Set<string>();
   const tokens: string[] = [];
   for (const token of [...base.tokens, ...extra]) {
-    if (seen.has(token)) continue;
+    if (seen.has(token) || retired.has(fingerprint(token))) continue;
     seen.add(token);
     tokens.push(token);
   }
@@ -166,6 +168,7 @@ async function accountsOfToken(token: string, apiVersion: string): Promise<Disco
     }));
     const body = { data: read.rows, error: read.error && !read.rows.length ? { message: read.error } : undefined };
     if (!body.error) return { at: Date.now(), rows: body.data || [] };
+    await noteDeadToken(token, body.error.message);
     // Refus passager : on garde la liste d'avant, réessayée dans 2 min.
     if (hit?.rows) return { at: Date.now() - DISCOVERY_TTL_MS + DISCOVERY_ERROR_TTL_MS, rows: hit.rows };
     return { at: Date.now(), error: body.error.message };
@@ -174,6 +177,12 @@ async function accountsOfToken(token: string, apiVersion: string): Promise<Disco
   const entry = await pending;
   discovery.set(token, entry);
   return entry;
+}
+
+/** Un jeton que Meta déclare mort est écarté pour une semaine, partout. */
+export async function noteDeadToken(token: string, message: string, subcode?: number) {
+  const { isDeadTokenError, retireToken } = await import("@/lib/meta/registry");
+  if (isDeadTokenError(message, subcode)) await retireToken(token, message);
 }
 
 /** Vide la liste des comptes gardée en mémoire : « Sync », un jeton ajouté ou retiré. */
