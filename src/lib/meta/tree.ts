@@ -4,7 +4,7 @@ import path from "path";
 import { BUCKET_LABELS, CAMPAIGN_BUCKETS, classifyCampaign } from "@/lib/meta/buckets";
 import { guardedTtl } from "@/lib/meta/usage-log";
 import { STORAGE_ROOT } from "@/lib/storage-root";
-import { getMetaConfigWithExtras } from "@/lib/meta/client";
+import { getMetaConfigWithExtras, invalidateAccountDiscovery, keepAccount } from "@/lib/meta/client";
 import { centsToUnits, graphBatch, graphGet, type GraphError } from "@/lib/meta/graph";
 import { rememberAccounts } from "@/lib/meta/registry";
 import type {
@@ -355,6 +355,7 @@ export function getTokenForAccount(accountId: string) {
 }
 
 export function invalidateTreeCache() {
+  invalidateAccountDiscovery();
   state.generation = (state.generation ?? 0) + 1;
   state.cache.clear();
   // La dépense « depuis toujours » ne dépend pas d'une pause ou d'un budget : on la garde.
@@ -388,6 +389,8 @@ export async function buildAdsTree(params: {
 
   const ownedHit =
     !params.force && state.owned && now - state.owned.at < OWNED_TTL_MS ? state.owned : null;
+  // « Sync » relit aussi la liste de comptes de l'uploader, gardée à part 10 min.
+  if (params.force) invalidateAccountDiscovery();
 
   if (ownedHit) {
     tokensWorking = ownedHit.tokensWorking;
@@ -409,11 +412,11 @@ export async function buildAdsTree(params: {
           return;
         }
         tokensWorking += 1;
-        for (const account of body.data || []) {
+        // Toutes les pages : la première s'arrête à 200 comptes.
+        for (const account of await followPages(body, 10)) {
           if (owned.has(account.account_id)) continue;
-          if (config.accountFilter.length && !config.accountFilter.includes(account.account_id)) {
-            continue;
-          }
+          // Liste blanche pour les jetons d'agence ; un jeton du registre garde tous ses comptes, neufs compris.
+          if (!keepAccount(config, account.account_id, token)) continue;
           owned.set(account.account_id, { ...account, token });
           state.maps.tokenByAccount.set(account.account_id, token);
         }

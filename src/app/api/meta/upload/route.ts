@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isMetaConfigured } from "@/lib/meta/client";
+import { invalidateAccountDiscovery, isMetaConfigured } from "@/lib/meta/client";
 import { createAdsFromTemplate, listAccountStructure, listUploadAccounts, previewPost, readAdCopy, readAdsetSetup, type UploadProgress } from "@/lib/meta/uploader";
 import { REPORT_CURRENCY, fxRates } from "@/lib/fx";
 import { sessionFromRequest } from "@/lib/auth/request";
@@ -41,6 +41,8 @@ export async function GET(request: Request) {
       }
     }
     if (!accountId) {
+      // ?refresh=1 : relire la liste des comptes chez Meta (compte neuf livré par l'agence).
+      if (params.get("refresh") === "1") invalidateAccountDiscovery();
       const all = await listUploadAccounts();
       const accounts = scoped ? all.filter((account) => scoped.includes(account.accountId)) : all;
       // Les taux vers le dollar : le budget se saisit en $, Meta le reçoit dans la devise du compte.

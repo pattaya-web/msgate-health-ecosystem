@@ -58,7 +58,23 @@ export type MetaConfig = {
   tokens: string[];
   apiVersion: string;
   accountFilter: string[];
+  /**
+   * Les jetons ajoutés à la main dans le registre (bloc « Agence · BM »).
+   *
+   * META_AD_ACCOUNT_IDS sert à écarter les dizaines de comptes d'autres BM
+   * que voient les jetons d'agence de l'environnement. Un jeton qu'on a ajouté
+   * soi-même pour son profil ne voit que ses comptes : tous les siens passent,
+   * y compris un compte neuf, sans avoir à rallonger la liste à chaque livraison.
+   */
+  trustedTokens?: string[];
 };
+
+/** Un compte est gardé s'il est dans la liste blanche, ou vu par un jeton du registre. */
+export function keepAccount(config: MetaConfig, accountId: string, token: string) {
+  if (!config.accountFilter.length) return true;
+  if (config.accountFilter.includes(accountId)) return true;
+  return Boolean(config.trustedTokens?.includes(token));
+}
 
 export function getMetaConfig(): MetaConfig | null {
   // META_EXTRA_TOKENS : les jetons d'agence collés dans l'outil (registre du PC), recopiés pour le site en ligne qui n'a pas ce registre.
@@ -90,7 +106,7 @@ export async function getMetaConfigWithExtras(): Promise<MetaConfig | null> {
     seen.add(token);
     tokens.push(token);
   }
-  return { ...base, tokens };
+  return { ...base, tokens, trustedTokens: extra };
 }
 
 export function isMetaConfigured() {
@@ -143,9 +159,12 @@ async function accountsOfToken(token: string, apiVersion: string): Promise<Disco
   if (hit && Date.now() - hit.at < (hit.error ? DISCOVERY_ERROR_TTL_MS : DISCOVERY_TTL_MS)) return hit;
   const pending = (async (): Promise<DiscoveryEntry> => {
     const url = `${GRAPH}/${apiVersion}/me/adaccounts?fields=account_id,name,currency,account_status&limit=200&access_token=${encodeURIComponent(token)}`;
-    const body = await graph<GraphError & { data?: DiscoveredRow[] }>(url).catch((error: unknown) => ({
-      error: { message: error instanceof Error ? error.message : String(error) },
-    }) as GraphError & { data?: DiscoveredRow[] });
+    // Toutes les pages : au-delà de 200 comptes, Meta continue sur paging.next.
+    const read = await graphAll<DiscoveredRow>(url).catch((error: unknown) => ({
+      rows: [] as DiscoveredRow[],
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    const body = { data: read.rows, error: read.error && !read.rows.length ? { message: read.error } : undefined };
     if (!body.error) return { at: Date.now(), rows: body.data || [] };
     // Refus passager : on garde la liste d'avant, réessayée dans 2 min.
     if (hit?.rows) return { at: Date.now() - DISCOVERY_TTL_MS + DISCOVERY_ERROR_TTL_MS, rows: hit.rows };
@@ -155,6 +174,11 @@ async function accountsOfToken(token: string, apiVersion: string): Promise<Disco
   const entry = await pending;
   discovery.set(token, entry);
   return entry;
+}
+
+/** Vide la liste des comptes gardée en mémoire : « Sync », un jeton ajouté ou retiré. */
+export function invalidateAccountDiscovery() {
+  discovery.clear();
 }
 
 export async function discoverAdAccounts(config: MetaConfig) {
@@ -172,7 +196,7 @@ export async function discoverAdAccounts(config: MetaConfig) {
     working += 1;
     for (const row of rows || []) {
       if (accounts.has(row.account_id)) continue;
-      if (config.accountFilter.length && !config.accountFilter.includes(row.account_id)) continue;
+      if (!keepAccount(config, row.account_id, token)) continue;
       accounts.set(row.account_id, {
         id: `act_${row.account_id}`,
         accountId: row.account_id,
