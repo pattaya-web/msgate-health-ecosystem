@@ -674,7 +674,7 @@ type CreativeCopy = GraphError & {
 export async function readAdCopy(adId: string, checkAccess = false) {
   const token = await resolveToken(adId);
   const body = await graphGet<CreativeCopy>(
-    `${adId}?fields=creative{title,body,call_to_action_type,object_story_spec,asset_feed_spec}`,
+    `${adId}?fields=creative{title,body,call_to_action_type,object_story_spec,asset_feed_spec,effective_object_story_id}`,
     token
   );
   if (body.error) throw new Error(body.error.message);
@@ -684,10 +684,37 @@ export async function readAdCopy(adId: string, checkAccess = false) {
   const video = creative.object_story_spec?.video_data;
   const texts = (rows?: Array<{ text?: string }>) => (rows ?? []).map((row) => row.text?.trim() ?? "").filter(Boolean);
   const unique = (rows: Array<string | undefined>) => [...new Set(rows.map((row) => row?.trim() ?? "").filter(Boolean))];
+
+  /*
+   * Le texte principal n'est pas toujours dans la créa.
+   *
+   * Format flexible (plusieurs textes au choix, Advantage+) : Meta les range au
+   * niveau de la pub, dans creative_asset_groups_spec. Pub tirée d'une
+   * publication existante : le texte est celui de la publication. Sans ces deux
+   * lectures, l'uploader ne trouvait aucun texte et gardait l'ad copy d'une
+   * autre pub.
+   */
+  type Group = { texts?: Array<{ text?: string; text_type?: string }> };
+  const groups = await graphGet<GraphError & { creative_asset_groups_spec?: { groups?: Group[] } }>(
+    `${adId}?fields=creative_asset_groups_spec`,
+    token
+  ).catch(() => null);
+  const groupTexts = (type: string) =>
+    (groups?.creative_asset_groups_spec?.groups ?? []).flatMap((group) =>
+      (group.texts ?? []).filter((row) => row.text_type?.toLowerCase() === type).map((row) => row.text)
+    );
+  let postMessage = "";
+  const storyId = (creative as { effective_object_story_id?: string }).effective_object_story_id;
+  const hasBodies = texts(feed?.bodies).length || link?.message || video?.message || creative.body || groupTexts("primary_text").length;
+  if (!hasBodies && storyId) {
+    const post = await graphGet<GraphError & { message?: string }>(`${storyId}?fields=message`, token).catch(() => null);
+    postMessage = post?.message ?? "";
+  }
+
   return {
-    headlines: unique([...texts(feed?.titles), link?.name, video?.title, creative.title]),
-    bodies: unique([...texts(feed?.bodies), link?.message, video?.message, creative.body]),
-    descriptions: unique([...texts(feed?.descriptions), link?.description, video?.link_description]),
+    headlines: unique([...texts(feed?.titles), ...groupTexts("headline"), link?.name, video?.title, creative.title]),
+    bodies: unique([...texts(feed?.bodies), ...groupTexts("primary_text"), link?.message, video?.message, creative.body, postMessage]),
+    descriptions: unique([...texts(feed?.descriptions), ...groupTexts("description"), link?.description, video?.link_description]),
     websiteUrl: feed?.link_urls?.[0]?.website_url || link?.link || video?.call_to_action?.value?.link || "",
     displayUrl: feed?.link_urls?.[0]?.display_url || "",
     cta: feed?.call_to_action_types?.[0] || link?.call_to_action?.type || video?.call_to_action?.type || creative.call_to_action_type || "",
