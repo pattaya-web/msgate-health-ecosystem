@@ -1573,7 +1573,8 @@ export default function AdsPage() {
   return (
     <RoasBreakevenContext.Provider value={objectives?.thresholds.meta ?? null}>
     <ProductThresholdsContext.Provider value={(objectives?.products ?? []).filter((product) => product.pattern).map((product) => ({ pattern: product.pattern, thresholds: product.meta }))}>
-    <div className="mb-2.5 inline-flex gap-0.5 rounded-xl bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
+    <div className="mb-2.5 flex flex-wrap items-center gap-2">
+    <div className="inline-flex gap-0.5 rounded-xl bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
       {(
         [
           ["matin", "Matin"],
@@ -1593,6 +1594,19 @@ export default function AdsPage() {
           {label}
         </button>
       ))}
+    </div>
+    {/* Brancher un nouveau BM à l'API : en haut, visible depuis chaque onglet. */}
+    {isAssociate ? null : (
+      <div className="ml-auto">
+        <ConnectBmButton
+          onChanged={() => {
+            hardRefresh.current = true;
+            setRefreshing(true);
+            setReloadKey((key) => key + 1);
+          }}
+        />
+      </div>
+    )}
     </div>
     {view === "matin" ? (
       <MorningView
@@ -1645,16 +1659,6 @@ export default function AdsPage() {
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* Brancher un nouveau BM à l'API, en haut de la page plutôt que replié en bas. */}
-            {isAssociate ? null : (
-              <ConnectBmButton
-                onChanged={() => {
-                  hardRefresh.current = true;
-                  setRefreshing(true);
-                  setReloadKey((key) => key + 1);
-                }}
-              />
-            )}
             <DateRangePicker
               className="h-8 min-w-0 flex-1 truncate px-2 text-[10px] sm:h-9 sm:flex-none sm:text-xs"
               value={shown}
