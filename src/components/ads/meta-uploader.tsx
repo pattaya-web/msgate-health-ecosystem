@@ -278,13 +278,22 @@ export function MetaUploader() {
       const body = (await res.json()) as { copy?: { headlines: string[]; bodies: string[]; descriptions: string[]; websiteUrl: string; displayUrl: string; cta: string }; error?: string };
       if (!res.ok || !body.copy) throw new Error(body.error || "Textes de la pub illisibles");
       const copy = body.copy;
-      if (copy.headlines.length) setHeadlines(copy.headlines);
-      if (copy.bodies.length) setBodies(copy.bodies);
-      if (copy.descriptions.length) setDescriptions(copy.descriptions);
+      /*
+       * L'ad copy de la pub choisie remplace tout : un champ que la pub n'a pas
+       * est vidé, jamais laissé avec le texte d'une autre pub (l'ad copy
+       * enregistré de la fois précédente restait affiché et partait avec les
+       * nouvelles pubs). Sur certaines pubs, Meta range les textes au-dessus du
+       * visuel dans « descriptions » : ce sont eux qu'on affiche alors.
+       */
+      const primary = copy.bodies.length ? copy.bodies : copy.descriptions;
+      setHeadlines(copy.headlines.length ? copy.headlines : [""]);
+      setBodies(primary.length ? primary : [""]);
+      setDescriptions(copy.bodies.length && copy.descriptions.length ? copy.descriptions : [""]);
       if (copy.websiteUrl) setWebsiteUrl(copy.websiteUrl);
-      if (copy.displayUrl) setDisplayUrl(copy.displayUrl);
+      setDisplayUrl(copy.displayUrl || "");
       if (copy.cta) setCta(copy.cta);
-      toast.success("Textes, lien et bouton repris de la pub modèle");
+      if (!primary.length) toast.warning("Aucun texte trouvé sur cette pub : écris l'ad copy avant de lancer");
+      else toast.success("Ad copy de la pub modèle repris tel quel");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Textes de la pub illisibles");
     } finally {
