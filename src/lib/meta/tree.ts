@@ -5,6 +5,7 @@ import { BUCKET_LABELS, CAMPAIGN_BUCKETS, classifyCampaign } from "@/lib/meta/bu
 import { guardedTtl } from "@/lib/meta/usage-log";
 import { STORAGE_ROOT } from "@/lib/storage-root";
 import { getMetaConfigWithExtras, invalidateAccountDiscovery, keepAccount, noteDeadToken } from "@/lib/meta/client";
+import { isNonSalesObjective } from "@/lib/meta/objectives";
 import { centsToUnits, graphBatch, graphGet, type GraphError } from "@/lib/meta/graph";
 import { rememberAccounts } from "@/lib/meta/registry";
 import type {
@@ -664,6 +665,8 @@ export async function buildAdsTree(params: {
     const campaigns: CampaignNode[] = [];
     for (const campaign of campaignsByAccount.get(account.account_id) || []) {
       state.maps.tokenByObject.set(campaign.id, token);
+      // Trafic, engagement, notoriété : chauffe de compte, aucune vente — hors spend et hors stats.
+      if (isNonSalesObjective(campaign.objective)) continue;
       const adsets = (adsetsByCampaign.get(campaign.id) ?? []).sort(
         (a, b) => b.metrics.spend - a.metrics.spend
       );

@@ -1,4 +1,5 @@
 import { describeConversion, fxRates } from "@/lib/fx";
+import { isNonSalesObjective } from "@/lib/meta/objectives";
 import {
   classifyCampaign,
   emptyBucketTotals,
@@ -277,7 +278,7 @@ async function fetchRaw(
     accounts.map(async (account) => {
       const url =
         `${GRAPH}/${config.apiVersion}/act_${account.accountId}/insights` +
-        `?fields=campaign_id,campaign_name,spend&level=campaign&time_increment=1&limit=500` +
+        `?fields=campaign_id,campaign_name,spend,objective&level=campaign&time_increment=1&limit=500` +
         `&time_range=${timeRange}&access_token=${encodeURIComponent(account.token)}`;
 
       const { rows: raw, error } = await graphAll<RawInsight>(url);
@@ -287,6 +288,8 @@ async function fetchRaw(
       }
       currencies.add(account.currency);
       for (const row of raw) {
+        // Les campagnes de trafic / engagement ne comptent pas dans la dépense.
+        if (isNonSalesObjective((row as RawInsight & { objective?: string }).objective)) continue;
         rows.push({ ...row, accountId: account.accountId, accountName: account.name });
       }
     })

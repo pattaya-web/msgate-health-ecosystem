@@ -1,4 +1,5 @@
 import { discoverAdAccounts, getMetaConfigWithExtras } from "@/lib/meta/client";
+import { isNonSalesObjective } from "@/lib/meta/objectives";
 import { guardedTtl, isMetaRateLimit } from "@/lib/meta/usage-log";
 
 /**
@@ -60,7 +61,7 @@ export async function knownAccounts(force = false) {
   return state.accounts;
 }
 
-type InsightRow = { campaign_id?: string; campaign_name?: string; spend?: string; actions?: ActionRow[]; action_values?: ActionRow[] };
+type InsightRow = { campaign_id?: string; campaign_name?: string; spend?: string; objective?: string; actions?: ActionRow[]; action_values?: ActionRow[] };
 type CampaignRow = { id: string; name: string; effective_status?: string };
 
 async function accountSpend(account: FastAccount, apiVersion: string, start: string, end: string): Promise<FastAccountSpend> {
@@ -68,13 +69,14 @@ async function accountSpend(account: FastAccount, apiVersion: string, start: str
   const range = `time_range=${encodeURIComponent(JSON.stringify({ since: start, until: end }))}`;
   const [insights, campaigns] = await Promise.all([
     graphJson<{ data?: InsightRow[] }>(
-      `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?level=campaign&fields=campaign_id,campaign_name,spend,actions,action_values&limit=500&${range}&${token}`
+      `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?level=campaign&fields=campaign_id,campaign_name,spend,objective,actions,action_values&limit=500&${range}&${token}`
     ),
     graphJson<{ data?: CampaignRow[] }>(`${GRAPH}/${apiVersion}/act_${account.accountId}/campaigns?fields=id,name,effective_status&limit=500&${token}`),
   ]);
   if (insights.error) throw new Error(`Meta (${account.name}) : ${insights.error.message}`);
   const status = new Map((campaigns.data ?? []).map((row) => [row.id, row.effective_status ?? ""]));
-  const rows: FastCampaign[] = (insights.data ?? []).map((row) => ({
+  // Trafic, engagement : hors dépense et hors ventes.
+  const rows: FastCampaign[] = (insights.data ?? []).filter((row) => !isNonSalesObjective(row.objective)).map((row) => ({
     id: row.campaign_id ?? "",
     name: row.campaign_name ?? "",
     status: status.get(row.campaign_id ?? "") ?? "",
@@ -136,12 +138,13 @@ export async function fastScopedDailySpend(params: { start: string; end: string;
   const range = `time_range=${encodeURIComponent(JSON.stringify({ since: params.start, until: params.end }))}`;
   const rows = await Promise.all(
     picked.map(async (account) => {
-      const body = await graphJson<{ data?: Array<{ date_start?: string; spend?: string }> }>(
-        `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?fields=spend&time_increment=1&limit=500&${range}&access_token=${encodeURIComponent(account.token)}`
+      // Par campagne pour écarter le trafic et l'engagement, puis additionné par jour.
+      const body = await graphJson<{ data?: Array<{ date_start?: string; spend?: string; objective?: string }> }>(
+        `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?level=campaign&fields=spend,objective&time_increment=1&limit=500&${range}&access_token=${encodeURIComponent(account.token)}`
       );
       if (body.error) throw new Error(`Meta (${account.name}) : ${body.error.message}`);
       const days: Record<string, number> = {};
-      for (const row of body.data ?? []) if (row.date_start) days[row.date_start] = (days[row.date_start] ?? 0) + (Number(row.spend) || 0);
+      for (const row of body.data ?? []) if (row.date_start && !isNonSalesObjective(row.objective)) days[row.date_start] = (days[row.date_start] ?? 0) + (Number(row.spend) || 0);
       return { account, days };
     })
   );

@@ -1,4 +1,5 @@
 import { knownAccounts } from "@/lib/associate/meta-fast";
+import { isNonSalesObjective } from "@/lib/meta/objectives";
 import { guardedTtl, isMetaRateLimit } from "@/lib/meta/usage-log";
 
 /**
@@ -113,15 +114,17 @@ async function fetchDaily(accountIds: string[], start: string, end: string, key:
         adset_id?: string;
         campaign_id?: string;
         campaign_name?: string;
+        objective?: string;
         spend?: string;
         impressions?: string;
         clicks?: string;
         actions?: ActionRow[];
         action_values?: ActionRow[];
       }>(
-        `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?level=ad&time_increment=1&fields=ad_id,adset_id,campaign_id,campaign_name,spend,impressions,clicks,actions,action_values&limit=500&time_range=${range}&access_token=${encodeURIComponent(account.token)}`
+        `${GRAPH}/${apiVersion}/act_${account.accountId}/insights?level=ad&time_increment=1&fields=ad_id,adset_id,campaign_id,campaign_name,objective,spend,impressions,clicks,actions,action_values&limit=500&time_range=${range}&access_token=${encodeURIComponent(account.token)}`
       );
-      return rows.map(
+      // Trafic, engagement : chauffe de compte, hors spend et hors stats du pilotage.
+      return rows.filter((row) => !isNonSalesObjective(row.objective)).map(
         (row): AdDay => ({
           date: row.date_start ?? "",
           accountId: account.accountId,
