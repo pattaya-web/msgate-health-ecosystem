@@ -588,7 +588,8 @@ export function Sidebar({
         {/* Le solde Kie AI : Alison s'en sert aussi pour le Studio IA. */}
         <KieCredit />
 
-        {isAdmin ? (
+        {/* La « Vue Alison » est supprimée (accès Associé fermé le 16/11/2026). */}
+        {false ? (
           <div className="mb-2 rounded-2xl border border-slate-200/70 bg-white/70 p-1 dark:border-slate-800 dark:bg-slate-900/50" data-view-switch>
             <p className="eyebrow px-2 pb-1 pt-1">Vue</p>
             <div className="grid grid-cols-2 gap-1">

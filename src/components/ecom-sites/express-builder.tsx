@@ -396,7 +396,7 @@ export function ExpressBuilder({ onOpen, onListChange, onSiteUpdate }: Props) {
       <div className="flex flex-wrap items-baseline gap-2">
         <h3 className="text-[13px] font-semibold">Nouvelle boutique express</h3>
         <span className="text-[11px] text-slate-500">
-          Marché US · achat unique · prix du modèle (max ${MAX_PRICE}) · politiques, footer LLC et contact remplis · photos produit fidèles à la source · brouillon jusqu'à la publication
+          Marché US · achat unique · prix du modèle (max ${MAX_PRICE}) · politiques, footer LLC et contact remplis · photos produit fidèles à la source · brouillon jusqu&apos;à la publication
         </span>
       </div>
 

@@ -90,10 +90,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       canWrite: user?.role === "admin" || user?.role === "operator",
       isAdmin: user?.role === "admin",
-      isAssociate: user?.role === "associate" || (user?.role === "admin" && preview),
-      previewAssociate: user?.role === "admin" && preview,
+      // La « Vue Alison » est supprimée : l'admin voit toujours sa propre vue.
+      isAssociate: user?.role === "associate",
+      previewAssociate: false,
       setPreviewAssociate(on) {
-        setPreview(on);
+        void on;
+        setPreview(false);
         try {
           if (on) localStorage.setItem(PREVIEW_KEY, "1");
           else localStorage.removeItem(PREVIEW_KEY);

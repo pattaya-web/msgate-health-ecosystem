@@ -75,7 +75,13 @@ export function loadAuthUsers(): AuthUsers {
     const revoked = new Set(
       (process.env.AUTH_REVOKED ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean)
     );
-    const active = users.filter((user) => !revoked.has(user.email));
+    /*
+     * L'accès Associé (Alison) est supprimé depuis le 16/11/2026 : aucun compte
+     * de rôle « associate » n'est plus accepté, même s'il reste dans
+     * AUTH_USERS. verifySession s'appuie sur cette liste : une session encore
+     * ouverte tombe à la requête suivante.
+     */
+    const active = users.filter((user) => !revoked.has(user.email) && user.role !== "associate");
     if (!active.length) return { users: [], source: "none", error: "Tous les comptes de AUTH_USERS sont coupés" };
     return { users: active, source: "env" };
   }
