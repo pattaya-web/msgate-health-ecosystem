@@ -44,6 +44,12 @@ export async function listUploadAccounts(): Promise<UploadAccount[]> {
   if (!config) throw new Error("Meta is not configured");
   const { accounts } = await discoverAdAccounts(config);
   return accounts
+    /*
+     * Seuls les comptes où l'on peut encore lancer une pub : un compte
+     * désactivé (2), en fermeture (100) ou fermé (101) ne sert plus à rien dans
+     * le menu de l'uploader. Il reste visible dans l'Ads Manager, colonne à couper.
+     */
+    .filter((account) => ![2, 100, 101].includes(account.status))
     .map(({ token: _t, ...rest }) => {
       void _t;
       return rest;
