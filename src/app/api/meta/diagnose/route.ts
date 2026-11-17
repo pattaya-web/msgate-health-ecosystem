@@ -55,7 +55,9 @@ export async function GET(request: Request) {
   if (object) {
     if (!/^[A-Za-z0-9_]+(\/[a-z_]+)?$/.test(object)) return NextResponse.json({ error: "objet invalide" }, { status: 400 });
     const fields = (params.get("fields") ?? "id,name").replace(/[^A-Za-z0-9_,{}.()]/g, "");
-    const token = await resolveToken(object.split("/")[0]);
+    // &via=<compte> : lire avec le jeton de ce compte pub (ex. ce que voit le jeton de E-3410 sur une Page).
+    const via = params.get("via")?.replace(/^act_/, "").trim();
+    const token = await resolveToken(via ? `act_${via}` : object.split("/")[0]);
     const body = await read(`${GRAPH}/${config.apiVersion}/${object}?fields=${encodeURIComponent(fields)}&limit=100&access_token=${encodeURIComponent(token)}`);
     const clean = { ...body, paging: body.paging ? { hasNext: Boolean(body.paging.next) } : undefined };
     return NextResponse.json({ object, fields, result: clean });
