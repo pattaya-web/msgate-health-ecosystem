@@ -371,7 +371,7 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
 
   const sourceAd = input.sourceAdId
     ? await graphGet<AdClone>(
-        `${input.sourceAdId}?fields=id,name,creative{object_story_spec,asset_feed_spec}`,
+        `${input.sourceAdId}?fields=id,name,creative{object_story_spec,asset_feed_spec,effective_object_story_id}`,
         token
       )
     : null;
@@ -382,16 +382,48 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
     const promoted = sourceAdset.promoted_object as { page_id?: string };
     pageId = promoted.page_id;
   }
+  // Pub tirée d'une publication : la Page est le début de l'identifiant du post (« idPage_idPost »).
+  if (!pageId) {
+    const story = (sourceAd?.creative as { effective_object_story_id?: string } | undefined)?.effective_object_story_id;
+    if (story?.includes("_")) pageId = story.split("_")[0];
+  }
+  /*
+   * Pas de pub modèle (ou une pub sans Page lisible) : la Page des pubs déjà
+   * en ligne dans cet ad set, cette campagne, puis ce compte. Le jeton peut ne
+   * voir aucune Page « promouvable » alors que les pubs du compte en ont une.
+   */
+  let instagramFromSibling: string | undefined;
+  if (!pageId) {
+    for (const parent of [input.sourceAdsetId, sourceAdset?.campaign_id || input.sourceCampaignId, act].filter(Boolean) as string[]) {
+      const siblings = await graphGet<
+        GraphError & { data?: Array<{ creative?: { object_story_spec?: { page_id?: string; instagram_user_id?: string }; effective_object_story_id?: string } }> }
+      >(`${parent}/ads?fields=creative{object_story_spec{page_id,instagram_user_id},effective_object_story_id}&limit=25`, token).catch(() => null);
+      for (const ad of siblings?.data ?? []) {
+        const found = ad.creative?.object_story_spec?.page_id || ad.creative?.effective_object_story_id?.split("_")[0];
+        if (found) {
+          pageId = found;
+          instagramFromSibling = ad.creative?.object_story_spec?.instagram_user_id;
+          break;
+        }
+      }
+      if (pageId) break;
+    }
+  }
   if (!pageId) {
     const pages = await graphGet<GraphError & { data?: Array<{ id: string }> }>(`${act}/promote_pages?fields=id&limit=5`, token);
     pageId = pages.data?.[0]?.id;
   }
-  if (!pageId) throw new Error("Impossible de trouver la Facebook Page liée à ce compte / cet ad set.");
+  if (!pageId) {
+    throw new Error(
+      "Aucune Facebook Page trouvée pour ce compte : choisis une pub modèle (colonne Ads) qui tourne déjà sur ta Page, ou vérifie que la Page est attribuée au jeton dans le Business Manager."
+    );
+  }
 
   const instagramActorId =
     sourceAd?.creative?.object_story_spec?.instagram_user_id ||
     sourceAd?.creative?.object_story_spec?.instagram_actor_id ||
-    sourceAdset?.instagram_actor_id;
+    sourceAdset?.instagram_actor_id ||
+    instagramFromSibling;
 
   const website =
     input.websiteUrl ||
