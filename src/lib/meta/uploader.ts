@@ -57,6 +57,25 @@ export async function listUploadAccounts(): Promise<UploadAccount[]> {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * La vignette d'une vidéo envoyée chez Meta (exigée par video_data).
+ * Meta la calcule pendant le traitement de la vidéo : quelques essais espacés,
+ * puis on continue sans plutôt que de bloquer l'envoi.
+ */
+async function videoThumbnail(videoId: string, token: string) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const body = await graphGet<GraphError & { picture?: string; thumbnails?: { data?: Array<{ uri?: string; is_preferred?: boolean }> } }>(
+      `${videoId}?fields=picture,thumbnails{uri,is_preferred}`,
+      token
+    ).catch(() => null);
+    const list = body?.thumbnails?.data ?? [];
+    const uri = list.find((item) => item.is_preferred)?.uri || list[0]?.uri || body?.picture || "";
+    if (uri) return uri;
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  return "";
+}
+
 /** Ce que l'uploader affiche d'un compte, gardé 3 min : changer de compte et revenir ne relit pas tout chez Meta. */
 type AccountStructure = { campaigns: PickerCampaign[]; adsets: PickerAdset[]; ads: PickerAd[]; stale?: string };
 const structureCache = ((globalThis as typeof globalThis & { __msgateUploaderStructure?: Map<string, { at: number; value: AccountStructure }> }).__msgateUploaderStructure ??= new Map());
@@ -494,7 +513,33 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
        */
       const multiText = titleList.length > 1 || bodyList.length > 1 || descriptions.length > 1;
       const simpleImage = media.kind === "image" && media.hash && !multiText && !targetDynamic;
-      const creativeBody: Record<string, unknown> = simpleImage
+      /*
+       * Vidéo : comme pour une image, le lien doit être dans la publication
+       * elle-même (video_data + bouton avec le lien), sinon Meta répond « Le
+       * champ link est requis ». video_data exige aussi une vignette, que Meta
+       * calcule pendant le traitement de la vidéo.
+       */
+      const isVideo = media.kind === "video" && Boolean(media.videoId);
+      const thumb = isVideo ? await videoThumbnail(media.videoId!, token) : "";
+      const videoFeed = isVideo ? [{ video_id: media.videoId, ...(thumb ? { thumbnail_url: thumb } : {}) }] : videos;
+      const simpleVideo = isVideo && !multiText && !targetDynamic;
+      const creativeBody: Record<string, unknown> = simpleVideo
+        ? {
+            name: `${name} · creative`,
+            object_story_spec: {
+              page_id: pageId,
+              ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
+              video_data: {
+                video_id: media.videoId,
+                ...(thumb ? { image_url: thumb } : {}),
+                title: titleList[0],
+                message: bodyList[0].trim(),
+                ...(descriptions[0] ? { link_description: descriptions[0] } : {}),
+                call_to_action: { type: cta, value: { link: website } },
+              },
+            },
+          }
+        : simpleImage
         ? {
             name: `${name} · creative`,
             object_story_spec: {
@@ -517,11 +562,14 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
               ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
               // Comme le Gestionnaire Meta : le lien (et l'image) dans la publication elle-même, sinon « Le champ link est requis ».
               ...(media.kind === "image" && media.hash ? { link_data: { link: website, image_hash: media.hash, call_to_action: { type: cta } } } : {}),
+              ...(isVideo
+                ? { video_data: { video_id: media.videoId, ...(thumb ? { image_url: thumb } : {}), call_to_action: { type: cta, value: { link: website } } } }
+                : {}),
             },
             asset_feed_spec: {
               ad_formats: [media.kind === "video" ? "SINGLE_VIDEO" : "SINGLE_IMAGE"],
               ...(images.length ? { images } : {}),
-              ...(videos.length ? { videos } : {}),
+              ...(videoFeed.length ? { videos: videoFeed } : {}),
               titles: titleList.map((text) => ({ text })),
               bodies: bodyList.map((text) => ({ text })),
               ...(descriptions.length ? { descriptions: descriptions.map((text) => ({ text })) } : {}),
@@ -538,6 +586,23 @@ export async function createAdsFromTemplate(input: CreateAdsInput, onProgress: (
       if (creative.error && creativeBody.degrees_of_freedom_spec) {
         delete creativeBody.degrees_of_freedom_spec;
         creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, creativeBody);
+      }
+      // Vidéo à plusieurs textes refusée : on retente en vidéo simple (premier titre, premier texte, lien dans la publication).
+      if (creative.error && isVideo && creativeBody.asset_feed_spec && !targetDynamic) {
+        creative = await graphPost<GraphError & { id?: string }>(`${act}/adcreatives`, token, {
+          name: `${name} · creative`,
+          object_story_spec: {
+            page_id: pageId,
+            ...(instagramActorId ? { instagram_user_id: instagramActorId } : {}),
+            video_data: {
+              video_id: media.videoId,
+              ...(thumb ? { image_url: thumb } : {}),
+              title: titleList[0],
+              message: bodyList[0].trim(),
+              call_to_action: { type: cta, value: { link: website } },
+            },
+          },
+        });
       }
       if (creative.error || !creative.id) {
         const why = /permission|not visible|restricted/i.test(metaMessage(creative.error))
