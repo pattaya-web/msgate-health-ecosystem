@@ -67,6 +67,16 @@ async function patchJob(id: string, patch: Partial<StudioJob>): Promise<StudioJo
   return db.studioJobs[i];
 }
 
+/** Range des jobs fraîchement créés dans l'espace d'un shop. */
+export function tagJobs<T extends { id: string }>(jobs: T[], workspace: string | undefined): T[] {
+  if (!workspace || !jobs.length) return jobs;
+  const db = readDB();
+  const ids = new Set(jobs.map((job) => job.id));
+  for (const job of db.studioJobs) if (ids.has(job.id)) job.workspace = workspace;
+  writeDB(db);
+  return jobs.map((job) => ({ ...job, workspace }));
+}
+
 export function deleteJob(id: string) {
   const db = readDB();
   const before = db.studioJobs.length;

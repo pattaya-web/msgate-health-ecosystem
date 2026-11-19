@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { workspaceQuery } from "@/lib/workspace";
 import { getModel } from "@/lib/models";
 import { estimateSec, label } from "@/lib/format";
 import type { Generation } from "@/lib/types";
@@ -27,7 +28,10 @@ export const STUDIO_JOBS_EVENT = "princexd:studio-jobs";
 
 /** Derniere liste de jobs recue par le dock : la page Studio la reprend sans refaire l'appel. */
 let lastStudioJobs: StudioJob[] | null = null;
-export const readStudioJobsCache = () => lastStudioJobs;
+/** L’espace (Moosha…) de la liste gardée : une autre page ne la reprend pas. */
+let lastStudioWs = "";
+const wsNow = () => workspaceQuery("?");
+export const readStudioJobsCache = () => (lastStudioWs === wsNow() ? lastStudioJobs : null);
 
 /**
  * Un seul sondage a la fois : le dock et la page Studio montent ensemble et
@@ -37,15 +41,16 @@ let studioPending: Promise<{ jobs?: StudioJob[] }> | null = null;
 let lastStudioAt = 0;
 /** `maxAgeMs` : une liste plus recente que ca est rendue sans appel reseau. */
 export function fetchStudioJobs(maxAgeMs = 0): Promise<{ jobs?: StudioJob[] }> {
-  if (lastStudioJobs && maxAgeMs > 0 && Date.now() - lastStudioAt < maxAgeMs) {
+  if (lastStudioJobs && lastStudioWs === wsNow() && maxAgeMs > 0 && Date.now() - lastStudioAt < maxAgeMs) {
     return Promise.resolve({ jobs: lastStudioJobs });
   }
   if (!studioPending) {
-    studioPending = fetch("/api/studio-ia/jobs", { cache: "no-store" })
+    studioPending = fetch(`/api/studio-ia/jobs${workspaceQuery("?")}`, { cache: "no-store" })
       .then((r) => r.json() as Promise<{ jobs?: StudioJob[] }>)
       .then((body) => {
         if (body.jobs) {
           lastStudioJobs = body.jobs;
+          lastStudioWs = wsNow();
           lastStudioAt = Date.now();
         }
         return body;
@@ -181,7 +186,7 @@ export function JobsDock() {
          * deux tours, et c'est cette diffusion qui remplace le chrono par la
          * vignette. Sans ca, la page restait sur « en cours » jusqu'a F5.
          */
-        const res = await fetch(inFlight.current ? "/api/kie/task?list=1" : "/api/kie/task", { cache: "no-store" });
+        const res = await fetch(inFlight.current ? `/api/kie/task?list=1${workspaceQuery()}` : `/api/kie/task${workspaceQuery("?")}`, { cache: "no-store" });
         const body = (await res.json()) as { remaining?: number; generations?: Generation[] };
         if (!alive) return;
 

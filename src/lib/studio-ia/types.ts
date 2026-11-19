@@ -132,6 +132,8 @@ export interface CreateRequest {
 
 export interface StudioJob {
   id: string;
+  /** Espace de shop (Moosha…) ; absent = Studio général. */
+  workspace?: string;
   type: "video-transform" | "talking-photo" | "creation";
   /** Variantes lancées d'un coup : même batchId. */
   batchId: string;

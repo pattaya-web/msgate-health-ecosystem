@@ -27,5 +27,8 @@ export const APPLE_EMOJIS = [
 ] as const;
 
 export function appleEmojiUrl(unified: string, size: 64 | 160 = 64) {
-  return `https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/${size}/${unified}.png`;
+  // Le paquet npm n’a que du 64 px : le 160 px vient du dépôt d’origine, même version.
+  return size === 160
+    ? `https://cdn.jsdelivr.net/gh/iamcal/emoji-data@v15.1.2/img-apple-160/${unified}.png`
+    : `https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/${unified}.png`;
 }

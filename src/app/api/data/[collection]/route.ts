@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { insert, list, remove, removeMany, update } from "@/lib/db";
 import type { CollectionName } from "@/lib/types";
+import { inWorkspace, workspaceFromRequest } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ collection:
   const key = resolve(collection);
   if (!key) return NextResponse.json({ error: "Collection inconnue" }, { status: 404 });
 
-  const rows = list(key);
+  // Générations et jobs : ceux de l'espace (Moosha…) ou du Studio général, jamais mélangés.
+  const ws = workspaceFromRequest(req);
+  const all = list(key);
+  const rows = key === "generations" || key === "studioJobs" ? (all as unknown as Array<{ workspace?: string }>).filter((row) => inWorkspace(row, ws)) as typeof all : all;
   const heavy = HEAVY[key];
   if (req.nextUrl.searchParams.get("light") !== "1" || !heavy) {
     return NextResponse.json(rows);

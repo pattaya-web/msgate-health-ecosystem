@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionName } from "./types";
+import { currentWorkspace, workspaceHeaders } from "./workspace";
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    // L'espace du shop (Moosha…) part avec chaque appel : ses créations restent à part.
+    headers: { "Content-Type": "application/json", ...workspaceHeaders(), ...(init?.headers ?? {}) },
   });
   const text = await res.text();
   let body: unknown = null;
@@ -95,7 +97,9 @@ export function useCollection<T extends { id: string }>(
   opts: { light?: boolean } = {},
 ) {
   const light = Boolean(opts.light);
-  const key = light ? `${name}:light` : name;
+  // Une liste par espace (Studio général, Moosha…) : jamais celle d’un autre shop à l’écran.
+  const ws = currentWorkspace()?.id;
+  const key = `${light ? `${name}:light` : name}${ws ? `@${ws}` : ""}`;
 
   const [rows, setRows] = useState<T[]>(() => (CACHE.get(key) as T[]) ?? []);
   // Deja en cache : rien a attendre, l'ecran s'affiche tout de suite.

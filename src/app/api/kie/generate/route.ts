@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { workspaceFromRequest } from "@/lib/workspace";
 import { createTask, KieError } from "@/lib/kie";
 import { insert } from "@/lib/db";
 import { getModel } from "@/lib/models";
@@ -84,6 +85,8 @@ export async function POST(req: NextRequest) {
       }
     }
     const row = insert("generations", {
+      // Espace de shop (Moosha…) : la galerie de cet espace seulement.
+      ...(workspaceFromRequest(req)?.id ? { workspace: workspaceFromRequest(req)!.id } : {}),
       taskId,
       model: target,
       // Les modeles de swap rendent une video : c'est ce que la galerie doit lire.

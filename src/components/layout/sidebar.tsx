@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, BookOpen, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
+import { BarChart3, BookOpen, Film, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { BrandLogo } from "@/components/layout/brand-logo";
@@ -151,6 +151,15 @@ const ADMIN_SECTIONS: NavSection[] = [
     ],
   },
   {
+    id: "admin-moosha",
+    label: "Moosha",
+    items: [
+      { href: "/moosha/studio", label: "Studio IA", icon: Clapperboard },
+      { href: "/moosha/montage", label: "Montage", icon: Film },
+      { href: "/moosha/drive", label: "Drive", icon: HardDrive },
+    ],
+  },
+  {
     id: "admin-compta",
     label: "Comptabilité",
     items: [
@@ -164,7 +173,10 @@ const ADMIN_SECTIONS: NavSection[] = [
   {
     id: "admin-creation",
     label: "Création",
-    items: [{ href: "/studio-ia", label: "Studio IA", icon: Clapperboard }],
+    items: [
+      { href: "/studio-ia", label: "Studio IA", icon: Clapperboard },
+      { href: "/montage", label: "Montage", icon: Film },
+    ],
   },
   {
     id: "admin-boutiques",

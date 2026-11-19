@@ -35,6 +35,8 @@ export interface Settings {
 /** Une génération KIE suivie par la file de rendus (onglet Face swap, dock). */
 export interface Generation {
   id: ID;
+  /** Espace de shop (Moosha…) ; absent = Studio général. */
+  workspace?: string;
   taskId: string;
   model: string;
   kind: "image" | "video";

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { inWorkspace, workspaceFromRequest } from "@/lib/workspace";
 import { getTask, KieError } from "@/lib/kie";
 import { readDB, writeDB } from "@/lib/db";
 import { warmThumb } from "@/lib/thumbs";
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
   if (!pending.length) {
     return NextResponse.json(
       wantList
-        ? { updated: [], remaining: 0, generations: db.generations.slice(0, 60) }
+        ? { updated: [], remaining: 0, generations: db.generations.filter((g) => inWorkspace(g, workspaceFromRequest(req))).slice(0, 60) }
         : { updated: [], remaining: 0 },
     );
   }
@@ -88,5 +89,5 @@ export async function GET(req: NextRequest) {
   if (changed) writeDB(db);
 
   const remaining = db.generations.filter((g) => g.state !== "success" && g.state !== "fail").length;
-  return NextResponse.json({ updated, remaining, generations: db.generations.slice(0, 60) });
+  return NextResponse.json({ updated, remaining, generations: db.generations.filter((g) => inWorkspace(g, workspaceFromRequest(req))).slice(0, 60) });
 }

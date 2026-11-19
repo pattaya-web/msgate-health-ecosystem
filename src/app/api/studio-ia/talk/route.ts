@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { tick } from "@/lib/studio-ia/jobs";
+import { tagJobs, tick } from "@/lib/studio-ia/jobs";
+import { workspaceFromRequest } from "@/lib/workspace";
 import { createTalkJobs, TalkError } from "@/lib/studio-ia/talking-photo";
 import type { TalkRequest } from "@/lib/studio-ia/types";
 
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as TalkRequest | null;
   if (!body) return NextResponse.json({ error: "Requête illisible." }, { status: 400 });
   try {
-    const jobs = createTalkJobs(body);
+    const jobs = tagJobs(createTalkJobs(body), workspaceFromRequest(req)?.id);
     void tick();
     return NextResponse.json({ jobs });
   } catch (e) {

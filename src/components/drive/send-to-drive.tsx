@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { workspaceQuery } from "@/lib/workspace";
 import { FolderPlus, HardDrive, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,7 @@ export function SendToDrive({
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    void fetch("/api/drive?tree=1", { cache: "no-store" })
+    void fetch(`/api/drive?tree=1${workspaceQuery()}`, { cache: "no-store" })
       .then((res) => res.json())
       .then((body: { folders?: string[] }) => {
         if (!alive) return;
@@ -71,7 +72,7 @@ export function SendToDrive({
     try {
       let target = into;
       if (fresh.trim()) {
-        const res = await fetch("/api/drive", {
+        const res = await fetch(`/api/drive${workspaceQuery("?")}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "mkdir", path: into, name: fresh }),
@@ -84,7 +85,7 @@ export function SendToDrive({
       if (send) {
         message = await send(target);
       } else {
-        const res = await fetch("/api/drive", {
+        const res = await fetch(`/api/drive${workspaceQuery("?")}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "import", url, into: target, name }),

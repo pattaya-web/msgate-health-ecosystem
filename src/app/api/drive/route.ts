@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { sessionFromRequest } from "@/lib/auth/request";
+import { workspaceFromRequest } from "@/lib/workspace";
 import {
   SHARED_ROOT,
   cleanName,
   cleanPath,
   copyEntry,
   createFolder,
+  ensureFolder,
   ensureSharedFolders,
   extensionFor,
   listAllFolders,
@@ -31,7 +33,8 @@ export const maxDuration = 120;
  * (cleanPath retire déjà les « .. »).
  */
 function scopeFor(request: Request) {
-  const base = sessionFromRequest(request)?.role === "associate" ? SHARED_ROOT : "";
+  // L'espace d'un shop (Moosha…) a son propre dossier racine, comme « Commun » pour l'associé.
+  const base = sessionFromRequest(request)?.role === "associate" ? SHARED_ROOT : workspaceFromRequest(request)?.driveRoot ?? "";
   const inside = (rel: string) => (base ? (rel ? `${base}/${rel}` : base) : rel);
   const outside = (rel: string) => (base ? (rel === base ? "" : rel.startsWith(`${base}/`) ? rel.slice(base.length + 1) : rel) : rel);
   return { base, inside, outside };
@@ -44,6 +47,7 @@ export async function GET(request: Request) {
   const { base, inside, outside } = scopeFor(request);
   try {
     await ensureSharedFolders();
+    await ensureFolder(base);
     if (query) {
       const results = await searchFiles(query, 200, base);
       return NextResponse.json({ results: results.map((file: DriveFile) => ({ ...file, path: outside(file.path) })) });

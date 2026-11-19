@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useRef, useState } from "react";
+import { workspaceQuery } from "@/lib/workspace";
 import { ErrorNote, Field, useToast } from "@/components/studio-ia/ui";
 import type { Generation } from "@/lib/types";
 import { takeFiles } from "@/lib/upload-client";
@@ -274,7 +275,7 @@ export function FaceSwap({ onQueued }: { onQueued: (g: Generation) => void }) {
           urls.push(body.url);
         }
 
-        const res = await fetch("/api/kie/generate", {
+        const res = await fetch(`/api/kie/generate${workspaceQuery("?")}`, {
           method: "POST",
           body: JSON.stringify({
             model: modelId,

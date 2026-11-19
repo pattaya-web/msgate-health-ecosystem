@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { workspaceFromPath, workspaceQuery } from "@/lib/workspace";
+import { usePathname } from "next/navigation";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
@@ -62,7 +64,7 @@ type Clipboard = { mode: "copy" | "cut"; paths: string[] };
 type Menu = { x: number; y: number; target: { path: string; name: string; kind: "folder" | "file" } | null };
 
 function fileUrl(path: string, download = false) {
-  return `/api/drive/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
+  return `/api/drive/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}${workspaceQuery()}`;
 }
 
 function formatSize(bytes: number) {
@@ -77,7 +79,7 @@ function baseName(path: string) {
 }
 
 async function driveJson<T>(body: Record<string, unknown>): Promise<T> {
-  const res = await fetch("/api/drive", {
+  const res = await fetch(`/api/drive${workspaceQuery("?")}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -107,6 +109,8 @@ function readInternal(transfer: DataTransfer): string[] {
 }
 
 export function DriveExplorer() {
+  // Le Drive d’un shop (/moosha/drive) : son dossier seulement, et son nom dans le titre.
+  const driveWorkspace = workspaceFromPath(usePathname() ?? "");
   const [path, setPath] = useState("");
   const [listing, setListing] = useState<DriveListing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,7 +133,7 @@ export function DriveExplorer() {
   const load = useCallback(async (target: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/drive?path=${encodeURIComponent(target)}`, { cache: "no-store" });
+      const res = await fetch(`/api/drive?path=${encodeURIComponent(target)}${workspaceQuery()}`, { cache: "no-store" });
       const body = (await res.json()) as DriveListing & { error?: string };
       if (!res.ok) throw new Error(body.error);
       setListing(body);
@@ -161,7 +165,7 @@ export function DriveExplorer() {
       return () => clearTimeout(clear);
     }
     const timer = setTimeout(() => {
-      void fetch(`/api/drive?q=${encodeURIComponent(needle)}`, { cache: "no-store" })
+      void fetch(`/api/drive?q=${encodeURIComponent(needle)}${workspaceQuery()}`, { cache: "no-store" })
         .then((res) => res.json())
         .then((body: { results?: DriveFile[] }) => setResults(body.results ?? []))
         .catch(() => setResults([]));
@@ -209,7 +213,7 @@ export function DriveExplorer() {
         const form = new FormData();
         form.set("path", into);
         form.append("files", file);
-        const res = await fetch("/api/drive", { method: "POST", body: form });
+        const res = await fetch(`/api/drive${workspaceQuery("?")}`, { method: "POST", body: form });
         // Une réponse d'erreur peut ne pas être du JSON (« Request Entity Too Large ») : on la traduit.
         const body = (await res.json().catch(() => ({}))) as { saved?: string[]; error?: string };
         if (res.ok) {
@@ -428,8 +432,12 @@ export function DriveExplorer() {
       data-drive
     >
       <PageHeader
-        title="Drive"
-        description="Tes créas retenues, tes médias, tes pubs : des dossiers, et tout se retrouve par le nom. Glisse pour ranger, clic droit pour renommer, copier, coller, supprimer."
+        title={driveWorkspace ? `Drive · ${driveWorkspace.label}` : "Drive"}
+        description={
+          driveWorkspace
+            ? `Les créas, vidéos et fichiers du shop ${driveWorkspace.label} uniquement. Crée des dossiers, glisse tes fichiers, clic droit pour renommer, copier, supprimer.`
+            : "Tes créas retenues, tes médias, tes pubs : des dossiers, et tout se retrouve par le nom. Glisse pour ranger, clic droit pour renommer, copier, coller, supprimer."
+        }
         actions={
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" onClick={() => void newFolder()}>
@@ -746,7 +754,7 @@ function DestinationPicker({ mode, sources, current, onClose, onPick }: { mode: 
   const [needle, setNeedle] = useState("");
   useEffect(() => {
     let alive = true;
-    void fetch("/api/drive?tree=1", { cache: "no-store" })
+    void fetch(`/api/drive?tree=1${workspaceQuery()}`, { cache: "no-store" })
       .then((res) => res.json())
       .then((body: { folders?: string[] }) => {
         if (alive) setTree(body.folders ?? []);

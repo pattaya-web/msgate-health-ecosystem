@@ -270,6 +270,11 @@ export async function listAllFolders(limit = 500, under = ""): Promise<string[]>
 export const SHARED_ROOT = "Commun";
 const SHARED_DEFAULTS = ["Venom/Créatifs", "Venom/Images", "Venom/Vidéos", "Sauvegardes auto/Studio IA"];
 
+/** Le dossier racine d'un espace de shop (Moosha…), créé à la première visite. */
+export async function ensureFolder(rel: string) {
+  if (rel) await mkdir(abs(rel), { recursive: true });
+}
+
 export async function ensureSharedFolders() {
   for (const folder of SHARED_DEFAULTS) await mkdir(abs(`${SHARED_ROOT}/${folder}`), { recursive: true });
 }

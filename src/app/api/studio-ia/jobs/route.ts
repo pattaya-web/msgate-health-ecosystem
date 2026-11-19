@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { countByStatus, createJobs, deleteJob, JobError, tick } from "@/lib/studio-ia/jobs";
+import { countByStatus, createJobs, deleteJob, JobError, tagJobs, tick } from "@/lib/studio-ia/jobs";
+import { inWorkspace, workspaceFromRequest } from "@/lib/workspace";
 import type { TransformRequest } from "@/lib/studio-ia/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /** Liste + un tour de file : c'est ce sondage qui fait avancer les jobs. */
-export async function GET() {
-  const jobs = await tick();
+export async function GET(req: NextRequest) {
+  // Chaque espace (Studio général, Moosha…) ne voit que ses rendus ; la file, elle, avance pour tous.
+  const ws = workspaceFromRequest(req);
+  const jobs = (await tick()).filter((job) => inWorkspace(job, ws));
   /*
    * `providerInput` (la requete brute envoyee au fournisseur) pesait la
    * moitie de la liste et l'interface ne la lit jamais : 190 Ko par sondage
@@ -25,7 +28,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as TransformRequest | null;
   if (!body) return NextResponse.json({ error: "Requête illisible." }, { status: 400 });
   try {
-    const jobs = createJobs(body);
+    const jobs = tagJobs(createJobs(body), workspaceFromRequest(req)?.id);
     // Coup de pouce immédiat : pas besoin d'attendre le prochain sondage.
     void tick();
     return NextResponse.json({ jobs });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sessionFromRequest } from "@/lib/auth/request";
+import { workspaceFromRequest } from "@/lib/workspace";
 import { SHARED_ROOT, cleanPath, contentTypeOf, readDriveFile } from "@/lib/drive/store";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +10,8 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const asked = cleanPath(params.get("path"));
   if (!asked) return NextResponse.json({ error: "Chemin manquant" }, { status: 400 });
-  const rel = sessionFromRequest(request)?.role === "associate" ? `${SHARED_ROOT}/${asked}` : asked;
+  const wsRoot = workspaceFromRequest(request)?.driveRoot;
+  const rel = sessionFromRequest(request)?.role === "associate" ? `${SHARED_ROOT}/${asked}` : wsRoot ? `${wsRoot}/${asked}` : asked;
   try {
     const { data, name } = await readDriveFile(rel);
     const disposition = params.get("download") ? "attachment" : "inline";

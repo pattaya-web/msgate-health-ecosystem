@@ -182,7 +182,7 @@ export function VideoStudio() {
             stroke,
             strokeWidth,
           },
-          emojiUrls: emojis.map((id) => appleEmojiUrl(id, 64)),
+          emojiUrls: emojis.map((id) => appleEmojiUrl(id, 160)),
         });
 
         setProgress("Incrustation sur la vidéo…");

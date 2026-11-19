@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { workspaceFromPath } from "@/lib/workspace";
 import { api, useCollection, useLocalState } from "@/lib/client";
 import { getModel, MODELS, modelsOfKind, type ModelDef, type ModelKind } from "@/lib/models";
 import {
@@ -77,6 +78,7 @@ function firstOfKind(kind: ModelKind) {
 
 function StudioInner() {
   const params = useSearchParams();
+  const pathname = usePathname();
   const toast = useToast();
   const { rows, setRows, reload, destroyMany } = useCollection<Generation>("generations");
 
@@ -423,10 +425,14 @@ function StudioInner() {
     }
   };
 
+  // Le même Studio, ouvert dans l'espace d'un shop (/moosha/studio) : titre et créations de ce shop seulement.
+  const workspace = workspaceFromPath(pathname ?? "");
+  const studioTitle = workspace ? `Studio IA · ${workspace.label}` : "Studio IA";
+
   return (
     <>
       <PageHeader
-        title="Studio IA"
+        title={studioTitle}
         actions={
           <>
             {pending.length > 0 && (
