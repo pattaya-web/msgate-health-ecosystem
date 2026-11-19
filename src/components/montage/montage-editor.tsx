@@ -133,6 +133,9 @@ export function MontageEditor() {
   const [result, setResult] = useState<{ url: string; width: number; height: number; fps: number } | null>(null);
   const [stageWidth, setStageWidth] = useState(300);
   const [timelineWidth, setTimelineWidth] = useState(800);
+  /** Le projet sauvegardé a été relu : la sauvegarde automatique peut démarrer. */
+  const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const videos = useRef(new Map<string, HTMLVideoElement>());
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -232,6 +235,81 @@ export function MontageEditor() {
 
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
 
+  /* ---------------- Sauvegarde automatique ---------------- */
+
+  // Au chargement : le montage en cours de cet espace (Moosha, général…), tel qu'on l'a laissé.
+  useEffect(() => {
+    let alive = true;
+    void fetch(`/api/montage/project${workspaceQuery("?")}`, { cache: "no-store" })
+      .then((res) => res.json() as Promise<{ project?: { clips?: MontageClip[]; overlays?: MontageOverlay[]; music?: MontageMusic | null; clipVolume?: number } | null }>)
+      .then((body) => {
+        if (!alive || !body.project) return;
+        const project = body.project;
+        setClips((project.clips ?? []).filter((clip) => clip.url).map((clip) => ({ ...clip, src: clip.url!, uploading: false })));
+        setOverlays(project.overlays ?? []);
+        setMusic(project.music?.url ? { ...project.music, src: project.music.url, uploading: false } : null);
+        setClipVolume(project.clipVolume ?? 1);
+        setSaveState("saved");
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (alive) setLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Chaque changement est enregistré sur le serveur une seconde après la dernière retouche.
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = window.setTimeout(() => {
+      setSaveState("saving");
+      const project = {
+        clips: clips.filter((clip) => clip.url).map(({ file: _f, src: _s, uploading: _u, ...clip }) => {
+          void _f;
+          void _s;
+          void _u;
+          return clip;
+        }),
+        overlays,
+        music: music?.url ? { name: music.name, url: music.url, duration: music.duration, offset: music.offset, volume: music.volume } : null,
+        clipVolume,
+      };
+      const empty = !project.clips.length && !overlays.length && !project.music;
+      void fetch(`/api/montage/project${workspaceQuery("?")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project: empty ? null : project }),
+      })
+        .then((res) => setSaveState(res.ok ? "saved" : "error"))
+        .catch(() => setSaveState("error"));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [loaded, clips, overlays, music, clipVolume]);
+
+  /** Envoie un fichier dans les médias du site ; renvoie son adresse (/api/media/…). */
+  async function upload(file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+    if (!res.ok || !body.url) throw new Error(body.error || `Envoi impossible (${file.name})`);
+    return body.url;
+  }
+
+  function newProject() {
+    if ((clips.length || overlays.length || music) && !window.confirm("Repartir d'un montage vide ? Le montage actuel sera effacé (les vidéos déjà exportées restent).")) return;
+    stop();
+    setClips([]);
+    setOverlays([]);
+    setMusic(null);
+    setClipVolume(1);
+    setSelected(null);
+    setResult(null);
+    setT(0);
+  }
+
   /* ---------------- Ajouts ---------------- */
 
   async function addVideos(files: FileList | null) {
@@ -242,13 +320,23 @@ export function MontageEditor() {
       const src = URL.createObjectURL(file);
       try {
         const meta = await readVideo(src);
-        added.push({ id: newId("clip"), name: file.name, src, file, duration: meta.duration, in: 0, out: meta.duration, width: meta.width, height: meta.height });
+        added.push({ id: newId("clip"), name: file.name, src, file, uploading: true, duration: meta.duration, in: 0, out: meta.duration, width: meta.width, height: meta.height });
       } catch {
         toast.error(`${file.name} : vidéo illisible`);
       }
     }
     setClips((list) => [...list, ...added]);
     setResult(null);
+    // Envoi tout de suite : le montage est sauvegardé avec les vidéos, et l'export n'a plus rien à envoyer.
+    for (const clip of added) {
+      try {
+        const url = await upload(clip.file!);
+        setClips((list) => list.map((item) => (item.file === clip.file ? { ...item, url, uploading: false } : item)));
+      } catch (error) {
+        setClips((list) => list.map((item) => (item.file === clip.file ? { ...item, uploading: false } : item)));
+        toast.error(error instanceof Error ? error.message : `${clip.name} : envoi impossible`);
+      }
+    }
   }
 
   async function addMusic(files: FileList | null) {
@@ -257,11 +345,14 @@ export function MontageEditor() {
     const src = URL.createObjectURL(file);
     try {
       const duration = await readAudio(src);
-      setMusic({ name: file.name, src, file, duration, offset: 0, volume: 0.5 });
+      setMusic({ name: file.name, src, file, duration, offset: 0, volume: 0.5, uploading: true });
       setSelected({ kind: "music", id: "music" });
       setResult(null);
-    } catch {
-      toast.error("Musique illisible");
+      const url = await upload(file);
+      setMusic((current) => (current?.file === file ? { ...current, url, uploading: false } : current));
+    } catch (error) {
+      setMusic((current) => (current?.file === file ? { ...current, uploading: false } : current));
+      toast.error(error instanceof Error ? error.message : "Musique illisible");
     }
   }
 
@@ -343,29 +434,27 @@ export function MontageEditor() {
 
   /* ---------------- Export ---------------- */
 
-  async function upload(file: File) {
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body: form });
-    const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-    if (!res.ok || !body.url) throw new Error(body.error || `Envoi impossible (${file.name})`);
-    return body.url;
-  }
-
   async function exportVideo() {
     if (!clips.length) return toast.error("Ajoute au moins une vidéo.");
+    if (clips.some((clip) => clip.uploading) || music?.uploading) return toast.error("Les vidéos finissent d'être envoyées, réessaie dans quelques secondes.");
     stop();
     setResult(null);
     try {
-      // Un fichier coupé en plusieurs clips ne part qu'une fois.
-      const sent = new Map<File, string>();
+      // Normalement déjà envoyées à l'ajout ; un envoi raté est retenté ici (un fichier coupé en plusieurs clips ne part qu'une fois).
+      const sent = new Map<string, string>();
       for (const [index, clip] of clips.entries()) {
-        if (!clip.file || sent.has(clip.file)) continue;
+        if (clip.url) {
+          sent.set(clip.id, clip.url);
+          continue;
+        }
+        if (!clip.file) throw new Error(`${clip.name} : fichier introuvable, ajoute-le de nouveau`);
         setBusy(`Envoi des vidéos ${index + 1}/${clips.length}…`);
-        sent.set(clip.file, await upload(clip.file));
+        const url = await upload(clip.file);
+        for (const other of clips) if (other.file === clip.file) sent.set(other.id, url);
+        setClips((list) => list.map((item) => (item.file === clip.file ? { ...item, url } : item)));
       }
-      let musicUrl = "";
-      if (music?.file) {
+      let musicUrl = music?.url ?? "";
+      if (music && !musicUrl && music.file) {
         setBusy("Envoi de la musique…");
         musicUrl = await upload(music.file);
       }
@@ -382,7 +471,7 @@ export function MontageEditor() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clips: clips.map((clip) => ({ url: sent.get(clip.file!) ?? "", in: clip.in, out: clip.out })),
+          clips: clips.map((clip) => ({ url: sent.get(clip.id) ?? clip.url ?? "", in: clip.in, out: clip.out })),
           overlays: pngs,
           music: musicUrl && music ? { url: musicUrl, offset: music.offset, volume: music.volume } : null,
           clipVolume,
@@ -471,7 +560,21 @@ export function MontageEditor() {
         <button type="button" disabled={!selected} onClick={remove} className={cn(button, "bg-slate-100 text-rose-600 dark:bg-slate-800")}>
           <Trash2 className="h-4 w-4" /> Supprimer
         </button>
-        <button type="button" disabled={!clips.length || Boolean(busy)} onClick={() => void exportVideo()} className={cn(button, "ml-auto bg-emerald-600 text-white")}>
+        <span className="ml-auto text-[11px] font-medium text-slate-400">
+          {clips.some((clip) => clip.uploading) || music?.uploading
+            ? "Envoi des fichiers…"
+            : saveState === "saving"
+              ? "Sauvegarde…"
+              : saveState === "saved"
+                ? "✓ Sauvegardé"
+                : saveState === "error"
+                  ? "⚠ Sauvegarde impossible"
+                  : ""}
+        </span>
+        <button type="button" onClick={newProject} className={cn(button, "bg-slate-100 dark:bg-slate-800")}>
+          Nouveau
+        </button>
+        <button type="button" disabled={!clips.length || Boolean(busy)} onClick={() => void exportVideo()} className={cn(button, "bg-emerald-600 text-white")}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exporter
         </button>
       </div>

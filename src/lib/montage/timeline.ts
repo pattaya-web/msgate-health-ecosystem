@@ -10,9 +10,12 @@
 export type MontageClip = {
   id: string;
   name: string;
-  /** Adresse locale (aperçu) ; le fichier part au serveur à l'export. */
+  /** Adresse lue par l'aperçu (locale pendant l'envoi, puis celle du serveur). */
   src: string;
   file?: File;
+  /** Adresse du fichier sur le serveur (/api/media/…), connue une fois l'envoi fini. */
+  url?: string;
+  uploading?: boolean;
   /** Durée du fichier source, en secondes. */
   duration: number;
   /** Début et fin gardés dans le fichier source. */
@@ -56,6 +59,8 @@ export type MontageMusic = {
   name: string;
   src: string;
   file?: File;
+  url?: string;
+  uploading?: boolean;
   duration: number;
   /** Où la musique démarre dans le morceau (on saute l'intro). */
   offset: number;
