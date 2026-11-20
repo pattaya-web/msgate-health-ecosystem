@@ -3,6 +3,7 @@ import { apiGuard } from "@/lib/auth/guard";
 import { getAuthSecret, SESSION_COOKIE, verifySession } from "@/lib/auth/session";
 import { getBankPageByDomain } from "@/lib/bank-pages/store";
 import { getEcomSiteByDomain } from "@/lib/ecom-sites/store";
+import { PREVIEW_PARAM, previewCookieName, verifyPreviewToken } from "@/lib/ecom-sites/preview-link";
 
 /**
  * Un nom de domaine devant une boutique.
@@ -70,6 +71,27 @@ export async function proxy(request: NextRequest) {
     url.pathname = "/login";
     url.search = "";
     return NextResponse.redirect(url);
+  }
+
+  /*
+   * Lien d'aperçu d'une boutique en brouillon (/s/<slug>?apercu=<jeton>) : le
+   * jeton passe dans un cookie limité à cette boutique, puis on revient à
+   * l'adresse propre pour qu'il ne traîne pas dans la barre d'adresse.
+   */
+  const previewSlug = /^\/s\/([a-z0-9-]+)/i.exec(request.nextUrl.pathname)?.[1];
+  const previewParam = request.nextUrl.searchParams.get(PREVIEW_PARAM);
+  if (previewSlug && previewParam && verifyPreviewToken(previewSlug, previewParam, getAuthSecret())) {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete(PREVIEW_PARAM);
+    const response = NextResponse.redirect(url);
+    response.cookies.set(previewCookieName(previewSlug), previewParam, {
+      path: `/s/${previewSlug}`,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https",
+      maxAge: 60 * 60 * 24 * 30,
+    });
+    return response;
   }
 
   if (isAppHost(host)) return NextResponse.next();

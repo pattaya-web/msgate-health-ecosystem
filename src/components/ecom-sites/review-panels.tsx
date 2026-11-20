@@ -365,6 +365,20 @@ export function PublishPanel({
   const [accepted, setAccepted] = useState<string[]>([]);
   const draft = site.status === "draft";
 
+  /* Lien qui ouvre le brouillon à quelqu'un sans compte, sans le publier. */
+  async function copyPreviewLink() {
+    try {
+      const res = await fetch(`/api/ecom-sites/preview-links?id=${encodeURIComponent(site.id)}`, { headers: { Accept: "application/json" } });
+      const body = (await res.json()) as { links?: { url: string }[]; error?: string };
+      const url = body.links?.[0]?.url;
+      if (!res.ok || !url) throw new Error(body.error ?? "Lien indisponible");
+      await navigator.clipboard.writeText(url);
+      toast.success("Lien d'aperçu copié : il ouvre la boutique sans compte, sans la publier");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Lien indisponible");
+    }
+  }
+
   async function send(action: "publish" | "unpublish", overrides: string[] = []) {
     setBusy(true);
     try {
@@ -400,7 +414,7 @@ export function PublishPanel({
             draft ? "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200" : "bg-emerald-100 text-emerald-700"
           )}
         >
-          {draft ? "Brouillon : visible seulement une fois connecté" : `En ligne${site.publishedAt ? ` depuis le ${site.publishedAt.slice(0, 10)}` : ""}`}
+          {draft ? "Brouillon : visible une fois connecté ou par lien d'aperçu" : `En ligne${site.publishedAt ? ` depuis le ${site.publishedAt.slice(0, 10)}` : ""}`}
         </span>
         {draft ? (
           <button
@@ -412,6 +426,15 @@ export function PublishPanel({
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             Publier
+          </button>
+        ) : null}
+        {draft ? (
+          <button
+            type="button"
+            onClick={() => void copyPreviewLink()}
+            className="rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold dark:bg-slate-800"
+          >
+            Copier le lien d&apos;aperçu
           </button>
         ) : (
           <button

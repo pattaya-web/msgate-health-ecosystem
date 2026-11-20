@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { getEcomSiteBySlug } from "@/lib/ecom-sites/store";
 import { SESSION_COOKIE, getAuthSecret, verifySession } from "@/lib/auth/session";
+import { previewCookieName, verifyPreviewToken } from "@/lib/ecom-sites/preview-link";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], display: "swap" });
 
@@ -27,8 +28,11 @@ export default async function EcomSiteLayout({ children, params }: Props) {
   const { slug } = await params;
   const site = await getEcomSiteBySlug(slug);
   if (site?.status === "draft") {
-    const session = verifySession((await cookies()).get(SESSION_COOKIE)?.value, getAuthSecret());
-    if (!session) {
+    const jar = await cookies();
+    const session = verifySession(jar.get(SESSION_COOKIE)?.value, getAuthSecret());
+    // Ou un lien d'aperçu ouvert dans ce navigateur (voir lib/ecom-sites/preview-link).
+    const preview = verifyPreviewToken(site.slug, jar.get(previewCookieName(site.slug))?.value, getAuthSecret());
+    if (!session && !preview) {
       return (
         <div className={jakarta.className}>
           <main className="flex min-h-screen items-center justify-center bg-[#f8f8f7] px-6 text-center text-[#141414]">
