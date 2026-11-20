@@ -56,6 +56,12 @@ export async function proxy(request: NextRequest) {
       fallbackProtocol: request.nextUrl.protocol.replace(/:$/, ""),
     });
     if (decision.kind === "deny") return NextResponse.json({ error: decision.message }, { status: decision.status });
+    // L'assistante travaille toujours dans l'espace Moosha : imposé ici, pas laissé au navigateur.
+    if (decision.user?.role === "assistant") {
+      const headers = new Headers(request.headers);
+      headers.set("x-msgate-workspace", "moosha");
+      return NextResponse.next({ request: { headers } });
+    }
   }
 
   // Les documents internes (public/docs, ex. le process créa) : réservés aux comptes connectés.

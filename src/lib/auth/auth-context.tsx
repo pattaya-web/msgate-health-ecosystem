@@ -12,6 +12,8 @@ interface AuthContextValue {
   isAdmin: boolean;
   /** Accès Associé : ne voit que la page Straight Sale (vrai associé, ou admin en « Vue Alison »). */
   isAssociate: boolean;
+  /** Assistante (Noah) : l'espace Moosha seulement. */
+  isAssistant: boolean;
   /** L'admin regarde l'application comme l'associé la voit. */
   previewAssociate: boolean;
   setPreviewAssociate: (on: boolean) => void;
@@ -92,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin: user?.role === "admin",
       // La « Vue Alison » est supprimée : l'admin voit toujours sa propre vue.
       isAssociate: user?.role === "associate",
+      isAssistant: user?.role === "assistant",
       previewAssociate: false,
       setPreviewAssociate(on) {
         void on;

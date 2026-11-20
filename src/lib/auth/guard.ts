@@ -109,6 +109,19 @@ const ASSOCIATE_STUDIO_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/im
 const ASSOCIATE_TOOL_PREFIXES = ["/api/studio/", "/api/product-images/", "/api/spyshop/", "/api/brandsearch/"];
 const ASSOCIATE_TOOL_PATHS = new Set(["/api/studio", "/api/ugc/file", "/api/product-images", "/api/spyshop", "/api/brandsearch"]);
 
+/**
+ * L'assistante (rôle « assistant », Noah) : l'espace Moosha seulement — Studio
+ * IA et ses crédits, Montage, Drive Moosha, et sa page de tâches Instagram.
+ * Le proxy force l'espace « moosha » sur chacune de ses requêtes : elle ne voit
+ * ni les créas du Studio général ni le reste du Drive, quoi qu'elle envoie.
+ */
+const ASSISTANT_PREFIXES = ["/api/studio-ia/", "/api/kie/", "/api/media/", "/api/data/", "/api/montage/", "/api/noah"];
+const ASSISTANT_PATHS = new Set(["/api/upload", "/api/thumb", "/api/ai/image-edit", "/api/kie-credit", "/api/drive", "/api/drive/file"]);
+
+export function isAssistantApi(pathname: string) {
+  return ASSISTANT_PATHS.has(pathname) || ASSISTANT_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export function isAssociateApi(method: string, pathname: string) {
   if (ASSOCIATE_STUDIO_PATHS.has(pathname) || ASSOCIATE_STUDIO_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
   if (ASSOCIATE_TOOL_PATHS.has(pathname) || ASSOCIATE_TOOL_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
@@ -132,6 +145,10 @@ export function apiGuard(input: GuardInput): GuardDecision {
 
   const user = verifySession(input.cookieValue, input.secret);
   if (!user) return { kind: "deny", status: 401, message: "Connexion requise" };
+
+  if (user.role === "assistant" && !isAssistantApi(input.pathname)) {
+    return { kind: "deny", status: 403, message: "Accès limité à l'espace Moosha" };
+  }
 
   if (user.role === "associate" && !isAssociateApi(method, input.pathname)) {
     return { kind: "deny", status: 403, message: "Accès limité à la partie Straight Sale" };

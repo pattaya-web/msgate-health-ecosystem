@@ -1,5 +1,5 @@
 /** « associate » : un partenaire qui ne voit que la partie Straight Sale (voir src/lib/associate/scope.ts). */
-export type UserRole = "admin" | "operator" | "viewer" | "associate";
+export type UserRole = "admin" | "operator" | "viewer" | "associate" | "assistant";
 
 export type EntityStatus =
   | "active"

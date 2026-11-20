@@ -19,7 +19,7 @@ import type { AppUser, UserRole } from "@/types";
 export const SESSION_COOKIE = "msgate_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MIN_SECRET_LENGTH = 32;
-const ROLES: UserRole[] = ["admin", "operator", "viewer", "associate"];
+const ROLES: UserRole[] = ["admin", "operator", "viewer", "associate", "assistant"];
 
 export type SessionUser = { email: string; role: UserRole };
 
@@ -46,7 +46,14 @@ export function isProduction() {
 
 /** Les comptes autorisés. Un AUTH_USERS illisible ne donne aucun compte : pas de repli silencieux. */
 export function loadAuthUsers(): AuthUsers {
-  const raw = process.env.AUTH_USERS?.trim();
+  /*
+   * AUTH_USERS_EXTRA : des comptes ajoutés à part (ex. Noah, l'assistante),
+   * sans avoir à réécrire AUTH_USERS — dont l'hébergeur ne rend pas la valeur.
+   * Même format, fusionné à la suite.
+   */
+  const extra = process.env.AUTH_USERS_EXTRA?.trim();
+  const base = process.env.AUTH_USERS?.trim();
+  const raw = base && extra && base.startsWith("[") && extra.startsWith("[") ? `${base.slice(0, -1).trim()}${base.trim() === "[]" ? "" : ","}${extra.trim().slice(1)}` : base || extra;
   if (raw) {
     let parsed: unknown;
     try {

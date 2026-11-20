@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, HandCoins, Handshake, Lightbulb, Mail, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, Clapperboard, Film, HandCoins, Handshake, Lightbulb, ListChecks, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -27,14 +27,21 @@ const adminItems = [
   { href: "/ads", label: "Ads", icon: Megaphone },
 ];
 
+/** L’assistante (Noah) : ses tâches Instagram et les outils Moosha. */
+const assistantItems = [
+  { href: "/noah", label: "Tâches", icon: ListChecks },
+  { href: "/moosha/studio", label: "Studio", icon: Clapperboard },
+  { href: "/moosha/montage", label: "Montage", icon: Film },
+];
+
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
-  const { isAssociate, isAdmin } = useAuth();
+  const { isAssociate, isAssistant, isAdmin } = useAuth();
 
   return (
     <nav className="mobile-tabbar fixed z-40 lg:hidden">
       <div className="float-header flex items-stretch px-1 py-1">
-        {(isAssociate ? associateItems : isAdmin ? adminItems : items).map((item) => {
+        {(isAssistant ? assistantItems : isAssociate ? associateItems : isAdmin ? adminItems : items).map((item) => {
           const active =
             item.href === "/process"
               ? pathname === "/process" ||

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 const SIDEBAR_KEY = "msgate-sidebar-open";
 const ASSOCIATE_HOME = "/associate";
+const ASSISTANT_HOME = "/noah";
 /** Les autres pages ouvertes à l'associé : le Meta Ads Manager et l'uploader, filtrés sur ses comptes côté serveur. */
 const ASSOCIATE_EXTRA = ["/pilotage", "/ads", "/ads-uploader", "/studio-ia", "/drive", "/factures", "/studio/video", "/download-tiktok", "/product-images", "/spyshop", "/sav"];
 
@@ -52,13 +53,16 @@ function initials(name: string | undefined) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading, isAdmin, isAssociate, previewAssociate, setPreviewAssociate } = useAuth();
+  const { user, loading, isAdmin, isAssociate, isAssistant, previewAssociate, setPreviewAssociate } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  // L'assistante (Noah) : sa page de tâches et l'espace Moosha, rien d'autre.
+  const assistantAllowed = pathname === ASSISTANT_HOME || pathname?.startsWith(`${ASSISTANT_HOME}/`) || pathname === "/moosha" || pathname?.startsWith("/moosha/");
   // Un associé n'a qu'une page : ailleurs, on le ramène dessus sans rien monter (les autres écrans lui répondraient 403).
   const confined =
-    isAssociate &&
-    !(pathname === ASSOCIATE_HOME || pathname?.startsWith(`${ASSOCIATE_HOME}/`) || ASSOCIATE_EXTRA.some((path) => pathname === path || pathname?.startsWith(`${path}/`)));
+    (isAssistant && !assistantAllowed) ||
+    (isAssociate &&
+      !(pathname === ASSOCIATE_HOME || pathname?.startsWith(`${ASSOCIATE_HOME}/`) || ASSOCIATE_EXTRA.some((path) => pathname === path || pathname?.startsWith(`${path}/`))));
   const wideContent =
     pathname === "/ads" ||
     pathname?.startsWith("/ads/") ||
@@ -88,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [loading, user, router]);
 
   useEffect(() => {
-    if (confined) router.replace(ASSOCIATE_HOME);
+    if (confined) router.replace(isAssistant ? ASSISTANT_HOME : ASSOCIATE_HOME);
   }, [confined, router]);
 
   useEffect(() => {
@@ -117,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <ShellSkeleton />;
   }
 
-  const menu: MenuKind = isAssociate ? "associate" : isAdmin ? "admin" : "default";
+  const menu: MenuKind = isAssistant ? "assistant" : isAssociate ? "associate" : isAdmin ? "admin" : "default";
   const page = currentPage(pathname ?? "", menu);
   const container = wideContent ? "max-w-[100rem]" : "max-w-7xl";
 
