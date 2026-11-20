@@ -27,6 +27,7 @@ const TalkingPhoto = dynamic(() => import("@/components/studio-ia/TalkingPhoto")
 const VideoCreate = dynamic(() => import("@/components/studio-ia/VideoCreate").then((m) => m.VideoCreate), { ssr: false });
 import { ACTIVE_STATUSES, type StudioJob } from "@/lib/studio-ia/types";
 import { MediaField } from "@/components/studio-ia/MediaField";
+import { AvatarBoard } from "@/components/studio-ia/AvatarBoard";
 import { ElementField, ELEMENT_NAME, EMPTY_ELEMENT, type ElementValue } from "@/components/studio-ia/ElementField";
 import { SkPage } from "@/components/studio-ia/Skeleton";
 import { fetchStudioJobs, GENERATIONS_EVENT, JobsDock, readStudioJobsCache, STUDIO_JOBS_EVENT } from "@/components/studio-ia/JobsDock";
@@ -97,6 +98,8 @@ function StudioInner() {
   const [advancedSwap, setAdvancedSwap] = useState(false);
   const [prefill, setPrefill] = useState<SwapPrefill | null>(null);
   const [prefillKey, setPrefillKey] = useState(0);
+  /* Remonte les champs photo quand on y dépose une image de l'extérieur (avatar du shop). */
+  const [mediaNonce, setMediaNonce] = useState(0);
   const [jobs, setJobs] = useState<StudioJob[]>([]);
   const [jobPreview, setJobPreview] = useState<string | null>(null);
   const [voiceJob, setVoiceJob] = useState<string | null>(null);
@@ -427,6 +430,56 @@ function StudioInner() {
 
   // Le même Studio, ouvert dans l'espace d'un shop (/moosha/studio) : titre et créations de ce shop seulement.
   const workspace = workspaceFromPath(pathname ?? "");
+
+  /*
+   * Avatar du shop → photo de référence en un clic : l'image est envoyée comme
+   * un fichier collé (URL fraîche), puis posée dans le premier champ photo du
+   * modèle affiché, ou du premier modèle image si celui-ci n'en a pas.
+   */
+  const applyAvatar = async (src: string, name: string) => {
+    const isPhoto = (f: (typeof model.fields)[number]) =>
+      (f.type === "file" || f.type === "files") && (f.accept ?? "image") === "image" && !f.hidden;
+    const stay = kind !== "swap" && !talkTab && !createTab && !swap && model.fields.some(isPhoto);
+    const target = stay ? model : firstOfKind("image");
+    const field = target.fields.find(isPhoto);
+    if (!field) {
+      toast("Aucun champ photo dans ce modèle.", "err");
+      return;
+    }
+    let url: string;
+    try {
+      const blob = await (await fetch(src)).blob();
+      const form = new FormData();
+      form.append("file", new File([blob], name, { type: blob.type || "image/png" }), name);
+      const res = await fetch("/api/kie/upload", { method: "POST", body: form });
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !body.url) throw new Error(body.error ?? `Erreur ${res.status}`);
+      url = body.url;
+    } catch (e) {
+      toast(`Envoi de l'avatar impossible : ${(e as Error).message}`, "err");
+      return;
+    }
+    setTalkTab(false);
+    setCreateTab(false);
+    setSwap(false);
+    if (!stay) {
+      setKind("image");
+      setModelId(target.id);
+    }
+    setInput((prev) => {
+      const base = stay ? prev : { ...defaultsFor(target), prompt: carryPrompt(prev.prompt, model, target) };
+      const current = base[field.key];
+      const value =
+        field.type === "files"
+          ? [...(Array.isArray(current) ? (current as string[]) : []), url].slice(-(field.max ?? 4))
+          : url;
+      return { ...base, [field.key]: value };
+    });
+    setMediaNonce((n) => n + 1);
+    toast("Avatar ajouté en photo de référence : écris ton prompt et lance.");
+    // Le formulaire est sous les résultats : on y descend, comme pour « Réutiliser ».
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  };
   const studioTitle = workspace ? `Studio IA · ${workspace.label}` : "Studio IA";
 
   return (
@@ -446,6 +499,7 @@ function StudioInner() {
       />
 
       <div className="flex flex-col gap-4">
+        {workspace?.avatars?.length ? <AvatarBoard avatars={workspace.avatars} onUse={applyAvatar} /> : null}
         <Card
           title="Résultats"
           subtitle={
@@ -660,7 +714,7 @@ function StudioInner() {
                           />
                         ) : (
                           <MediaField
-                            key={`${model.id}:${f.key}`}
+                            key={`${model.id}:${f.key}:${mediaNonce}`}
                             field={f}
                             value={(input[f.key] as string | string[]) ?? (f.type === "files" ? [] : "")}
                             onChange={(v) => setInput((prev) => ({ ...prev, [f.key]: v }))}

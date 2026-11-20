@@ -14,10 +14,20 @@ export type Workspace = {
   label: string;
   /** Dossier racine du Drive de l'espace. */
   driveRoot: string;
+  /** Photos de l'avatar du shop, affichées en haut de son Studio IA (fichiers dans public/). */
+  avatars?: { label: string; src: string }[];
 };
 
 export const WORKSPACES: Record<string, Workspace> = {
-  moosha: { id: "moosha", label: "Moosha", driveRoot: "Moosha" },
+  moosha: {
+    id: "moosha",
+    label: "Moosha",
+    driveRoot: "Moosha",
+    avatars: [
+      { label: "Planche (3 photos)", src: "/avatars/moosha/avatar-planche.png" },
+      { label: "Visage", src: "/avatars/moosha/avatar-tete.png" },
+    ],
+  },
 };
 
 export const WORKSPACE_HEADER = "x-msgate-workspace";
