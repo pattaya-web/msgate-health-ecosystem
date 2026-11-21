@@ -36,6 +36,9 @@ const PUBLIC_POSTS = new Set(["/api/ecom-sites/messages", "/api/ecom-sites/order
 export function isPublicApi(method: string, pathname: string) {
   if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) return true;
   if (pathname === "/api/sav/digest") return true;
+  // Le lien personnel d'un closer (sa clé fait foi) et la réception des calls d'IBOState (clé partagée).
+  if (pathname === "/api/closer/acces" && method === "GET") return true;
+  if (pathname === "/api/closer/ingest" && method === "POST") return true;
   // Hermes n'a pas de session : ses routes (API et MCP) vérifient elles-mêmes HERMES_API_KEY (src/hermes/auth.ts).
   if (pathname === "/api/hermes" || pathname.startsWith("/api/hermes/") || pathname === "/api/mcp") return true;
   return method === "POST" && PUBLIC_POSTS.has(pathname);
@@ -145,6 +148,11 @@ export function apiGuard(input: GuardInput): GuardDecision {
 
   const user = verifySession(input.cookieValue, input.secret);
   if (!user) return { kind: "deny", status: 401, message: "Connexion requise" };
+
+  // Un closer : son agenda, rien d'autre.
+  if (user.role === "closer" && input.pathname !== "/api/closer") {
+    return { kind: "deny", status: 403, message: "Accès limité à ton agenda" };
+  }
 
   if (user.role === "assistant" && !isAssistantApi(input.pathname)) {
     return { kind: "deny", status: 403, message: "Accès limité à l'espace Moosha" };

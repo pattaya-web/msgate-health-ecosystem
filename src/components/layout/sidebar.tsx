@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, BookOpen, Film, ListChecks, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
+import { BarChart3, BookOpen, CalendarClock, Film, ListChecks, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { BrandLogo } from "@/components/layout/brand-logo";
@@ -131,6 +131,15 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
   },
 ];
 
+/** La barre d'un closer : son agenda de calls, rien d'autre. */
+const CLOSER_SECTIONS: NavSection[] = [
+  {
+    id: "closer",
+    label: "Closing",
+    items: [{ href: "/closer", label: "Mon agenda", icon: CalendarClock }],
+  },
+];
+
 /** La barre de l'assistante (Noah) : l'espace Moosha et ses tâches Instagram. */
 const ASSISTANT_SECTIONS: NavSection[] = [
   {
@@ -173,6 +182,11 @@ const ADMIN_SECTIONS: NavSection[] = [
       { href: "/moosha/drive", label: "Drive", icon: HardDrive },
       { href: "/noah", label: "Noah · Instagram", icon: ListChecks },
     ],
+  },
+  {
+    id: "admin-closing",
+    label: "Closing",
+    items: [{ href: "/closer", label: "Closers · Agenda", icon: CalendarClock }],
   },
   {
     id: "admin-compta",
@@ -223,7 +237,7 @@ const ADMIN_SECTIONS: NavSection[] = [
 ];
 
 /** Quelle barre s'affiche : celle d'Alison (et de la « Vue Alison »), celle de l'admin, ou la barre réglable des autres rôles. */
-export type MenuKind = "associate" | "assistant" | "admin" | "default";
+export type MenuKind = "associate" | "assistant" | "closer" | "admin" | "default";
 
 const SECTIONS_KEY = "msgate-nav-sections";
 /** L'admin garde ses sections dépliées à part : ses identifiants de section ne sont plus ceux de l'ancienne barre. */
@@ -314,7 +328,7 @@ function activeSection(sections: NavSection[], pathname: string) {
 export function currentPage(pathname: string, kind: MenuKind = "default"): { section: string; label: string } | null {
   let best: { section: string; label: string; href: string } | null = null;
   const custom = applyOrder(loadOrder());
-  const own = kind === "assistant" ? ASSISTANT_SECTIONS : kind === "associate" ? ASSOCIATE_SECTIONS : kind === "admin" ? ADMIN_SECTIONS : custom;
+  const own = kind === "closer" ? CLOSER_SECTIONS : kind === "assistant" ? ASSISTANT_SECTIONS : kind === "associate" ? ASSOCIATE_SECTIONS : kind === "admin" ? ADMIN_SECTIONS : custom;
   for (const section of [...own, ...ASSOCIATE_SECTIONS, ...ADMIN_SECTIONS, ...ASSISTANT_SECTIONS, ...custom]) {
     for (const item of section.items) {
       if (!isActive(item.href, pathname)) continue;
@@ -397,14 +411,14 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, isAssociate, isAssistant, isAdmin, previewAssociate, setPreviewAssociate } = useAuth();
+  const { user, logout, isAssociate, isAssistant, isCloser, isAdmin, previewAssociate, setPreviewAssociate } = useAuth();
   const realAssociate = user?.role === "associate";
   // Associé, ou admin en « Vue Alison » : le menu de l'associé ; l'admin : le sien, rangé pareil. Ni l'un ni l'autre ne se réordonne.
-  const kind: MenuKind = isAssistant ? "assistant" : isAssociate ? "associate" : isAdmin ? "admin" : "default";
+  const kind: MenuKind = isCloser ? "closer" : isAssistant ? "assistant" : isAssociate ? "associate" : isAdmin ? "admin" : "default";
   const fixedMenu = kind !== "default";
   const openKey = kind === "admin" ? ADMIN_SECTIONS_KEY : SECTIONS_KEY;
   const [sections, setSections] = useState<NavSection[]>(() => (realAssociate ? ASSOCIATE_SECTIONS : applyOrder(loadOrder())));
-  const visible = kind === "assistant" ? ASSISTANT_SECTIONS : kind === "associate" ? ASSOCIATE_SECTIONS : kind === "admin" ? ADMIN_SECTIONS : sections;
+  const visible = kind === "closer" ? CLOSER_SECTIONS : kind === "assistant" ? ASSISTANT_SECTIONS : kind === "associate" ? ASSOCIATE_SECTIONS : kind === "admin" ? ADMIN_SECTIONS : sections;
   const [custom, setCustom] = useState<boolean>(() => !realAssociate && loadOrder() !== null);
   // La barre est remontée à chaque changement de vue (clé posée dans AppShell) : les sections dépliées repartent de la bonne liste.
   const [open, setOpen] = useState<string[]>(() => initialOpen(visible, pathname, openKey));
@@ -613,7 +627,8 @@ export function Sidebar({
 
       <div className="border-t border-slate-200/70 p-3 dark:border-slate-800">
         {/* Le solde Kie AI : Alison s'en sert aussi pour le Studio IA. */}
-        <KieCredit />
+        {/* Un closer n'utilise pas le Studio : pas de solde Kie. */}
+        {!isCloser && <KieCredit />}
 
         {/* La « Vue Alison » est supprimée (accès Associé fermé le 16/11/2026). */}
         {false ? (

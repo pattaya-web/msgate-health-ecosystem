@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AppUser, UserRole } from "@/types";
+import { activeCloserSync } from "@/lib/closer/store";
 
 /**
  * La session côté serveur.
@@ -19,7 +20,7 @@ import type { AppUser, UserRole } from "@/types";
 export const SESSION_COOKIE = "msgate_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MIN_SECRET_LENGTH = 32;
-const ROLES: UserRole[] = ["admin", "operator", "viewer", "associate", "assistant"];
+const ROLES: UserRole[] = ["admin", "operator", "viewer", "associate", "assistant", "closer"];
 
 export type SessionUser = { email: string; role: UserRole };
 
@@ -151,6 +152,8 @@ export function verifySession(value: string | null | undefined, secret: string |
      * le retrait de l'accès. Le rôle aussi doit correspondre : un compte
      * rétrogradé ne garde pas ses anciens droits.
      */
+    // Un closer n'a pas de compte dans AUTH_USERS : il vit dans la liste des closers (lib/closer/store).
+    if (data.role === "closer") return activeCloserSync(data.sub) ? { email: data.sub, role: "closer" } : null;
     const accounts = loadAuthUsers();
     if (accounts.source === "env") {
       const account = accounts.users.find((user) => user.email === data.sub);

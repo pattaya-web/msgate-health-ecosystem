@@ -14,6 +14,7 @@ interface AuthContextValue {
   isAssociate: boolean;
   /** Assistante (Noah) : l'espace Moosha seulement. */
   isAssistant: boolean;
+  isCloser: boolean;
   /** L'admin regarde l'application comme l'associé la voit. */
   previewAssociate: boolean;
   setPreviewAssociate: (on: boolean) => void;
@@ -95,6 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // La « Vue Alison » est supprimée : l'admin voit toujours sa propre vue.
       isAssociate: user?.role === "associate",
       isAssistant: user?.role === "assistant",
+      isCloser: user?.role === "closer",
       previewAssociate: false,
       setPreviewAssociate(on) {
         void on;

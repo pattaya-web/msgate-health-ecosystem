@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Clapperboard, Film, HandCoins, Handshake, Lightbulb, ListChecks, Mail, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, CalendarClock, Clapperboard, Film, HandCoins, Handshake, Lightbulb, ListChecks, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -34,14 +34,17 @@ const assistantItems = [
   { href: "/moosha/montage", label: "Montage", icon: Film },
 ];
 
+/** Un closer : son agenda. */
+const closerItems = [{ href: "/closer", label: "Agenda", icon: CalendarClock }];
+
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
-  const { isAssociate, isAssistant, isAdmin } = useAuth();
+  const { isAssociate, isAssistant, isCloser, isAdmin } = useAuth();
 
   return (
     <nav className="mobile-tabbar fixed z-40 lg:hidden">
       <div className="float-header flex items-stretch px-1 py-1">
-        {(isAssistant ? assistantItems : isAssociate ? associateItems : isAdmin ? adminItems : items).map((item) => {
+        {(isCloser ? closerItems : isAssistant ? assistantItems : isAssociate ? associateItems : isAdmin ? adminItems : items).map((item) => {
           const active =
             item.href === "/process"
               ? pathname === "/process" ||
