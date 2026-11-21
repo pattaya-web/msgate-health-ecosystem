@@ -14,17 +14,12 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const token = url.searchParams.get("t")?.trim() ?? "";
   const secret = getAuthSecret();
-  const target = new URL("/closer", url);
-  const login = new URL("/login", url);
-  // Derrière le proxy, l'hôte vu par Next peut être interne : on garde celui du navigateur.
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (host) {
-    const proto = request.headers.get("x-forwarded-proto") ?? url.protocol.replace(/:$/, "");
-    for (const u of [target, login]) {
-      u.host = host;
-      u.protocol = `${proto}:`;
-    }
-  }
+  // Derrière le proxy, l'adresse vue par Next est interne (port 3000) : on repart de celle du navigateur.
+  const host = (request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? url.host).split(",")[0].trim();
+  const proto = (request.headers.get("x-forwarded-proto") ?? url.protocol.replace(/:$/, "")).split(",")[0].trim();
+  const origin = process.env.PUBLIC_BASE_URL?.trim().replace(/\/+$/, "") || `${proto}://${host}`;
+  const target = new URL("/closer", origin);
+  const login = new URL("/login", origin);
   if (!secret || token.length < 20) return NextResponse.redirect(login);
   const { closers } = await readClosers();
   const closer = closers.find((item) => item.active && item.accessToken === token);
