@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BookOpenText, CalendarPlus, CircleAlert, CircleCheck, CircleHelp, CircleX, FileText, ListChecks, MessageCircle, MessageSquare, Phone, Share2, Target, X } from "lucide-react";
+import { BookOpenText, CalendarPlus, Check, CircleAlert, CircleCheck, CircleHelp, CircleX, FileText, ListChecks, MessageCircle, MessageSquare, Phone, Share2, Target, X } from "lucide-react";
 import { toast } from "sonner";
 import type { LeadView } from "@/app/api/closer/route";
 import { evaluateCriteria, type CriterionState } from "@/lib/closer/criteria";
-import { LEAD_STATUS_LABEL, MAX_ATTEMPTS, REASON_LABEL, bookingLink, creditOf, type LeadCallStatus, type LeadReason } from "@/lib/closer/leads";
+import { LEAD_STATUS_LABEL, MAX_ATTEMPTS, REASON_LABEL, bookingLink, creditOf, followUpText, type LeadCallStatus, type LeadReason } from "@/lib/closer/leads";
 import { CALL_GOAL, CLOSING_SCRIPT, CONTRACT_FILE, SETTING_SCRIPT, fillScript, type CallScript } from "@/lib/closer/scripts";
 import { cn } from "@/lib/utils";
 
@@ -163,14 +163,27 @@ export function TasksCard({
 
 /* ---------- La liste des leads ---------- */
 
-export function LeadsCard({ leads, now, tz, onOpen, showOwner }: { leads: LeadView[]; now: number; tz: string; onOpen: (id: string) => void; showOwner?: (lead: LeadView) => string }) {
+/** Coché aujourd'hui : le lead a été appelé (ou son résultat noté) aujourd'hui. */
+function calledToday(lead: LeadView, now: number, tz: string) {
+  return Boolean(lead.lastCallAt && dayKey(lead.lastCallAt, tz) === dayKey(now, tz));
+}
+
+/** La case « appelé » : cochée = appelé aujourd'hui ; décocher remet le lead « à appeler ». */
+function toggleCalled(lead: LeadView, now: number, tz: string, onAct: Act) {
+  const checked = calledToday(lead, now, tz);
+  void onAct({ action: "update-lead", id: lead.id, callStatus: checked ? "todo" : "called" }, checked ? `${lead.name} : à appeler` : `${lead.name} : appelé ✓`);
+}
+
+const rank = (lead: LeadView, now: number, tz: string) => (calledToday(lead, now, tz) ? 2 : leadTask(lead, now, tz) === "new" ? 0 : 1);
+
+export function LeadsCard({ leads, now, tz, onOpen, onAct, showOwner }: { leads: LeadView[]; now: number; tz: string; onOpen: (id: string) => void; onAct: Act; showOwner?: (lead: LeadView) => string }) {
   const [tab, setTab] = useState<"todo" | "done">("todo");
   const callable = leads.filter((lead) => lead.reason);
-  const todo = callable
-    .filter((lead) => leadTask(lead, now, tz))
-    // Les nouveaux d'abord (plus récent en haut), puis les relances.
-    .sort((a, b) => (leadTask(a, now, tz) === leadTask(b, now, tz) ? b.receivedAt.localeCompare(a.receivedAt) : leadTask(a, now, tz) === "new" ? -1 : 1));
-  const done = callable.filter((lead) => !leadTask(lead, now, tz)).sort((a, b) => (b.lastCallAt ?? b.receivedAt).localeCompare(a.lastCallAt ?? a.receivedAt));
+  // À appeler : les nouveaux, les relances du jour, puis ceux cochés aujourd'hui (en bas, grisés).
+  const inTodo = (lead: LeadView) => Boolean(leadTask(lead, now, tz)) || calledToday(lead, now, tz);
+  const todo = callable.filter(inTodo).sort((a, b) => rank(a, now, tz) - rank(b, now, tz) || b.receivedAt.localeCompare(a.receivedAt));
+  const done = callable.filter((lead) => !inTodo(lead)).sort((a, b) => (b.lastCallAt ?? b.receivedAt).localeCompare(a.lastCallAt ?? a.receivedAt));
+  const left = todo.filter((lead) => !calledToday(lead, now, tz)).length;
   const shown = tab === "todo" ? todo : done;
 
   return (
@@ -181,16 +194,14 @@ export function LeadsCard({ leads, now, tz, onOpen, showOwner }: { leads: LeadVi
         </h2>
         <div className="flex gap-1 rounded-lg bg-slate-100 p-0.5 text-[12px] font-semibold dark:bg-slate-800">
           <button type="button" onClick={() => setTab("todo")} className={cn("rounded-md px-2.5 py-1", tab === "todo" && "bg-white shadow-sm dark:bg-slate-700")}>
-            À appeler ({todo.length})
+            À appeler ({left})
           </button>
           <button type="button" onClick={() => setTab("done")} className={cn("rounded-md px-2.5 py-1", tab === "done" && "bg-white shadow-sm dark:bg-slate-700")}>
             Traités ({done.length})
           </button>
         </div>
       </div>
-      <p className="mb-3 text-[12px] text-slate-500">
-        Qualifiés, à vérifier, et non qualifiés <b>seulement</b> s&apos;ils ont mis 550–599 de crédit. But de l&apos;appel : expliquer le programme, filtrer, poser le 2e rendez-vous.
-      </p>
+      <CallRule />
       {shown.length === 0 ? (
         <p className="py-5 text-center text-[13px] text-slate-500">{tab === "todo" ? "Aucun lead à appeler pour l'instant. Les nouveaux arrivent ici tout seuls." : "Aucun lead traité."}</p>
       ) : (
@@ -199,14 +210,15 @@ export function LeadsCard({ leads, now, tz, onOpen, showOwner }: { leads: LeadVi
             const task = leadTask(lead, now, tz);
             const hour = hourIn(now, lead.tz);
             const late = hour < 9 || hour >= 21;
+            const checked = calledToday(lead, now, tz);
             return (
-              <div key={lead.id} className="flex items-center gap-2 px-3 py-2.5">
+              <div key={lead.id} className={cn("flex items-center gap-2 px-3 py-2.5", checked && "bg-slate-50 dark:bg-slate-800/40")}>
                 <button type="button" onClick={() => onOpen(lead.id)} className="min-w-0 flex-1 text-left">
                   <p className="flex flex-wrap items-center gap-1.5 text-[14px] font-semibold">
-                    <span className="truncate">{lead.name || lead.email || lead.phone}</span>
+                    <span className={cn("truncate", checked && "text-slate-400 line-through")}>{lead.name || lead.email || lead.phone}</span>
                     {lead.reason && <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", REASON_TONE[lead.reason])}>{REASON_LABEL[lead.reason]}</span>}
                     {task === "retry" && <span className="shrink-0 rounded bg-slate-200 px-1.5 py-px text-[10px] font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">Relance · essai {(lead.callAttempts ?? 0) + 1}</span>}
-                    {!task && (
+                    {!task && !checked && (
                       <span className="shrink-0 rounded bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                         {lead.callAt ? `RDV ${fmt(lead.callAt, tz, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : LEAD_STATUS_LABEL[lead.callStatus ?? "todo"]}
                       </span>
@@ -218,17 +230,58 @@ export function LeadsCard({ leads, now, tz, onOpen, showOwner }: { leads: LeadVi
                     {showOwner ? ` · ${showOwner(lead)}` : ""}
                   </p>
                 </button>
-                {lead.phone && (
-                  <a href={`tel:+${digits(lead.phone)}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-[12px] font-semibold text-white" aria-label={`Appeler ${lead.name}`}>
-                    <Phone className="h-4 w-4" /> <span className="hidden sm:inline">Appeler</span>
+                {lead.phone && !checked && (
+                  <a
+                    href={`https://wa.me/${digits(lead.phone)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#25D366] px-2.5 py-1.5 text-[12px] font-semibold text-white"
+                    aria-label={`WhatsApp ${lead.name}`}
+                  >
+                    <MessageCircle className="h-4 w-4" /> <span className="hidden sm:inline">WhatsApp</span>
                   </a>
                 )}
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={checked}
+                  aria-label={checked ? `${lead.name} appelé : décocher` : `Cocher : ${lead.name} appelé`}
+                  onClick={() => toggleCalled(lead, now, tz, onAct)}
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
+                    checked ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
+                  )}
+                >
+                  {checked && <Check className="h-5 w-5" strokeWidth={3} />}
+                </button>
               </div>
             );
           })}
         </div>
       )}
-      <p className="mt-2 text-[11px] text-slate-500">🌙 = avant 9 h ou après 21 h chez le lead : mieux vaut attendre.</p>
+      <p className="mt-2 text-[11px] text-slate-500">Leads appelés : qualifiés, à vérifier, et non qualifiés seulement à 550–599 de crédit. 🌙 = avant 9 h ou après 21 h chez le lead : mieux vaut attendre.</p>
+    </div>
+  );
+}
+
+/* ---------- La règle d'appel ---------- */
+
+export function CallRule() {
+  return (
+    <div className="mb-3 rounded-xl bg-sky-50 p-3 text-[13px] dark:bg-sky-500/10">
+      <p className="mb-1 font-bold text-sky-900 dark:text-sky-200">Comment appeler un lead</p>
+      <ol className="space-y-1">
+        <li>
+          <b>1.</b> Il a WhatsApp : appelle-le <b>sur WhatsApp</b>. Pas de réponse → envoie <b>le message sur WhatsApp</b>.
+        </li>
+        <li>
+          <b>2.</b> Pas de WhatsApp : appelle <b>son numéro normal</b>. Pas de réponse → envoie <b>le message par SMS</b>.
+        </li>
+        <li>
+          <b>3.</b> Coche la case ✓ à droite une fois appelé.
+        </li>
+      </ol>
+      <p className="mt-1 text-[12px] text-slate-600 dark:text-slate-400">Le message est déjà écrit à son prénom : ouvre sa fiche (touche son nom).</p>
     </div>
   );
 }
@@ -256,6 +309,7 @@ export function LeadSheet({ lead, now, tz, host, onClose, onAct }: { lead: LeadV
   const startMs = start ? zonedToUtc(start, tz) : NaN;
   const status = lead.callStatus ?? "todo";
   const text = encodeURIComponent(bookingText(lead, host));
+  const followUp = followUpText(lead.name);
   const rows: Array<[string, string]> = [
     ["Reçu le", fmt(lead.receivedAt, tz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })],
     ["Heure chez lui", `${fmt(now, lead.tz, { hour: "2-digit", minute: "2-digit" })} (${city(lead.tz)})`],
@@ -289,15 +343,51 @@ export function LeadSheet({ lead, now, tz, host, onClose, onAct }: { lead: LeadV
           </button>
         </div>
 
-        {phone && (
-          <div className="mb-4 flex flex-wrap gap-2">
-            <a href={`tel:+${phone}`} className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2.5 text-[13px] font-semibold text-white">
-              <Phone className="h-4 w-4" /> Appeler {lead.phone}
-            </a>
-            <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2.5 text-[13px] font-semibold dark:bg-slate-800">
-              <MessageCircle className="h-4 w-4" /> WhatsApp
-            </a>
+        {phone ? (
+          <div className="mb-4 space-y-3 rounded-xl bg-sky-50 p-3 dark:bg-sky-500/10">
+            <div>
+              <p className="mb-1.5 text-[13px] font-bold text-sky-900 dark:text-sky-200">1. Appelle-le</p>
+              <div className="flex flex-wrap gap-2">
+                <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2.5 text-[13px] font-bold text-white">
+                  <MessageCircle className="h-4 w-4" /> Sur WhatsApp
+                </a>
+                <a href={`tel:+${phone}`} className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-2.5 text-[13px] font-bold text-white">
+                  <Phone className="h-4 w-4" /> Pas de WhatsApp : {lead.phone}
+                </a>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">WhatsApp s&apos;ouvre sur sa conversation : touche l&apos;icône 📞 pour l&apos;appeler.</p>
+            </div>
+            <div>
+              <p className="mb-1.5 text-[13px] font-bold text-sky-900 dark:text-sky-200">2. Pas de réponse : envoie ce message</p>
+              <p className="mb-2 whitespace-pre-line rounded-lg bg-white p-2.5 text-[12px] leading-relaxed ring-1 ring-slate-900/10 dark:bg-slate-900 dark:ring-white/10">{followUp}</p>
+              <div className="flex flex-wrap gap-2">
+                <a href={`https://wa.me/${phone}?text=${encodeURIComponent(followUp)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2 text-[13px] font-bold text-white">
+                  <MessageCircle className="h-4 w-4" /> Par WhatsApp
+                </a>
+                <a href={`sms:+${phone}?&body=${encodeURIComponent(followUp)}`} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-[13px] font-bold text-white dark:bg-white dark:text-slate-900">
+                  <MessageSquare className="h-4 w-4" /> Par SMS
+                </a>
+              </div>
+            </div>
+            <div>
+              <p className="mb-1.5 text-[13px] font-bold text-sky-900 dark:text-sky-200">3. Coche-le</p>
+              <button
+                type="button"
+                onClick={() => toggleCalled(lead, now, tz, onAct)}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-bold ring-1",
+                  calledToday(lead, now, tz) ? "bg-emerald-500 text-white ring-emerald-500" : "bg-white ring-slate-900/15 dark:bg-slate-900 dark:ring-white/15"
+                )}
+              >
+                <span className={cn("flex h-5 w-5 items-center justify-center rounded border-2", calledToday(lead, now, tz) ? "border-white" : "border-slate-400")}>
+                  {calledToday(lead, now, tz) && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+                </span>
+                {calledToday(lead, now, tz) ? "Appelé aujourd'hui" : "Appelé"}
+              </button>
+            </div>
           </div>
+        ) : (
+          <p className="mb-4 text-[13px] text-rose-600">Pas de numéro pour ce lead.</p>
         )}
 
         <GoalCard compact />

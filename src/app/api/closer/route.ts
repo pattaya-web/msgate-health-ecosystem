@@ -168,7 +168,13 @@ export async function POST(request: Request) {
 
         if (body.action === "update-lead") {
           if (body.callStatus && body.callStatus in LEAD_STATUS_LABEL) {
+            const before = lead.callStatus;
             lead.callStatus = body.callStatus;
+            // Case « appelé » décochée : l'essai ne compte plus.
+            if (body.callStatus === "todo" && before === "called") {
+              lead.callAttempts = Math.max(0, (lead.callAttempts ?? 1) - 1);
+              lead.lastCallAt = null;
+            }
             // Un essai d'appel compte quand le résultat est noté (sauf retour à « À appeler »).
             if (body.callStatus !== "todo") {
               lead.callAttempts = (lead.callAttempts ?? 0) + 1;

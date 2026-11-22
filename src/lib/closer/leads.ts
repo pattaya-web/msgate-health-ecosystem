@@ -12,10 +12,11 @@ import type { CloserLead } from "@/lib/closer/store";
 /** Le nom d'hôte des réservations d'IBOState : les leads vont au closer qui porte ce nom. */
 export const IBOSTATE_HOST = "Kelly";
 
-export type LeadCallStatus = "todo" | "no-answer" | "booked" | "not-interested" | "not-eligible";
+export type LeadCallStatus = "todo" | "called" | "no-answer" | "booked" | "not-interested" | "not-eligible";
 
 export const LEAD_STATUS_LABEL: Record<LeadCallStatus, string> = {
   todo: "À appeler",
+  called: "Appelé",
   "no-answer": "Pas de réponse",
   booked: "RDV posé",
   "not-interested": "Pas intéressé",
@@ -82,6 +83,21 @@ export function leadTz(lead: Pick<CloserLead, "place">) {
   const state = lead.place.split(",").pop() ?? "";
   const key = state.toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
   return STATE_TZ[key] ?? "America/New_York";
+}
+
+/**
+ * Le message à envoyer quand le lead ne répond pas (WhatsApp, sinon SMS),
+ * au prénom du lead (texte de Mady, 23/11/2026).
+ */
+export function followUpText(name: string) {
+  const first = name.trim().split(/\s+/)[0];
+  return [
+    `Hi${first ? ` ${first}` : ""}, this is Kelly Miguez, Admissions Manager at IBO State.`,
+    "",
+    "You recently requested information about our program. As a reminder, eligible participants can earn between $1,000 and $2,000 per month in passive income, subject to meeting our eligibility requirements.",
+    "",
+    "Please give me a call back or reply to this message so I can share more details about the program and explain how it works!",
+  ].join("\n");
 }
 
 /** Le lien /book/ d'IBOState pré-rempli : le lead choisit son créneau, le call arrive tout seul dans l'agenda. */

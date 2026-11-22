@@ -249,11 +249,12 @@ export default function CloserPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[26px] font-bold tracking-tight">{isAdmin ? "Closers · Agenda" : `Bonjour ${name} 👋`}</h1>
-          <p className="text-[13px] text-slate-500">
-            {isAdmin ? "Les calls réservés sur IBOState arrivent ici tout seuls, dans l'agenda du bon closer." : "Tes calls réservés, à ton heure."} Heure affichée :{" "}
-            <b>{fmt(now, tz, { hour: "2-digit", minute: "2-digit" })}</b> ({tzLabel(tz)})
-            {todayCount ? ` · ${todayCount} call${todayCount > 1 ? "s" : ""} aujourd'hui` : " · aucun call aujourd'hui"}
-          </p>
+          {isAdmin && (
+            <p className="text-[13px] text-slate-500">
+              Les calls réservés sur IBOState arrivent ici tout seuls, dans l&apos;agenda du bon closer. Heure affichée : <b>{fmt(now, tz, { hour: "2-digit", minute: "2-digit" })}</b> ({tzLabel(tz)})
+              {todayCount ? ` · ${todayCount} call${todayCount > 1 ? "s" : ""} aujourd'hui` : " · aucun call aujourd'hui"}
+            </p>
+          )}
         </div>
         <button type="button" onClick={load} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-[12px] font-semibold dark:bg-slate-800">
           <RefreshCw className="h-3.5 w-3.5" /> Actualiser
@@ -279,16 +280,23 @@ export default function CloserPage() {
         </div>
       )}
 
-      {!isAdmin && <GoalCard />}
-      {!isAdmin && <TasksCard leads={leads} toConfirm={toConfirm.length} todayCalls={todayCount} now={now} tz={tz} onConfirm={() => setConfirmOpen(true)} />}
-
-      {next && (
-        <div className={cn(card, "flex flex-wrap items-center justify-between gap-3", isLive(next, now) && "ring-2 ring-emerald-500")}>
+      {next ? (
+        <div
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 p-4 shadow-sm",
+            isLive(next, now) ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10" : "border-sky-500 bg-sky-50 dark:bg-sky-500/10"
+          )}
+        >
           <div className="min-w-0">
-            <p className={label}>{isLive(next, now) ? "C'est l'heure" : "Prochain call"}</p>
-            <p className="truncate text-[18px] font-bold">{next.name}</p>
-            <p className="text-[13px] text-slate-500">
-              {fmt(next.startAt, tz, { weekday: "long", hour: "2-digit", minute: "2-digit" })} ({tzName(tz)}) · {next.durationMin} min · <b>{until(Date.parse(next.startAt) - now)}</b>
+            <p className={cn("flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wide", isLive(next, now) ? "text-emerald-700 dark:text-emerald-300" : "text-sky-700 dark:text-sky-300")}>
+              <CalendarClock className="h-4 w-4" /> {isLive(next, now) ? "C'est l'heure !" : "Prochain call"}
+            </p>
+            <p className="mt-0.5 truncate text-[20px] font-bold">{next.name}</p>
+            <p className="text-[14px] font-semibold">
+              {fmt(next.startAt, tz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })} ({tzName(tz)})
+            </p>
+            <p className="text-[12px] text-slate-600 dark:text-slate-400">
+              {next.durationMin} min · <b>{until(Date.parse(next.startAt) - now)}</b> · chez lui {fmt(next.startAt, next.prospectTz, { hour: "2-digit", minute: "2-digit" })} ({tzLabel(next.prospectTz)})
               {isAdmin && next.closerName ? ` · ${next.closerName}` : ""}
             </p>
           </div>
@@ -299,6 +307,15 @@ export default function CloserPage() {
             </button>
           </div>
         </div>
+      ) : (
+        !isAdmin && (
+          <div className="rounded-2xl border-2 border-dashed border-sky-300 bg-sky-50/60 p-4 dark:border-sky-500/40 dark:bg-sky-500/5">
+            <p className="flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+              <CalendarClock className="h-4 w-4" /> Prochain call
+            </p>
+            <p className="mt-1 text-[14px] text-slate-600 dark:text-slate-400">Aucun call prévu pour l&apos;instant.</p>
+          </div>
+        )
       )}
 
       {toConfirm.length > 0 && (
@@ -313,8 +330,6 @@ export default function CloserPage() {
           <span className="rounded-lg bg-amber-500 px-3 py-1.5 text-[12px] font-bold text-white">Confirmer</span>
         </button>
       )}
-
-      <LeadsCard leads={leads} now={now} tz={tz} onOpen={setLeadId} showOwner={isAdmin ? (lead) => (lead.ownerId && closerNames.get(lead.ownerId)) || "sans closer" : undefined} />
 
       <div id="planning" className={cn(card, "scroll-mt-20")}>
         <div className="mb-3 flex items-center justify-between gap-2">
@@ -381,6 +396,11 @@ export default function CloserPage() {
           </div>
         )}
       </div>
+
+      <LeadsCard leads={leads} now={now} tz={tz} onOpen={setLeadId} onAct={act} showOwner={isAdmin ? (lead) => (lead.ownerId && closerNames.get(lead.ownerId)) || "sans closer" : undefined} />
+
+      {!isAdmin && <TasksCard leads={leads} toConfirm={toConfirm.length} todayCalls={todayCount} now={now} tz={tz} onConfirm={() => setConfirmOpen(true)} />}
+      {!isAdmin && <GoalCard />}
 
       <ScriptsCard />
 
