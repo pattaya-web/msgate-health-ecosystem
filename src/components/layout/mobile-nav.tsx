@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, CalendarClock, Clapperboard, Film, HandCoins, Handshake, Lightbulb, ListChecks, Mail, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, BookOpenText, CalendarClock, FileText, LifeBuoy, Phone, Clapperboard, Film, HandCoins, Handshake, Lightbulb, ListChecks, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -35,7 +35,13 @@ const assistantItems = [
 ];
 
 /** Un closer : son agenda. */
-const closerItems = [{ href: "/closer", label: "Agenda", icon: CalendarClock }];
+const closerItems = [
+  { href: "/closer", label: "Agenda", icon: CalendarClock },
+  { href: "/closer/leads", label: "Leads", icon: Phone },
+  { href: "/closer/scripts", label: "Scripts", icon: BookOpenText },
+  { href: "/closer/contrat", label: "Contrat", icon: FileText },
+  { href: "/closer/ressources", label: "Ressources", icon: LifeBuoy },
+];
 
 export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
   const pathname = usePathname();
@@ -51,8 +57,8 @@ export function MobileNav({ onOpenMenu }: { onOpenMenu: () => void }) {
                 pathname.startsWith("/process/") ||
                 pathname === "/sop" ||
                 pathname.startsWith("/sop/")
-              : item.href === "/associate"
-                ? pathname === "/associate"
+              : item.href === "/associate" || item.href === "/closer"
+                ? pathname === item.href
                 : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (

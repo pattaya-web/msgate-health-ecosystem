@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, BookOpen, CalendarClock, Film, ListChecks, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
+import { BarChart3, BookOpen, BookOpenText, CalendarClock, FileText, LifeBuoy, Phone, Film, ListChecks, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { BrandLogo } from "@/components/layout/brand-logo";
@@ -136,7 +136,13 @@ const CLOSER_SECTIONS: NavSection[] = [
   {
     id: "closer",
     label: "Closing",
-    items: [{ href: "/closer", label: "Mon agenda", icon: CalendarClock }],
+    items: [
+      { href: "/closer", label: "Mon agenda", icon: CalendarClock },
+      { href: "/closer/leads", label: "Leads", icon: Phone },
+      { href: "/closer/scripts", label: "Scripts", icon: BookOpenText },
+      { href: "/closer/contrat", label: "Contrat", icon: FileText },
+      { href: "/closer/ressources", label: "Ressources", icon: LifeBuoy },
+    ],
   },
 ];
 
@@ -304,6 +310,8 @@ function toOrder(sections: NavSection[]): NavOrder {
 export function isActive(href: string, pathname: string) {
   // La Vue Associé a deux pages ; « Ventes » ne doit pas rester allumé sur « Profit ».
   if (href === "/associate") return pathname === "/associate";
+  // « Mon agenda » ne reste pas allumé sur les autres pages du closer.
+  if (href === "/closer") return pathname === "/closer";
   if (href === "/process") {
     return (
       pathname === "/process" ||
