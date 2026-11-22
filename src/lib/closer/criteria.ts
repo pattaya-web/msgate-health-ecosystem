@@ -31,10 +31,10 @@ const no = (value: string) => /^no\b|^non\b/.test(norm(value));
 export const CRITERIA: Criterion[] = [
   {
     key: "us",
-    title: "Citoyen américain ou résident permanent (green card)",
-    rule: "Non sélectionné s'il n'est ni citoyen US ni résident permanent.",
+    title: "Citoyen américain",
+    rule: "Non sélectionné s'il n'est pas citoyen des États-Unis. Résident permanent (green card) : à valider avec Mady.",
     labels: ["Citoyen / résident US"],
-    judge: (value) => (no(value) ? "ko" : "ok"),
+    judge: (value) => (no(value) ? "ko" : /permanent|green/.test(norm(value)) ? "check" : "ok"),
   },
   {
     key: "credit",
@@ -50,14 +50,14 @@ export const CRITERIA: Criterion[] = [
   },
   {
     key: "bank",
-    title: "Compte bancaire aux États-Unis, en règle",
+    title: "Compte bancaire personnel aux États-Unis",
     rule: "Non sélectionné sans compte US. « Je peux en ouvrir un » : à vérifier.",
     labels: ["Compte bancaire US"],
     judge: (value) => (no(value) ? "ko" : /can get|peux|if needed/.test(norm(value)) ? "check" : "ok"),
   },
   {
     key: "license",
-    title: "Permis de conduire américain valide",
+    title: "Permis de conduire valide",
     rule: "Exigé sur le site : à demander pendant le call (le formulaire ne le pose pas).",
     labels: ["Permis de conduire"],
     judge: (value) => (no(value) ? "ko" : "ok"),

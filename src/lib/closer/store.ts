@@ -75,6 +75,8 @@ export type CloserCall = {
   leadId: string | null;
   status: CallStatus;
   closerNote: string;
+  /** Quand le closer a envoyé la confirmation du rendez-vous au prospect (WhatsApp ou SMS). */
+  confirmedAt?: string | null;
   source: "ibostate" | "manual";
   createdAt: string;
   updatedAt: string;

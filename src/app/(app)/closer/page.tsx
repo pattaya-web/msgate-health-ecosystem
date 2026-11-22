@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Check, CircleAlert, CircleCheck, CircleHelp, CircleX, ClipboardList, Copy, ExternalLink, Loader2, MessageCircle, Phone, Plus, RefreshCw, Trash2, UserRound, Video, X } from "lucide-react";
+import { BellRing, CalendarClock, Check, CircleAlert, CircleCheck, CircleHelp, CircleX, ClipboardList, Copy, ExternalLink, Loader2, MessageCircle, MessageSquare, Phone, Plus, RefreshCw, Trash2, UserRound, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth/auth-context";
 import type { CallView, CloserPayload, CloserView } from "@/app/api/closer/route";
@@ -108,6 +108,31 @@ const CRITERION_ICON: Record<CriterionState, { icon: typeof CircleCheck; tone: s
   ask: { icon: CircleHelp, tone: "text-slate-400", text: "À demander" },
 };
 
+/** Un call prévu, pas encore passé, dont la confirmation n'a pas été envoyée au prospect. */
+function needsConfirm(call: CallView, now: number) {
+  return call.status === "booked" && !call.confirmedAt && Date.parse(call.startAt) > now;
+}
+
+/** Le message de confirmation, en anglais, à l'heure du prospect, avec le lien du call. */
+function confirmText(call: CallView) {
+  const first = call.name.trim().split(/\s+/)[0] || "there";
+  let when = "";
+  try {
+    when = new Intl.DateTimeFormat("en-US", { timeZone: call.prospectTz, weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(call.startAt));
+  } catch {
+    when = new Date(call.startAt).toUTCString();
+  }
+  const host = call.host || "Kelly";
+  const join = call.joinUrl ? `Join here at that time:\n${call.joinUrl}` : "I'll call you at this number.";
+  return `Hi ${first}, this is ${host} from IBOState 👋\nJust confirming our call on ${when}.\n${join}\n\nCan you reply YES to confirm? Talk soon!`;
+}
+
+function confirmLinks(call: CallView) {
+  const phone = digits(call.phone);
+  const text = encodeURIComponent(confirmText(call));
+  return phone ? { whatsapp: `https://wa.me/${phone}?text=${text}`, sms: `sms:+${phone}?&body=${text}` } : null;
+}
+
 async function post(body: Record<string, unknown>) {
   const res = await fetch("/api/closer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const json = (await res.json().catch(() => ({}))) as CloserPayload & { error?: string };
@@ -123,6 +148,9 @@ export default function CloserPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [view, setView] = useState<string>("all");
   const [past, setPast] = useState(false);
+  // Pop-up « à confirmer » : s'ouvre tout seul pour le closer tant qu'un call attend sa confirmation ; « Plus tard » le ferme jusqu'au prochain chargement.
+  const [confirmDismissed, setConfirmDismissed] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const load = useCallback(() => {
     fetch("/api/closer")
@@ -167,6 +195,7 @@ export default function CloserPage() {
   const todayCount = upcoming.filter((call) => dayKey(call.startAt, tz) === dayKey(now, tz) && call.status !== "cancelled").length;
   const unassigned = (data?.calls ?? []).filter((call) => !call.closerId && Date.parse(call.startAt) >= now - 3_600_000).length;
   const open = data?.calls.find((call) => call.id === openId) ?? null;
+  const toConfirm = calls.filter((call) => needsConfirm(call, now));
 
   const act = async (body: Record<string, unknown>, done?: string) => {
     try {
@@ -245,6 +274,19 @@ export default function CloserPage() {
         </div>
       )}
 
+      {toConfirm.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setConfirmOpen(true)}
+          className="flex w-full items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-left ring-1 ring-amber-200 dark:bg-amber-500/10 dark:ring-amber-500/30"
+        >
+          <span className="flex items-center gap-2 text-[14px] font-bold text-amber-800 dark:text-amber-300">
+            <BellRing className="h-4 w-4" /> {toConfirm.length} rendez-vous à confirmer
+          </span>
+          <span className="rounded-lg bg-amber-500 px-3 py-1.5 text-[12px] font-bold text-white">Confirmer</span>
+        </button>
+      )}
+
       <div className={card}>
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-[15px] font-bold">
@@ -281,6 +323,12 @@ export default function CloserPage() {
                       <button type="button" onClick={() => setOpenId(call.id)} className="min-w-0 flex-1 text-left">
                         <p className="flex items-center gap-1.5 truncate text-[14px] font-semibold">
                           {call.name}
+                          {needsConfirm(call, now) && (
+                            <span className="shrink-0 rounded bg-amber-100 px-1.5 py-px text-[10px] font-bold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">À confirmer</span>
+                          )}
+                          {call.confirmedAt && call.status === "booked" && (
+                            <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-px text-[10px] font-bold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Confirmé</span>
+                          )}
                           {overallVerdict(evaluateCriteria(allAnswers(call))) === "ko" && (
                             <span className="shrink-0 rounded bg-rose-100 px-1.5 py-px text-[10px] font-bold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">Non éligible</span>
                           )}
@@ -302,11 +350,23 @@ export default function CloserPage() {
         )}
       </div>
 
-      <CriteriaCard />
+      <CriteriaCard open={!isAdmin} />
 
       {isAdmin && <AdminPanel data={data} onAct={act} />}
 
-      {open && <ProspectSheet call={open} tz={tz} isAdmin={isAdmin} closers={data.closers} onClose={() => setOpenId(null)} onAct={act} />}
+      {(confirmOpen || (!isAdmin && !confirmDismissed)) && toConfirm.length > 0 && (
+        <ConfirmModal
+          calls={toConfirm}
+          tz={tz}
+          onAct={act}
+          onClose={() => {
+            setConfirmOpen(false);
+            setConfirmDismissed(true);
+          }}
+        />
+      )}
+
+      {open && <ProspectSheet call={open} now={now} tz={tz} isAdmin={isAdmin} closers={data.closers} onClose={() => setOpenId(null)} onAct={act} />}
     </div>
   );
 }
@@ -331,6 +391,7 @@ function JoinButton({ call, big, compact }: { call: CallView; big?: boolean; com
 
 function ProspectSheet({
   call,
+  now,
   tz,
   isAdmin,
   closers,
@@ -338,6 +399,7 @@ function ProspectSheet({
   onAct,
 }: {
   call: CallView;
+  now: number;
   tz: string;
   isAdmin: boolean;
   closers: CloserView[];
@@ -407,6 +469,25 @@ function ProspectSheet({
             </div>
           ))}
         </dl>
+
+        {call.status === "booked" && Date.parse(call.startAt) > now - 3_600_000 && (
+          <div className={cn("mb-4 rounded-xl p-3", call.confirmedAt ? "bg-emerald-50 dark:bg-emerald-500/10" : "bg-amber-50 dark:bg-amber-500/10")}>
+            <p className={cn(label, "mb-1")}>Confirmation du rendez-vous</p>
+            {call.confirmedAt ? (
+              <p className="text-[13px]">
+                ✅ Confirmation envoyée le {fmt(call.confirmedAt, tz, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.{" "}
+                <button type="button" onClick={() => void onAct({ action: "update-call", id: call.id, confirmed: false })} className="font-semibold text-slate-500 underline">
+                  Annuler
+                </button>
+              </p>
+            ) : (
+              <>
+                <p className="mb-2 text-[13px]">Envoie-lui le message de confirmation (déjà écrit, avec l&apos;heure chez lui et le lien du call).</p>
+                <ConfirmButtons call={call} onAct={onAct} />
+              </>
+            )}
+          </div>
+        )}
 
         <div
           className={cn(
@@ -528,17 +609,79 @@ function ProspectSheet({
   );
 }
 
-function CriteriaCard() {
+function ConfirmButtons({ call, onAct }: { call: CallView; onAct: (body: Record<string, unknown>, done?: string) => Promise<boolean> }) {
+  const links = confirmLinks(call);
+  const mark = () => void onAct({ action: "update-call", id: call.id, confirmed: true }, `Rendez-vous de ${call.name} confirmé`);
+  if (!links) return <p className="text-[12px] text-rose-600">Pas de numéro pour ce prospect.</p>;
   return (
-    <details className={cn(card, "group")}>
+    <div className="flex flex-wrap gap-2">
+      <a href={links.whatsapp} target="_blank" rel="noreferrer" onClick={mark} className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2 text-[13px] font-bold text-white">
+        <MessageCircle className="h-4 w-4" /> WhatsApp
+      </a>
+      <a href={links.sms} onClick={mark} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-[13px] font-bold text-white dark:bg-white dark:text-slate-900">
+        <MessageSquare className="h-4 w-4" /> SMS
+      </a>
+      <button type="button" onClick={mark} className="rounded-xl bg-slate-100 px-3 py-2 text-[12px] font-semibold dark:bg-slate-800">
+        Déjà confirmé
+      </button>
+    </div>
+  );
+}
+
+function ConfirmModal({
+  calls,
+  tz,
+  onAct,
+  onClose,
+}: {
+  calls: CallView[];
+  tz: string;
+  onAct: (body: Record<string, unknown>, done?: string) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/50 p-3 sm:items-center" onClick={onClose}>
+      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-[18px] font-bold">
+            <BellRing className="h-5 w-5 text-amber-500" /> {calls.length > 1 ? `${calls.length} rendez-vous à confirmer` : "Rendez-vous à confirmer"}
+          </h2>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Fermer">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <p className="mb-4 text-[13px] text-slate-500">Un clic ouvre WhatsApp (ou tes SMS) avec le message déjà écrit : l&apos;heure chez le prospect et le lien du call. Tu n&apos;as plus qu&apos;à envoyer.</p>
+        <div className="space-y-3">
+          {calls.map((call) => (
+            <div key={call.id} className="rounded-xl p-3 ring-1 ring-slate-900/[0.08] dark:ring-white/10">
+              <p className="text-[15px] font-bold">{call.name}</p>
+              <p className="mb-2 text-[12px] text-slate-500">
+                {fmt(call.startAt, tz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })} ({tzLabel(tz)}) · chez lui {fmt(call.startAt, call.prospectTz, { hour: "2-digit", minute: "2-digit" })} ({tzLabel(call.prospectTz)})
+              </p>
+              <ConfirmButtons call={call} onAct={onAct} />
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={onClose} className="mt-4 w-full rounded-xl bg-slate-100 py-2.5 text-[13px] font-semibold dark:bg-slate-800">
+          Plus tard
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CriteriaCard({ open }: { open?: boolean }) {
+  return (
+    <details className={cn(card, "group")} open={open}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[15px] font-bold">
         <span className="flex items-center gap-2">
           <ClipboardList className="h-4 w-4" /> Critères de sélection IBOState
         </span>
         <span className="text-[12px] font-semibold text-slate-500 group-open:hidden">Voir</span>
+        <span className="hidden text-[12px] font-semibold text-slate-500 group-open:inline">Masquer</span>
       </summary>
       <p className="mt-2 text-[12px] text-slate-500">
-        Les exigences d&apos;ibostate.com. Un seul critère non tenu = prospect non sélectionné (sauf les dettes fiscales, à noter seulement). Chaque fiche prospect les coche d&apos;après ses réponses.
+        À connaître par cœur : un seul critère non tenu = prospect non sélectionné (sauf les dettes fiscales, à noter seulement). Chaque fiche prospect les coche d&apos;après ses réponses ; ce qui reste « à demander », tu le vérifies pendant le call.
       </p>
       <ul className="mt-3 space-y-2 text-[13px]">
         {CRITERIA.map((criterion) => (

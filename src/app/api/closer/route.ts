@@ -90,6 +90,7 @@ type Body = {
   closerId?: string | null;
   status?: CallStatus;
   closerNote?: string;
+  confirmed?: boolean;
   call?: Partial<CloserCall>;
 };
 
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
         }
         if (body.status && STATUSES.includes(body.status)) call.status = body.status;
         if (typeof body.closerNote === "string") call.closerNote = body.closerNote.slice(0, 2000);
+        if (typeof body.confirmed === "boolean") call.confirmedAt = body.confirmed ? new Date().toISOString() : null;
         call.updatedAt = new Date().toISOString();
         return store;
       }
