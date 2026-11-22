@@ -9,7 +9,7 @@ import type { Answer, CallStatus } from "@/lib/closer/store";
 import { CRITERIA, evaluateCriteria, overallVerdict, type CriterionState } from "@/lib/closer/criteria";
 import { cn } from "@/lib/utils";
 import { CLOSING_SCRIPT } from "@/lib/closer/scripts";
-import { ContractCard, GoalCard, LeadSheet, LeadsCard, ObjectionsCard, ScriptView, ScriptsSection, TasksCard, isCalled } from "./lead-tasks";
+import { AddCallModal, ContractCard, GoalCard, LeadSheet, LeadsCard, ObjectionsCard, ScriptView, ScriptsSection, TasksCard, isCalled } from "./lead-tasks";
 
 type Tab = "agenda" | "leads" | "contrat" | "ressources";
 const TABS: Array<{ id: Tab; label: string; icon: typeof CalendarClock }> = [
@@ -174,6 +174,7 @@ export default function CloserPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [leadId, setLeadId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("agenda");
+  const [adding, setAdding] = useState(false);
   const [view, setView] = useState<string>("all");
   const [past, setPast] = useState(false);
   // Pop-up « à confirmer » : s'ouvre tout seul pour le closer tant qu'un call attend sa confirmation ; « Plus tard » le ferme jusqu'au prochain chargement.
@@ -265,9 +266,14 @@ export default function CloserPage() {
             </p>
           )}
         </div>
-        <button type="button" onClick={load} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-[12px] font-semibold dark:bg-slate-800">
-          <RefreshCw className="h-3.5 w-3.5" /> Actualiser
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={load} className="rounded-xl bg-slate-100 p-2.5 dark:bg-slate-800" aria-label="Actualiser">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+          <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2.5 text-[14px] font-bold text-white">
+            <Plus className="h-4 w-4" /> Rendez-vous
+          </button>
+        </div>
       </div>
 
       {isAdmin && (
@@ -463,6 +469,8 @@ export default function CloserPage() {
           }}
         />
       )}
+
+      {adding && <AddCallModal leads={leads} myTz={tz} now={now} onAct={act} onClose={() => setAdding(false)} />}
 
       {openLead && <LeadSheet key={openLead.id} lead={openLead} now={now} tz={tz} onClose={() => setLeadId(null)} onAct={act} />}
 

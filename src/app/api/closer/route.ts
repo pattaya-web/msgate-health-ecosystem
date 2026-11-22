@@ -122,6 +122,7 @@ type Body = {
   callNote?: string;
   startAt?: string;
   durationMin?: number;
+  prospectTz?: string;
   call?: Partial<CloserCall>;
 };
 
@@ -196,7 +197,7 @@ export async function POST(request: Request) {
           host: closer.aliases[0] || closer.name,
           startAt: start.toISOString(),
           durationMin: Math.min(Math.max(Number(body.durationMin) || 15, 5), 240),
-          prospectTz: leadTz(lead),
+          prospectTz: validTimezone(String(body.prospectTz ?? "")) ? String(body.prospectTz) : leadTz(lead),
           joinUrl: meetOf(store, closer),
           name: lead.name || lead.email || "Prospect",
           phone: lead.phone,
@@ -217,7 +218,12 @@ export async function POST(request: Request) {
         return store;
       }
 
-      if (!isAdmin) fail("Réservé à l'admin");
+      if (body.action === "add-call" && !isAdmin) {
+        const me = store.closers.find((closer) => closer.identifier === session.email && closer.active) ?? fail("Ton accès closer n'est plus actif");
+        body.call = { ...(body.call ?? {}), closerId: me.id, joinUrl: "" };
+      }
+
+      if (!isAdmin && body.action !== "add-call") fail("Réservé à l'admin");
 
       if (body.action === "save-closer") {
         const name = String(body.name ?? "").trim().slice(0, 60);
@@ -285,20 +291,23 @@ export async function POST(request: Request) {
         if (!String(input.name ?? "").trim()) fail("Nom du prospect requis");
         if (Number.isNaN(start.getTime())) fail("Date et heure du call requises");
         const now = new Date().toISOString();
+        const owner = store.closers.find((closer) => closer.id === input.closerId) ?? null;
+        // Le prospect a déjà une fiche lead (même numéro ou e-mail) : le call s'y rattache.
+        const known = leadFor(store.leads, String(input.phone ?? ""), String(input.email ?? ""));
         store.calls.push({
           id: newId(),
-          closerId: input.closerId || null,
-          host: "",
+          closerId: owner?.id ?? null,
+          host: owner ? owner.aliases[0] || owner.name : "",
           startAt: start.toISOString(),
           durationMin: Math.min(Math.max(Number(input.durationMin) || 15, 5), 240),
           prospectTz: validTimezone(String(input.prospectTz ?? "")) ? String(input.prospectTz) : "America/New_York",
-          joinUrl: /^https:\/\//.test(String(input.joinUrl ?? "")) ? String(input.joinUrl) : "",
+          joinUrl: /^https:\/\//.test(String(input.joinUrl ?? "")) ? String(input.joinUrl) : owner ? meetOf(store, owner) : "",
           name: String(input.name).trim().slice(0, 120),
           phone: String(input.phone ?? "").trim().slice(0, 40),
           email: String(input.email ?? "").trim().slice(0, 160),
           notes: String(input.notes ?? "").trim().slice(0, 600),
           answers: [],
-          leadId: null,
+          leadId: known?.id ?? null,
           status: "booked",
           closerNote: "",
           source: "manual",
@@ -306,6 +315,10 @@ export async function POST(request: Request) {
           updatedAt: now,
         });
         store.calls.sort((a, b) => a.startAt.localeCompare(b.startAt));
+        if (known) {
+          known.callStatus = "booked";
+          known.lastCallAt = now;
+        }
         return store;
       }
 

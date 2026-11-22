@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BookOpenText, CalendarPlus, Check, CircleCheck, Copy, FileText, MessageCircle, Phone, Share2, Target, X } from "lucide-react";
+import { BookOpenText, CalendarPlus, Check, CircleCheck, Copy, FileText, MessageCircle, Phone, Search, Share2, Target, X } from "lucide-react";
 import { toast } from "sonner";
 import type { LeadView } from "@/app/api/closer/route";
 import { REASON_LABEL, creditOf, followUpText, type LeadReason } from "@/lib/closer/leads";
@@ -192,10 +192,8 @@ export function LeadsCard({ leads, now, onOpen, onAct, showOwner }: { leads: Lea
 
 export function LeadSheet({ lead, now, tz, onClose, onAct }: { lead: LeadView; now: number; tz: string; onClose: () => void; onAct: Act }) {
   const [note, setNote] = useState(lead.callNote ?? "");
-  const [start, setStart] = useState("");
   const phone = digits(lead.phone);
   const message = followUpText(lead.name);
-  const startMs = start ? zonedToUtc(start, tz) : NaN;
   const step = "mb-2 text-[14px] font-bold";
 
   return (
@@ -265,24 +263,16 @@ export function LeadSheet({ lead, now, tz, onClose, onAct }: { lead: LeadView; n
           </p>
         ) : (
           <div className="mb-5">
-            <input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} className={field} />
-            <p className="mt-1 text-[12px] text-slate-500">
-              {Number.isFinite(startMs)
-                ? `Ton heure (${city(tz)}). Chez lui : ${fmt(startMs, lead.tz, { weekday: "long", hour: "2-digit", minute: "2-digit" })}`
-                : `À ton heure (${city(tz)}). Le call arrive dans ton agenda avec ton lien Meet.`}
-            </p>
-            <button
-              type="button"
-              disabled={!Number.isFinite(startMs)}
-              onClick={() =>
-                void onAct({ action: "book-lead", id: lead.id, startAt: new Date(startMs).toISOString(), durationMin: 15 }, "Rendez-vous posé").then((ok) => {
+            <BookForm
+              leadTz={lead.tz}
+              myTz={tz}
+              onBook={(startAt, prospectTz) =>
+                onAct({ action: "book-lead", id: lead.id, startAt, prospectTz, durationMin: 15 }, "Rendez-vous ajouté à ton agenda").then((ok) => {
                   if (ok) onClose();
+                  return ok;
                 })
               }
-              className="mt-2 w-full rounded-xl bg-sky-600 py-3 text-[14px] font-bold text-white disabled:opacity-40"
-            >
-              Poser le rendez-vous
-            </button>
+            />
           </div>
         )}
 
@@ -315,6 +305,175 @@ export function LeadSheet({ lead, now, tz, onClose, onAct }: { lead: LeadView; n
               ))}
             </ul>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Poser un rendez-vous (heure du lead) ---------- */
+
+const ZONES: Array<[string, string]> = [
+  ["America/New_York", "New York (Est)"],
+  ["America/Chicago", "Chicago (Centre)"],
+  ["America/Denver", "Denver (Montagnes)"],
+  ["America/Phoenix", "Phoenix (Arizona)"],
+  ["America/Los_Angeles", "Los Angeles (Pacifique)"],
+  ["America/Anchorage", "Alaska"],
+  ["Pacific/Honolulu", "Hawaï"],
+  ["Europe/Paris", "Paris (France)"],
+];
+
+/**
+ * Le lead dit « demain 13 h » : la closeuse tape 13 h à SON heure à lui
+ * (fuseau de son État, modifiable) ; le CRM convertit et range le call dans
+ * son agenda, à son heure à elle.
+ */
+export function BookForm({ leadTz, myTz, onBook }: { leadTz: string; myTz: string; onBook: (startAt: string, prospectTz: string) => Promise<boolean> }) {
+  const [zone, setZone] = useState(leadTz);
+  const [start, setStart] = useState("");
+  const [busy, setBusy] = useState(false);
+  const startMs = start ? zonedToUtc(start, zone) : NaN;
+  const zones = ZONES.some(([id]) => id === zone) ? ZONES : [[zone, city(zone)] as [string, string], ...ZONES];
+  return (
+    <div className="space-y-2">
+      <div>
+        <p className="mb-1 text-[12px] font-semibold text-slate-500">Son fuseau horaire</p>
+        <select value={zone} onChange={(event) => setZone(event.target.value)} className={field}>
+          {zones.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <p className="mb-1 text-[12px] font-semibold text-slate-500">Jour et heure, à SON heure (ce qu&apos;il t&apos;a dit)</p>
+        <input type="datetime-local" step={900} value={start} onChange={(event) => setStart(event.target.value)} className={field} />
+      </div>
+      {Number.isFinite(startMs) && (
+        <p className="rounded-xl bg-sky-50 p-2.5 text-[14px] dark:bg-sky-500/10">
+          Pour toi : <b>{fmt(startMs, myTz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}</b> ({city(myTz)})
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={!Number.isFinite(startMs) || busy}
+        onClick={() => {
+          setBusy(true);
+          void onBook(new Date(startMs).toISOString(), zone).finally(() => setBusy(false));
+        }}
+        className="w-full rounded-xl bg-sky-600 py-3 text-[15px] font-bold text-white disabled:opacity-40"
+      >
+        Ajouter le rendez-vous
+      </button>
+    </div>
+  );
+}
+
+/** « + Rendez-vous » : choisir un lead récent (ou taper un nom), puis l'heure. */
+export function AddCallModal({ leads, myTz, now, onAct, onClose }: { leads: LeadView[]; myTz: string; now: number; onAct: Act; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [manual, setManual] = useState(false);
+  const [who, setWho] = useState({ name: "", phone: "" });
+  const picked = leads.find((lead) => lead.id === pickedId) ?? null;
+  const q = query.trim().toLowerCase();
+  const qDigits = digits(query);
+  const found = [...leads]
+    .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
+    .filter((lead) => !q || lead.name.toLowerCase().includes(q) || (qDigits.length >= 3 && digits(lead.phone).includes(qDigits)))
+    .slice(0, 8);
+  const done = (ok: boolean) => {
+    if (ok) onClose();
+    return ok;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/50 sm:items-center" onClick={onClose}>
+      <div
+        className="max-h-[92dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl dark:bg-slate-900"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-[19px] font-bold">
+            <CalendarPlus className="h-5 w-5" /> Ajouter un rendez-vous
+          </h2>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Fermer">
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        {picked ? (
+          <>
+            <div className="mb-4 flex items-start justify-between gap-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+              <div className="min-w-0">
+                <p className="truncate text-[16px] font-bold">{picked.name}</p>
+                <p className="text-[13px] text-slate-500">
+                  {prettyPhone(picked.phone)} · {picked.place || "—"} · {creditOf(picked) || "—"}
+                </p>
+                <p className="text-[12px] text-slate-500">Chez lui : {fmt(now, picked.tz, { hour: "2-digit", minute: "2-digit" })}</p>
+              </div>
+              <button type="button" onClick={() => setPickedId(null)} className="shrink-0 text-[13px] font-semibold text-sky-600">
+                Changer
+              </button>
+            </div>
+            {picked.callAt && (
+              <p className="mb-3 rounded-xl bg-amber-50 p-2.5 text-[13px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                Il a déjà un RDV le {fmt(picked.callAt, myTz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}.
+              </p>
+            )}
+            <BookForm
+              key={picked.id}
+              leadTz={picked.tz}
+              myTz={myTz}
+              onBook={(startAt, prospectTz) => onAct({ action: "book-lead", id: picked.id, startAt, prospectTz, durationMin: 15 }, `Rendez-vous de ${picked.name} ajouté`).then(done)}
+            />
+          </>
+        ) : manual ? (
+          <>
+            <div className="mb-3 space-y-2">
+              <input value={who.name} onChange={(event) => setWho({ ...who, name: event.target.value })} placeholder="Nom du prospect" className={field} />
+              <input value={who.phone} onChange={(event) => setWho({ ...who, phone: event.target.value })} placeholder="Téléphone (+1…)" inputMode="tel" className={field} />
+            </div>
+            <BookForm
+              leadTz="America/New_York"
+              myTz={myTz}
+              onBook={(startAt, prospectTz) => {
+                if (!who.name.trim()) {
+                  toast.error("Le nom du prospect est requis");
+                  return Promise.resolve(false);
+                }
+                return onAct({ action: "add-call", call: { name: who.name, phone: who.phone, startAt, prospectTz, durationMin: 15 } }, `Rendez-vous de ${who.name} ajouté`).then(done);
+              }}
+            />
+            <button type="button" onClick={() => setManual(false)} className="mt-3 w-full text-center text-[13px] font-semibold text-sky-600">
+              ← Choisir dans les leads
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="relative mb-3">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nom ou numéro du lead" className={cn(field, "pl-9")} autoComplete="off" />
+            </div>
+            <p className="mb-1.5 text-[12px] font-semibold text-slate-500">{q ? "Résultats" : "Leads récents"}</p>
+            <div className="mb-3 divide-y divide-slate-100 overflow-hidden rounded-xl ring-1 ring-slate-900/[0.06] dark:divide-white/5 dark:ring-white/[0.06]">
+              {found.length === 0 && <p className="p-3 text-[14px] text-slate-500">Aucun lead trouvé.</p>}
+              {found.map((lead) => (
+                <button key={lead.id} type="button" onClick={() => setPickedId(lead.id)} className="block w-full px-3 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <p className="truncate text-[15px] font-semibold">{lead.name || lead.phone}</p>
+                  <p className="truncate text-[12px] text-slate-500">
+                    {prettyPhone(lead.phone)} · {state(lead.place) || "—"}
+                    {lead.callAt ? " · RDV déjà posé" : ""}
+                  </p>
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => setManual(true)} className="w-full rounded-xl bg-slate-100 py-3 text-[14px] font-semibold dark:bg-slate-800">
+              Pas dans la liste : taper son nom
+            </button>
+          </>
         )}
       </div>
     </div>
