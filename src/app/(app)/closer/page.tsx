@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Check, Copy, ExternalLink, Loader2, MessageCircle, Phone, Plus, RefreshCw, Trash2, UserRound, Video, X } from "lucide-react";
+import { CalendarClock, Check, CircleAlert, CircleCheck, CircleHelp, CircleX, ClipboardList, Copy, ExternalLink, Loader2, MessageCircle, Phone, Plus, RefreshCw, Trash2, UserRound, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth/auth-context";
 import type { CallView, CloserPayload, CloserView } from "@/app/api/closer/route";
-import type { CallStatus } from "@/lib/closer/store";
+import type { Answer, CallStatus } from "@/lib/closer/store";
+import { CRITERIA, evaluateCriteria, overallVerdict, type CriterionState } from "@/lib/closer/criteria";
 import { cn } from "@/lib/utils";
 
 /**
@@ -94,6 +95,18 @@ function isLive(call: CallView, now: number) {
   const start = Date.parse(call.startAt);
   return now >= start - 10 * 60_000 && now <= start + call.durationMin * 60_000;
 }
+
+/** Les réponses du call (avant réservation) puis celles du formulaire, sans doublon. */
+function allAnswers(call: CallView): Answer[] {
+  return [...call.answers, ...(call.lead?.answers ?? []).filter((item) => !call.answers.some((own) => own.label === item.label))];
+}
+
+const CRITERION_ICON: Record<CriterionState, { icon: typeof CircleCheck; tone: string; text: string }> = {
+  ok: { icon: CircleCheck, tone: "text-emerald-600", text: "OK" },
+  ko: { icon: CircleX, tone: "text-rose-600", text: "Non sélectionné" },
+  check: { icon: CircleAlert, tone: "text-amber-600", text: "À vérifier" },
+  ask: { icon: CircleHelp, tone: "text-slate-400", text: "À demander" },
+};
 
 async function post(body: Record<string, unknown>) {
   const res = await fetch("/api/closer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -266,7 +279,12 @@ export default function CloserPage() {
                         <p className="text-[11px] text-slate-500">{call.durationMin} min</p>
                       </div>
                       <button type="button" onClick={() => setOpenId(call.id)} className="min-w-0 flex-1 text-left">
-                        <p className="truncate text-[14px] font-semibold">{call.name}</p>
+                        <p className="flex items-center gap-1.5 truncate text-[14px] font-semibold">
+                          {call.name}
+                          {overallVerdict(evaluateCriteria(allAnswers(call))) === "ko" && (
+                            <span className="shrink-0 rounded bg-rose-100 px-1.5 py-px text-[10px] font-bold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">Non éligible</span>
+                          )}
+                        </p>
                         <p className="truncate text-[11px] text-slate-500">
                           Prospect : {fmt(call.startAt, call.prospectTz, { hour: "2-digit", minute: "2-digit" })} ({tzLabel(call.prospectTz)})
                           {call.lead?.place ? ` · ${call.lead.place}` : ""}
@@ -283,6 +301,8 @@ export default function CloserPage() {
           </div>
         )}
       </div>
+
+      <CriteriaCard />
 
       {isAdmin && <AdminPanel data={data} onAct={act} />}
 
@@ -336,7 +356,11 @@ function ProspectSheet({
     ...(lead?.preferredContact ? [["Contact préféré", lead.preferredContact] as [string, string]] : []),
     ...(lead?.telegram ? [["Telegram", `@${lead.telegram.replace(/^@/, "")}`] as [string, string]] : []),
   ];
-  const answers = [...call.answers, ...(lead?.answers ?? []).filter((item) => !call.answers.some((own) => own.label === item.label))];
+  const answers = allAnswers(call);
+  const results = evaluateCriteria(answers);
+  const verdict = overallVerdict(results);
+  const usedLabels = new Set(CRITERIA.flatMap((criterion) => criterion.labels));
+  const others = answers.filter((item) => !usedLabels.has(item.label));
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40" onClick={onClose}>
@@ -384,11 +408,46 @@ function ProspectSheet({
           ))}
         </dl>
 
-        {answers.length > 0 && (
+        <div
+          className={cn(
+            "mb-4 rounded-xl p-3",
+            verdict === "ko" ? "bg-rose-50 dark:bg-rose-500/10" : verdict === "check" ? "bg-amber-50 dark:bg-amber-500/10" : "bg-slate-50 dark:bg-slate-800/60"
+          )}
+        >
+          <p className={cn(label, "mb-1")}>Critères IBOState</p>
+          <p className="mb-2 text-[13px] font-bold">
+            {verdict === "ko"
+              ? "❌ Ne remplit pas les critères : ne pas valider le dossier."
+              : verdict === "check"
+                ? "⚠️ Des points à vérifier pendant le call."
+                : "✅ Rien d'éliminatoire dans ses réponses : vérifie ce qui reste « à demander »."}
+          </p>
+          <ul className="space-y-1.5 text-[13px]">
+            {results.map(({ criterion, state, value }) => {
+              const look = CRITERION_ICON[state];
+              const Icon = look.icon;
+              return (
+                <li key={criterion.key} className="flex gap-2">
+                  <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", look.tone)} />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{criterion.title}</p>
+                    <p className="text-[11px] text-slate-500">
+                      <b className={look.tone}>{look.text}</b>
+                      {value ? ` · réponse : ${value}` : ""}
+                      {state !== "ok" ? ` · ${criterion.rule}` : ""}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {others.length > 0 && (
           <div className="mb-4 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
-            <p className={cn(label, "mb-1.5")}>Réponses du prospect</p>
+            <p className={cn(label, "mb-1.5")}>Autres réponses</p>
             <ul className="space-y-1 text-[13px]">
-              {answers.map((item) => (
+              {others.map((item) => (
                 <li key={item.label} className="flex justify-between gap-3">
                   <span className="text-slate-500">{item.label}</span>
                   <b className="text-right">{item.value}</b>
@@ -469,6 +528,33 @@ function ProspectSheet({
   );
 }
 
+function CriteriaCard() {
+  return (
+    <details className={cn(card, "group")}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[15px] font-bold">
+        <span className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4" /> Critères de sélection IBOState
+        </span>
+        <span className="text-[12px] font-semibold text-slate-500 group-open:hidden">Voir</span>
+      </summary>
+      <p className="mt-2 text-[12px] text-slate-500">
+        Les exigences d&apos;ibostate.com. Un seul critère non tenu = prospect non sélectionné (sauf les dettes fiscales, à noter seulement). Chaque fiche prospect les coche d&apos;après ses réponses.
+      </p>
+      <ul className="mt-3 space-y-2 text-[13px]">
+        {CRITERIA.map((criterion) => (
+          <li key={criterion.key} className="flex gap-2">
+            {criterion.soft ? <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /> : <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />}
+            <div>
+              <p className="font-semibold">{criterion.title}</p>
+              <p className="text-[12px] text-slate-500">{criterion.rule}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record<string, unknown>, done?: string) => Promise<boolean> }) {
   const [form, setForm] = useState({ name: "", identifier: "", timezone: "Asia/Dubai", aliases: "" });
   const [call, setCall] = useState({ name: "", phone: "", email: "", start: "", durationMin: "15", joinUrl: "", closerId: "" });
@@ -491,8 +577,25 @@ function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record
                   <p className="text-[14px] font-bold">
                     {closer.name} <span className="font-normal text-slate-500">@{closer.identifier}</span>
                   </p>
-                  <p className="text-[11px] text-slate-500">
-                    {tzLabel(closer.timezone)} · calls au nom de : {closer.aliases.length ? closer.aliases.join(", ") : closer.name}
+                  <p className="flex flex-wrap items-center gap-1 text-[11px] text-slate-500">
+                    <select
+                      value={closer.timezone}
+                      onChange={(event) =>
+                        void onAct(
+                          { action: "save-closer", id: closer.id, name: closer.name, identifier: closer.identifier, timezone: event.target.value, aliases: closer.aliases },
+                          `Fuseau de ${closer.name} : ${tzLabel(event.target.value)}`
+                        )
+                      }
+                      className="rounded bg-slate-100 px-1 py-0.5 text-[11px] dark:bg-slate-800"
+                      aria-label={`Fuseau de ${closer.name}`}
+                    >
+                      {[...new Set([closer.timezone, ...TIMEZONES])].map((zone) => (
+                        <option key={zone} value={zone}>
+                          {zone.replace(/_/g, " ")}
+                        </option>
+                      ))}
+                    </select>
+                    · calls au nom de : {closer.aliases.length ? closer.aliases.join(", ") : closer.name}
                     {!closer.active && " · accès coupé"}
                   </p>
                 </div>
