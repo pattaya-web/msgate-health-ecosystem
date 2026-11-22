@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { BookOpenText, CalendarPlus, Check, CircleCheck, Copy, FileText, MessageCircle, Phone, Search, Share2, Target, X } from "lucide-react";
 import { toast } from "sonner";
 import type { LeadView } from "@/app/api/closer/route";
-import { REASON_LABEL, creditOf, followUpText, type LeadReason } from "@/lib/closer/leads";
+import { creditOf, followUpText, type LeadReason } from "@/lib/closer/leads";
 import { OBJECTIONS } from "@/lib/closer/resources";
 import { CALL_GOAL, CLOSING_SCRIPT, CONTRACT_FILE, SETTING_SCRIPT, fillScript, type CallScript } from "@/lib/closer/scripts";
 import { cn } from "@/lib/utils";
@@ -131,10 +131,18 @@ export function TasksCard({ toCall, toConfirm, todayCalls, onLeads, onConfirm }:
 
 /* ---------- Onglet Leads ---------- */
 
+const GROUPS: Array<{ reason: LeadReason; title: string }> = [
+  { reason: "qualified", title: "Qualifiés" },
+  { reason: "review", title: "À vérifier" },
+  { reason: "credit-550", title: "Non qualifiés · crédit 550–599" },
+];
+
 export function LeadsCard({ leads, now, onOpen, onAct, showOwner }: { leads: LeadView[]; now: number; onOpen: (id: string) => void; onAct: Act; showOwner?: (lead: LeadView) => string }) {
-  // Ordre fixe (le plus récent en haut) : cocher ne déplace rien.
+  // Classés par qualification (qualifiés d'abord, puis à vérifier, puis 550–599 ; en dessous de 550, rien),
+  // le plus récent en haut de chaque groupe. Ordre fixe : cocher ne déplace rien.
   const list = leads.filter((lead) => lead.reason).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
   const left = list.filter((lead) => !isCalled(lead)).length;
+  const groups = GROUPS.map((group) => ({ ...group, items: list.filter((lead) => lead.reason === group.reason) })).filter((group) => group.items.length > 0);
 
   return (
     <div className={card}>
@@ -148,19 +156,21 @@ export function LeadsCard({ leads, now, onOpen, onAct, showOwner }: { leads: Lea
       {list.length === 0 ? (
         <p className="py-6 text-center text-[14px] text-slate-500">Aucun lead pour l&apos;instant. Les nouveaux arrivent ici tout seuls.</p>
       ) : (
+        <div className="space-y-4">
+          {groups.map((group) => (
+            <div key={group.reason}>
+              <p className="mb-1.5 flex items-center gap-2 text-[13px] font-bold">
+                <span className={cn("rounded px-2 py-0.5 text-[12px]", REASON_TONE[group.reason])}>{group.title}</span>
+                <span className="text-slate-500">{group.items.filter((lead) => !isCalled(lead)).length} à appeler</span>
+              </p>
         <div className="divide-y divide-slate-100 overflow-hidden rounded-xl ring-1 ring-slate-900/[0.06] dark:divide-white/5 dark:ring-white/[0.06]">
-          {list.map((lead) => {
+          {group.items.map((lead) => {
             const hour = hourIn(now, lead.tz);
             const late = hour < 9 || hour >= 21;
             return (
               <div key={lead.id} className="flex items-center gap-2 px-3 py-2.5">
                 <button type="button" onClick={() => onOpen(lead.id)} className="min-w-0 flex-1 text-left">
-                  <p className="flex items-center gap-1.5 text-[15px] font-semibold">
-                    <span className="truncate">{lead.name || lead.email || lead.phone}</span>
-                    {lead.reason && lead.reason !== "qualified" && (
-                      <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", REASON_TONE[lead.reason])}>{REASON_LABEL[lead.reason]}</span>
-                    )}
-                  </p>
+                  <p className="truncate text-[15px] font-semibold">{lead.name || lead.email || lead.phone}</p>
                   <p className="truncate text-[12px] text-slate-500">
                     {creditOf(lead) || "—"} · {state(lead.place) || "—"} · {fmt(now, lead.tz, { hour: "2-digit", minute: "2-digit" })} chez lui{late ? " 🌙" : ""}
                     {showOwner ? ` · ${showOwner(lead)}` : ""}
@@ -181,6 +191,9 @@ export function LeadsCard({ leads, now, onOpen, onAct, showOwner }: { leads: Lea
               </div>
             );
           })}
+        </div>
+            </div>
+          ))}
         </div>
       )}
       <p className="mt-2 text-[12px] text-slate-500">🌙 trop tôt ou trop tard chez lui (avant 9 h, après 21 h).</p>
