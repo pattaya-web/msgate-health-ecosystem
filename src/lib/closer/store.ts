@@ -32,6 +32,8 @@ export type Closer = {
    * à un de ces noms lui revient.
    */
   aliases: string[];
+  /** Mot de passe simple choisi par l'admin (haché), pour se connecter sur /login avec son identifiant. */
+  passwordHash?: string;
   /** Clé du lien d'accès personnel (régénérable). */
   accessToken: string;
   active: boolean;

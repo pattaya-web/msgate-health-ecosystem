@@ -718,7 +718,8 @@ function CriteriaCard({ open }: { open?: boolean }) {
 }
 
 function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record<string, unknown>, done?: string) => Promise<boolean> }) {
-  const [form, setForm] = useState({ name: "", identifier: "", timezone: "Asia/Dubai", aliases: "" });
+  const [form, setForm] = useState({ name: "", identifier: "", timezone: "Europe/Paris", aliases: "" });
+  const [passwords, setPasswords] = useState<Record<string, string>>({});
   const [call, setCall] = useState({ name: "", phone: "", email: "", start: "", durationMin: "15", joinUrl: "", closerId: "" });
 
   const copy = (text: string, what: string) => void navigator.clipboard.writeText(text).then(() => toast.success(`${what} copié`));
@@ -757,7 +758,7 @@ function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record
                         </option>
                       ))}
                     </select>
-                    · calls au nom de : {closer.aliases.length ? closer.aliases.join(", ") : closer.name}
+                    · calls au nom de : {closer.aliases.length ? closer.aliases.join(", ") : closer.name} · mot de passe : {closer.hasPassword ? "oui" : "non"}
                     {!closer.active && " · accès coupé"}
                   </p>
                 </div>
@@ -782,6 +783,28 @@ function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
+              </div>
+              <div className="mt-2 flex gap-1.5">
+                <input
+                  value={passwords[closer.id] ?? ""}
+                  onChange={(e) => setPasswords({ ...passwords, [closer.id]: e.target.value })}
+                  placeholder={closer.hasPassword ? "Nouveau mot de passe" : "Mot de passe simple (ex. nicole123)"}
+                  className={cn(field, "h-8 text-[12px]")}
+                  autoCapitalize="none"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  disabled={(passwords[closer.id] ?? "").trim().length < 4}
+                  onClick={() =>
+                    void onAct({ action: "set-password", id: closer.id, password: passwords[closer.id] }, `Mot de passe de ${closer.name} enregistré`).then((ok) => {
+                      if (ok) setPasswords({ ...passwords, [closer.id]: "" });
+                    })
+                  }
+                  className="shrink-0 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
+                >
+                  Enregistrer
+                </button>
               </div>
             </div>
           ))}

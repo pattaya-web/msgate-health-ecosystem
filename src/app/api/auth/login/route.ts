@@ -40,12 +40,15 @@ export async function POST(request: Request) {
       : password === account.demoPassword
     : await verifyPassword(password, DUMMY_HASH).then(() => false);
 
-  // Un closer n'a pas de mot de passe : son identifiant + son code d'accès (ou son lien d'accès collé en entier).
+  // Un closer se connecte avec son identifiant + le mot de passe simple posé par l'admin, ou son code d'accès (ou son lien collé en entier).
   if (!account) {
     const code = (/[?&]t=([A-Za-z0-9_-]+)/.exec(password)?.[1] ?? password).trim();
     const { closers } = await readClosers();
     const closer = closers.find((item) => item.active && item.identifier === email);
-    const ok = closer && code.length === closer.accessToken.length && timingSafeEqual(Buffer.from(code), Buffer.from(closer.accessToken));
+    const ok =
+      closer &&
+      ((code.length === closer.accessToken.length && timingSafeEqual(Buffer.from(code), Buffer.from(closer.accessToken))) ||
+        (closer.passwordHash ? await verifyPassword(password, closer.passwordHash) : false));
     if (closer && ok) {
       const closerSession = { email: closer.identifier, role: "closer" as const };
       const response = NextResponse.json({ user: appUserFor(closerSession), source: accounts.source });

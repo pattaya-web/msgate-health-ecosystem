@@ -16,11 +16,12 @@ import {
   type CloserStore,
 } from "@/lib/closer/store";
 import { loadAuthUsers } from "@/lib/auth/session";
+import { hashPassword } from "@/lib/auth/password";
 
 export const dynamic = "force-dynamic";
 
 export type CallView = CloserCall & { lead: CloserLead | null; closerName: string };
-export type CloserView = Omit<Closer, "accessToken"> & { accessUrl: string };
+export type CloserView = Omit<Closer, "accessToken" | "passwordHash"> & { accessUrl: string; hasPassword: boolean };
 export type CloserPayload = {
   role: "admin" | "closer";
   me: { name: string; timezone: string } | null;
@@ -65,7 +66,7 @@ function payloadFor(request: Request, store: CloserStore, role: "admin" | "close
   return {
     role,
     me: null,
-    closers: store.closers.map(({ accessToken, ...closer }) => ({ ...closer, accessUrl: `${base}/api/closer/acces?t=${accessToken}` })),
+    closers: store.closers.map(({ accessToken, passwordHash, ...closer }) => ({ ...closer, accessUrl: `${base}/api/closer/acces?t=${accessToken}`, hasPassword: Boolean(passwordHash) })),
     calls: viewOf(store, store.calls),
     leads: store.leads.slice(0, 50),
     ingestReady: (process.env.CLOSER_INGEST_KEY?.trim().length ?? 0) >= 24,
@@ -90,6 +91,7 @@ type Body = {
   closerId?: string | null;
   status?: CallStatus;
   closerNote?: string;
+  password?: string;
   confirmed?: boolean;
   call?: Partial<CloserCall>;
 };
@@ -105,6 +107,9 @@ export async function POST(request: Request) {
   if (!body?.action) return NextResponse.json({ error: "Requête illisible" }, { status: 400 });
 
   try {
+    // Le hachage prend du temps : il se fait avant d'ouvrir le fichier des closers.
+    const password = isAdmin && body.action === "set-password" ? String(body.password ?? "").trim() : "";
+    const passwordHash = password.length >= 4 ? await hashPassword(password) : "";
     const store = await updateClosers((store) => {
       const fail = (message: string): never => {
         throw new Error(message);
@@ -152,6 +157,13 @@ export async function POST(request: Request) {
       if (body.action === "regenerate-link") {
         const closer = store.closers.find((item) => item.id === body.id) ?? fail("Closer introuvable");
         closer.accessToken = newAccessToken();
+        return store;
+      }
+
+      if (body.action === "set-password") {
+        const closer = store.closers.find((item) => item.id === body.id) ?? fail("Closer introuvable");
+        if (!passwordHash) fail("Mot de passe trop court (4 caractères minimum)");
+        closer.passwordHash = passwordHash;
         return store;
       }
 

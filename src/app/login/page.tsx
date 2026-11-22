@@ -129,9 +129,7 @@ export default function LoginPage() {
             />
             {errors.password ? (
               <p className="text-xs text-rose-600">{errors.password.message}</p>
-            ) : (
-              <p className="text-[11px] text-slate-500">Closer : colle ici ton code d&apos;accès (ou ton lien d&apos;accès en entier).</p>
-            )}
+            ) : null}
           </div>
 
           <Button type="submit" size="lg" className="h-11 w-full rounded-2xl" disabled={submitting}>
