@@ -17,17 +17,20 @@ import {
 } from "@/lib/closer/store";
 import { loadAuthUsers } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
+import { IBOSTATE_HOST, LEAD_STATUS_LABEL, leadReason, leadTz, type LeadCallStatus, type LeadReason } from "@/lib/closer/leads";
 
 export const dynamic = "force-dynamic";
 
 export type CallView = CloserCall & { lead: CloserLead | null; closerName: string };
 export type CloserView = Omit<Closer, "accessToken" | "passwordHash"> & { accessUrl: string; hasPassword: boolean };
+/** Un lead à appeler, avec ce qu'il faut pour la liste : raison, fuseau, call déjà posé. */
+export type LeadView = CloserLead & { reason: LeadReason | null; tz: string; ownerId: string | null; callAt: string | null };
 export type CloserPayload = {
   role: "admin" | "closer";
-  me: { name: string; timezone: string } | null;
+  me: { name: string; timezone: string; meetUrl: string } | null;
   closers: CloserView[];
   calls: CallView[];
-  leads: CloserLead[];
+  leads: LeadView[];
   ingestReady: boolean;
 };
 
@@ -50,16 +53,37 @@ function viewOf(store: CloserStore, calls: CloserCall[]): CallView[] {
   }));
 }
 
+/** Le closer qui appelle ce lead : celui choisi, sinon celui des réservations IBOState. */
+function leadOwner(store: CloserStore, lead: CloserLead) {
+  return lead.closerId ?? closerForHost(store.closers, IBOSTATE_HOST)?.id ?? null;
+}
+
+/** Le lien de call d'un closer : le sien, sinon celui de son dernier call reçu d'IBOState. */
+function meetOf(store: CloserStore, closer: Closer) {
+  if (closer.meetUrl) return closer.meetUrl;
+  return [...store.calls].reverse().find((call) => call.closerId === closer.id && call.joinUrl)?.joinUrl ?? "";
+}
+
+function leadViews(store: CloserStore, leads: CloserLead[]): LeadView[] {
+  return leads.map((lead) => {
+    const call = [...store.calls]
+      .reverse()
+      .find((item) => item.status !== "cancelled" && (item.leadId === lead.id || leadFor([lead], item.phone, item.email)));
+    return { ...lead, reason: leadReason(lead), tz: leadTz(lead), ownerId: leadOwner(store, lead), callAt: call?.startAt ?? null };
+  });
+}
+
 function payloadFor(request: Request, store: CloserStore, role: "admin" | "closer", identifier: string): CloserPayload {
   const base = baseUrl(request);
   if (role === "closer") {
     const me = store.closers.find((closer) => closer.identifier === identifier && closer.active);
     return {
       role,
-      me: me ? { name: me.name, timezone: me.timezone } : null,
+      me: me ? { name: me.name, timezone: me.timezone, meetUrl: meetOf(store, me) } : null,
       closers: [],
       calls: me ? viewOf(store, store.calls.filter((call) => call.closerId === me.id)) : [],
-      leads: [],
+      // Ses leads à appeler : qualifiés, à vérifier, et non qualifiés à 550–599 seulement.
+      leads: me ? leadViews(store, store.leads.filter((lead) => leadReason(lead) && leadOwner(store, lead) === me.id)) : [],
       ingestReady: true,
     };
   }
@@ -68,7 +92,7 @@ function payloadFor(request: Request, store: CloserStore, role: "admin" | "close
     me: null,
     closers: store.closers.map(({ accessToken, passwordHash, ...closer }) => ({ ...closer, accessUrl: `${base}/api/closer/acces?t=${accessToken}`, hasPassword: Boolean(passwordHash) })),
     calls: viewOf(store, store.calls),
-    leads: store.leads.slice(0, 50),
+    leads: leadViews(store, store.leads.slice(0, 500)),
     ingestReady: (process.env.CLOSER_INGEST_KEY?.trim().length ?? 0) >= 24,
   };
 }
@@ -93,6 +117,11 @@ type Body = {
   closerNote?: string;
   password?: string;
   confirmed?: boolean;
+  meetUrl?: string;
+  callStatus?: LeadCallStatus;
+  callNote?: string;
+  startAt?: string;
+  durationMin?: number;
   call?: Partial<CloserCall>;
 };
 
@@ -129,6 +158,59 @@ export async function POST(request: Request) {
         return store;
       }
 
+      // Les leads : le closer ne touche qu'aux siens.
+      if (body.action === "update-lead" || body.action === "book-lead") {
+        const lead = store.leads.find((item) => item.id === body.id) ?? fail("Lead introuvable");
+        const ownerId = leadOwner(store, lead);
+        const me = isAdmin ? null : store.closers.find((closer) => closer.identifier === session.email && closer.active);
+        if (!isAdmin && (!me || ownerId !== me.id)) fail("Ce lead n'est pas dans ta liste");
+        const now = new Date().toISOString();
+
+        if (body.action === "update-lead") {
+          if (body.callStatus && body.callStatus in LEAD_STATUS_LABEL) {
+            lead.callStatus = body.callStatus;
+            // Un essai d'appel compte quand le résultat est noté (sauf retour à « À appeler »).
+            if (body.callStatus !== "todo") {
+              lead.callAttempts = (lead.callAttempts ?? 0) + 1;
+              lead.lastCallAt = now;
+            }
+          }
+          if (typeof body.callNote === "string") lead.callNote = body.callNote.slice(0, 2000);
+          return store;
+        }
+
+        // Le 2e rendez-vous (call de closing), posé pendant l'appel.
+        const closer = store.closers.find((item) => item.id === (me?.id ?? ownerId)) ?? fail("Pas de closer pour ce lead");
+        const start = new Date(String(body.startAt ?? ""));
+        if (Number.isNaN(start.getTime())) fail("Date et heure du rendez-vous requises");
+        if (start.getTime() < Date.now() - 5 * 60_000) fail("Ce créneau est déjà passé");
+        store.calls.push({
+          id: newId(),
+          closerId: closer.id,
+          host: closer.aliases[0] || closer.name,
+          startAt: start.toISOString(),
+          durationMin: Math.min(Math.max(Number(body.durationMin) || 15, 5), 240),
+          prospectTz: leadTz(lead),
+          joinUrl: meetOf(store, closer),
+          name: lead.name || lead.email || "Prospect",
+          phone: lead.phone,
+          email: lead.email,
+          notes: "",
+          answers: [],
+          leadId: lead.id,
+          status: "booked",
+          closerNote: lead.callNote ?? "",
+          source: "manual",
+          createdAt: now,
+          updatedAt: now,
+        });
+        store.calls.sort((a, b) => a.startAt.localeCompare(b.startAt));
+        lead.callStatus = "booked";
+        lead.callAttempts = (lead.callAttempts ?? 0) + 1;
+        lead.lastCallAt = now;
+        return store;
+      }
+
       if (!isAdmin) fail("Réservé à l'admin");
 
       if (body.action === "save-closer") {
@@ -146,7 +228,9 @@ export async function POST(request: Request) {
         if (loadAuthUsers().users.some((user) => user.email === identifier)) fail("Cet identifiant est déjà pris par un compte du CRM");
         if (store.closers.some((closer) => closer.identifier === identifier && closer.id !== body.id)) fail("Cet identifiant est déjà pris par un autre closer");
         const existing = body.id ? store.closers.find((closer) => closer.id === body.id) : null;
-        if (existing) Object.assign(existing, { name, identifier, timezone, aliases });
+        const meetUrl = typeof body.meetUrl === "string" ? body.meetUrl.trim().slice(0, 200) : existing?.meetUrl ?? "";
+        if (meetUrl && !/^https:\/\//.test(meetUrl)) fail("Le lien de call doit commencer par https://");
+        if (existing) Object.assign(existing, { name, identifier, timezone, aliases, meetUrl });
         else
           store.closers.push({ id: newId(), name, identifier, timezone, aliases, accessToken: newAccessToken(), active: true, createdAt: new Date().toISOString() });
         // Les calls déjà reçus pour un de ses noms d'hôte lui reviennent.

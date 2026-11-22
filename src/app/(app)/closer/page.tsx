@@ -8,6 +8,9 @@ import type { CallView, CloserPayload, CloserView } from "@/app/api/closer/route
 import type { Answer, CallStatus } from "@/lib/closer/store";
 import { CRITERIA, evaluateCriteria, overallVerdict, type CriterionState } from "@/lib/closer/criteria";
 import { cn } from "@/lib/utils";
+import { IBOSTATE_HOST } from "@/lib/closer/leads";
+import { CLOSING_SCRIPT } from "@/lib/closer/scripts";
+import { ContractButtons, GoalCard, LeadSheet, LeadsCard, ScriptView, ScriptsCard, TasksCard } from "./lead-tasks";
 
 /**
  * Le poste de closer : son agenda de calls, à SON heure, un bouton pour
@@ -162,6 +165,7 @@ export default function CloserPage() {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [openId, setOpenId] = useState<string | null>(null);
+  const [leadId, setLeadId] = useState<string | null>(null);
   const [view, setView] = useState<string>("all");
   const [past, setPast] = useState(false);
   // Pop-up « à confirmer » : s'ouvre tout seul pour le closer tant qu'un call attend sa confirmation ; « Plus tard » le ferme jusqu'au prochain chargement.
@@ -212,6 +216,10 @@ export default function CloserPage() {
   const unassigned = (data?.calls ?? []).filter((call) => !call.closerId && Date.parse(call.startAt) >= now - 3_600_000).length;
   const open = data?.calls.find((call) => call.id === openId) ?? null;
   const toConfirm = calls.filter((call) => needsConfirm(call, now));
+  const allLeads = data?.leads ?? [];
+  const leads = !isAdmin || view === "all" ? allLeads : view === "none" ? allLeads.filter((lead) => !lead.ownerId) : allLeads.filter((lead) => lead.ownerId === view);
+  const openLead = allLeads.find((lead) => lead.id === leadId) ?? null;
+  const closerNames = new Map((data?.closers ?? []).map((closer) => [closer.id, closer.name]));
 
   const act = async (body: Record<string, unknown>, done?: string) => {
     try {
@@ -271,6 +279,9 @@ export default function CloserPage() {
         </div>
       )}
 
+      {!isAdmin && <GoalCard />}
+      {!isAdmin && <TasksCard leads={leads} toConfirm={toConfirm.length} todayCalls={todayCount} now={now} tz={tz} onConfirm={() => setConfirmOpen(true)} />}
+
       {next && (
         <div className={cn(card, "flex flex-wrap items-center justify-between gap-3", isLive(next, now) && "ring-2 ring-emerald-500")}>
           <div className="min-w-0">
@@ -303,7 +314,9 @@ export default function CloserPage() {
         </button>
       )}
 
-      <div className={card}>
+      <LeadsCard leads={leads} now={now} tz={tz} onOpen={setLeadId} showOwner={isAdmin ? (lead) => (lead.ownerId && closerNames.get(lead.ownerId)) || "sans closer" : undefined} />
+
+      <div id="planning" className={cn(card, "scroll-mt-20")}>
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-[15px] font-bold">
             <CalendarClock className="h-4 w-4" /> Planning
@@ -369,6 +382,8 @@ export default function CloserPage() {
         )}
       </div>
 
+      <ScriptsCard />
+
       <CriteriaCard open={!isAdmin} />
 
       {isAdmin && <AdminPanel data={data} onAct={act} />}
@@ -384,6 +399,8 @@ export default function CloserPage() {
           }}
         />
       )}
+
+      {openLead && <LeadSheet key={openLead.id} lead={openLead} now={now} tz={tz} host={IBOSTATE_HOST} onClose={() => setLeadId(null)} onAct={act} />}
 
       {open && <ProspectSheet call={open} now={now} tz={tz} isAdmin={isAdmin} closers={data.closers} onClose={() => setOpenId(null)} onAct={act} />}
     </div>
@@ -564,6 +581,12 @@ function ProspectSheet({
           </div>
         )}
 
+        <GoalCard compact />
+        <ScriptView script={CLOSING_SCRIPT} name={call.name} />
+        <div className="mb-4">
+          <ContractButtons />
+        </div>
+
         <p className={cn(label, "mb-1.5")}>Résultat du call</p>
         <div className="mb-3 flex flex-wrap gap-1.5">
           {(Object.keys(STATUS_LABEL) as CallStatus[]).map((status) => (
@@ -720,6 +743,7 @@ function CriteriaCard({ open }: { open?: boolean }) {
 function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record<string, unknown>, done?: string) => Promise<boolean> }) {
   const [form, setForm] = useState({ name: "", identifier: "", timezone: "Europe/Paris", aliases: "" });
   const [passwords, setPasswords] = useState<Record<string, string>>({});
+  const [meets, setMeets] = useState<Record<string, string>>({});
   const [call, setCall] = useState({ name: "", phone: "", email: "", start: "", durationMin: "15", joinUrl: "", closerId: "" });
 
   const copy = (text: string, what: string) => void navigator.clipboard.writeText(text).then(() => toast.success(`${what} copié`));
@@ -800,6 +824,29 @@ function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record
                     void onAct({ action: "set-password", id: closer.id, password: passwords[closer.id] }, `Mot de passe de ${closer.name} enregistré`).then((ok) => {
                       if (ok) setPasswords({ ...passwords, [closer.id]: "" });
                     })
+                  }
+                  className="shrink-0 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
+                >
+                  Enregistrer
+                </button>
+              </div>
+              <div className="mt-1.5 flex gap-1.5">
+                <input
+                  value={meets[closer.id] ?? closer.meetUrl ?? ""}
+                  onChange={(e) => setMeets({ ...meets, [closer.id]: e.target.value })}
+                  placeholder="Son lien Meet (https://meet.google.com/…)"
+                  className={cn(field, "h-8 text-[12px]")}
+                  autoCapitalize="none"
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  disabled={meets[closer.id] === undefined || meets[closer.id] === (closer.meetUrl ?? "")}
+                  onClick={() =>
+                    void onAct(
+                      { action: "save-closer", id: closer.id, name: closer.name, identifier: closer.identifier, timezone: closer.timezone, aliases: closer.aliases, meetUrl: meets[closer.id] },
+                      `Lien Meet de ${closer.name} enregistré`
+                    )
                   }
                   className="shrink-0 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
                 >

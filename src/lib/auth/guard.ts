@@ -150,7 +150,7 @@ export function apiGuard(input: GuardInput): GuardDecision {
   if (!user) return { kind: "deny", status: 401, message: "Connexion requise" };
 
   // Un closer : son agenda, rien d'autre.
-  if (user.role === "closer" && input.pathname !== "/api/closer") {
+  if (user.role === "closer" && input.pathname !== "/api/closer" && input.pathname !== "/api/closer/contrat") {
     return { kind: "deny", status: 403, message: "Accès limité à ton agenda" };
   }
 

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from "fs";
 import { mkdir, readFile, rename, writeFile } from "fs/promises";
 import path from "path";
 import { STORAGE_ROOT } from "@/lib/storage-root";
+import type { LeadCallStatus } from "@/lib/closer/leads";
 
 /**
  * Les closers et leurs calls.
@@ -32,6 +33,8 @@ export type Closer = {
    * à un de ces noms lui revient.
    */
   aliases: string[];
+  /** Son lien de call (Google Meet…) : mis sur les rendez-vous qu'il pose lui-même. */
+  meetUrl?: string;
   /** Mot de passe simple choisi par l'admin (haché), pour se connecter sur /login avec son identifiant. */
   passwordHash?: string;
   /** Clé du lien d'accès personnel (régénérable). */
@@ -55,6 +58,13 @@ export type CloserLead = {
   answers: Answer[];
   notes: string;
   receivedAt: string;
+  /** Le closer qui l'appelle ; vide = celui des réservations IBOState (alias « Kelly »). */
+  closerId?: string | null;
+  /** Suivi de l'appel du lead (tâches du jour du closer). */
+  callStatus?: LeadCallStatus;
+  callAttempts?: number;
+  lastCallAt?: string | null;
+  callNote?: string;
 };
 
 export type CallStatus = "booked" | "done" | "no-show" | "cancelled";
