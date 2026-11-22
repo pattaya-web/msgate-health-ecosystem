@@ -86,6 +86,22 @@ function tzLabel(tz: string) {
   return tz.split("/").pop()?.replace(/_/g, " ") ?? tz;
 }
 
+/** « heure de Paris 🇫🇷 » : le fuseau dit en clair, avec son drapeau. */
+function tzName(tz: string) {
+  const flag: Record<string, string> = {
+    "Europe/Paris": "🇫🇷",
+    "Asia/Dubai": "🇦🇪",
+    "Europe/London": "🇬🇧",
+    "Africa/Casablanca": "🇲🇦",
+    "Africa/Algiers": "🇩🇿",
+    "Asia/Bangkok": "🇹🇭",
+    "Asia/Singapore": "🇸🇬",
+    "Australia/Sydney": "🇦🇺",
+  };
+  const icon = flag[tz] ?? (tz.startsWith("America/") ? "🇺🇸" : "🕒");
+  return `heure de ${tzLabel(tz)} ${icon}`;
+}
+
 function digits(phone: string) {
   return phone.replace(/\D/g, "");
 }
@@ -261,7 +277,7 @@ export default function CloserPage() {
             <p className={label}>{isLive(next, now) ? "C'est l'heure" : "Prochain call"}</p>
             <p className="truncate text-[18px] font-bold">{next.name}</p>
             <p className="text-[13px] text-slate-500">
-              {fmt(next.startAt, tz, { weekday: "long", hour: "2-digit", minute: "2-digit" })} · {next.durationMin} min · <b>{until(Date.parse(next.startAt) - now)}</b>
+              {fmt(next.startAt, tz, { weekday: "long", hour: "2-digit", minute: "2-digit" })} ({tzName(tz)}) · {next.durationMin} min · <b>{until(Date.parse(next.startAt) - now)}</b>
               {isAdmin && next.closerName ? ` · ${next.closerName}` : ""}
             </p>
           </div>
@@ -301,6 +317,9 @@ export default function CloserPage() {
             </button>
           </div>
         </div>
+        <p className="mb-3 inline-flex items-center gap-1.5 rounded-lg bg-sky-50 px-2.5 py-1 text-[12px] font-bold text-sky-800 dark:bg-sky-500/10 dark:text-sky-300">
+          🕒 Horaires des calls en {tzName(tz)}
+        </p>
         {byDay.length === 0 ? (
           <p className="py-6 text-center text-[13px] text-slate-500">
             {past ? "Aucun call passé." : "Aucun call prévu pour l'instant. Dès qu'un prospect réserve, il apparaît ici."}
@@ -426,7 +445,7 @@ function ProspectSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto bg-white p-5 shadow-xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
+      <div className="h-full w-full max-w-md overflow-y-auto overscroll-contain bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-[calc(1.25rem+env(safe-area-inset-top))] shadow-xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
             <p className={label}>Fiche prospect</p>
@@ -564,7 +583,7 @@ function ProspectSheet({
           onChange={(event) => setNote(event.target.value)}
           rows={4}
           placeholder="Ta note sur le call (objections, suite, montant…)"
-          className="mb-2 w-full rounded-lg bg-slate-50 p-3 text-[13px] outline-none ring-1 ring-slate-900/10 focus:bg-white dark:bg-slate-800 dark:ring-white/10"
+          className="mb-2 w-full rounded-lg bg-slate-50 p-3 text-[16px] outline-none sm:text-[13px] ring-1 ring-slate-900/10 focus:bg-white dark:bg-slate-800 dark:ring-white/10"
         />
         <button
           type="button"
@@ -640,8 +659,8 @@ function ConfirmModal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/50 p-3 sm:items-center" onClick={onClose}>
-      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:items-center" onClick={onClose}>
+      <div className="max-h-[85dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl dark:bg-slate-900" onClick={(event) => event.stopPropagation()}>
         <div className="mb-1 flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-[18px] font-bold">
             <BellRing className="h-5 w-5 text-amber-500" /> {calls.length > 1 ? `${calls.length} rendez-vous à confirmer` : "Rendez-vous à confirmer"}

@@ -1,4 +1,6 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { readClosers } from "@/lib/closer/store";
 import { verifyPassword } from "@/lib/auth/password";
 import { appUserFor, getAuthSecret, loadAuthUsers, sessionCookie, signSession } from "@/lib/auth/session";
 
@@ -37,6 +39,20 @@ export async function POST(request: Request) {
       ? await verifyPassword(password, account.hash)
       : password === account.demoPassword
     : await verifyPassword(password, DUMMY_HASH).then(() => false);
+
+  // Un closer n'a pas de mot de passe : son identifiant + son code d'accès (ou son lien d'accès collé en entier).
+  if (!account) {
+    const code = (/[?&]t=([A-Za-z0-9_-]+)/.exec(password)?.[1] ?? password).trim();
+    const { closers } = await readClosers();
+    const closer = closers.find((item) => item.active && item.identifier === email);
+    const ok = closer && code.length === closer.accessToken.length && timingSafeEqual(Buffer.from(code), Buffer.from(closer.accessToken));
+    if (closer && ok) {
+      const closerSession = { email: closer.identifier, role: "closer" as const };
+      const response = NextResponse.json({ user: appUserFor(closerSession), source: accounts.source });
+      response.cookies.set(sessionCookie(signSession(closerSession, secret)));
+      return response;
+    }
+  }
 
   if (!valid || !account) return NextResponse.json({ error: "Identifiant ou mot de passe incorrect" }, { status: 401 });
 
