@@ -1,6 +1,6 @@
 /**
  * Les scripts d'appel d'IBOState, recopiés des PDF de Mady (22/11/2026) :
- * - setting (IBO_State_Brandon_Setter_Script.pdf) : l'appel du lead qui vient
+ * - setting (IBO_State_Call_Script.pdf, Kelly Miguez, 23/11/2026 ; remplace celui de Brandon) : l'appel du lead qui vient
  *   de remplir le formulaire → qualifier et poser le 2e rendez-vous ;
  * - closing (IBOState-Call-Script-Kelly.pdf) : le call réservé → qualifier en
  *   détail, présenter l'offre, faire signer.
@@ -20,44 +20,54 @@ const note = (text: string): ScriptLine => ({ t: "note", text });
 export const SETTING_SCRIPT: CallScript = {
   key: "setting",
   title: "Script de setting (appel des leads)",
-  goal: "Qualifier + poser un rendez-vous de 15 minutes (le call de closing).",
+  goal: "Confirmer son dossier + poser le Google Meet de 15 à 20 min avec le Head of Admissions.",
   sections: [
     {
       title: "Ouverture",
       lines: [
-        say("Hey, is this [First name]?"),
-        say("Hey! This is Brandon calling from IBO State."),
-        say("I just saw you filled out a form on our website about our paid business opportunity. Are you still interested?"),
+        say("Hi, is this [First name]?"),
+        say("Hi [First name], this is Kelly Miguez with IBO State. How are you doing today?"),
+        say("I'm reaching out because you recently requested information on our website about joining the Happy Hosted program."),
+        say("I just wanted to briefly go over your application and confirm a few details with you."),
       ],
     },
     {
       title: "Le programme",
       lines: [
-        say("Awesome! So basically, we work with European e-commerce companies that want to expand into the U.S."),
-        say("We connect them with American residents who can act as local business partners."),
-        say("It's a paid opportunity. You receive $250 when you get started, and depending on your agreement, you can earn between $1,500 and $2,000 per month."),
-        say("It's a formal business partnership, with an agreement and responsibilities that our admissions manager will explain before you make any commitment."),
+        say("Perfect! So, to give you a quick overview, IBO State connects U.S. citizens with European entrepreneurs who run e-commerce businesses in the U.S. market."),
+        say("These companies are looking for local U.S. representatives to work with them under a formal agreement."),
+        say("If you're eligible and your application is approved, the role pays between $1,000 and $2,000 per month, depending on the terms of the agreement."),
+        say("There's also an initial $250 payment when you sign the agreement, provided your application is approved and we both agree to move forward."),
+        say("Does that make sense so far?"),
       ],
     },
     {
       title: "Qualification",
       lines: [
-        say("I just have a few quick questions to see if you qualify."),
-        q("Are you a U.S. citizen or green card holder?"),
-        q("Is your credit score 650 or higher?"),
-        q("Do you have any criminal convictions that could affect your eligibility?"),
-        q("And what state are you currently living in?"),
+        say("Great! I already have most of your information from the form you filled out. I just want to confirm a few things."),
+        q("You're a U.S. citizen, correct?"),
+        q("Is your credit score at least 600?"),
+        q("Do you have any criminal convictions on your record?"),
+        q("Do you currently have an active U.S. bank account?"),
+        q("Do you have any unpaid back taxes or outstanding tax liens?"),
+        q("And lastly, are you generally responsive to messages and available to communicate with our team when needed?"),
       ],
     },
     {
       title: "Poser le rendez-vous",
       lines: [
-        say("Perfect! The next step is a quick 15-minute Google Meet with Kelly, our admissions manager."),
-        say("She'll explain exactly how everything works, including the compensation, legal structure, and responsibilities."),
-        say("Would later today or tomorrow work better for you?"),
-        say("Great! What time works best for you?"),
-        say("Perfect, I'll send you the meeting details by text. Thanks, [First name]! Talk soon!"),
-        note("Keep it natural. Let the candidate ask questions. Confirm their local time zone."),
+        say("Perfect. Based on what you've told me, your profile seems to meet our initial requirements."),
+        say("In that case, I'd like to schedule a quick Google Meet call with our Head of Admissions."),
+        say("The call takes about 15 to 20 minutes. They'll walk you through how the program works, what the collaboration looks like, the requirements, and review your eligibility in more detail."),
+        say("What does your availability look like tomorrow or later this week?"),
+        note("Wait for their response."),
+        say("Great! I have [Time Option 1] or [Time Option 2] available. Which works better for you?"),
+        note("Confirm the date, time, and time zone. Puis « + Rendez-vous » dans le CRM, à SON heure."),
+        say("Perfect. I'll send you the Google Meet invitation with all the details."),
+        say("You'll also have a chance to ask any questions so you can fully understand the program and the responsibilities involved."),
+        say("Perfect, [First name], your meeting is scheduled!"),
+        say("Thanks so much for your time. It was great speaking with you."),
+        say("Have a wonderful day, and talk soon!"),
       ],
     },
   ],
