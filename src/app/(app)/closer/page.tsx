@@ -1,16 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellRing, CalendarClock, Check, CircleAlert, CircleCheck, CircleHelp, CircleX, ClipboardList, Copy, ExternalLink, Loader2, MessageCircle, MessageSquare, Phone, Plus, RefreshCw, Trash2, UserRound, Video, X } from "lucide-react";
+import { BellRing, BookOpenText, CalendarClock, Check, CircleAlert, CircleCheck, CircleHelp, CircleX, ClipboardList, Copy, ExternalLink, FileText, Loader2, MessageCircle, MessageSquare, Phone, Plus, RefreshCw, Trash2, UserRound, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth/auth-context";
 import type { CallView, CloserPayload, CloserView } from "@/app/api/closer/route";
 import type { Answer, CallStatus } from "@/lib/closer/store";
 import { CRITERIA, evaluateCriteria, overallVerdict, type CriterionState } from "@/lib/closer/criteria";
 import { cn } from "@/lib/utils";
-import { IBOSTATE_HOST } from "@/lib/closer/leads";
 import { CLOSING_SCRIPT } from "@/lib/closer/scripts";
-import { ContractButtons, GoalCard, LeadSheet, LeadsCard, ScriptView, ScriptsCard, TasksCard } from "./lead-tasks";
+import { ContractCard, GoalCard, LeadSheet, LeadsCard, ObjectionsCard, ScriptView, ScriptsSection, TasksCard, isCalled } from "./lead-tasks";
+
+type Tab = "agenda" | "leads" | "contrat" | "ressources";
+const TABS: Array<{ id: Tab; label: string; icon: typeof CalendarClock }> = [
+  { id: "agenda", label: "Agenda", icon: CalendarClock },
+  { id: "leads", label: "Leads", icon: Phone },
+  { id: "contrat", label: "Contrat", icon: FileText },
+  { id: "ressources", label: "Ressources", icon: BookOpenText },
+];
 
 /**
  * Le poste de closer : son agenda de calls, à SON heure, un bouton pour
@@ -41,7 +48,7 @@ const TIMEZONES = [
 const STATUS_LABEL: Record<CallStatus, string> = { booked: "Prévu", done: "Fait", "no-show": "No-show", cancelled: "Annulé" };
 const STATUS_TONE: Record<CallStatus, string> = {
   booked: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-  done: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  done: "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300",
   "no-show": "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
   cancelled: "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
 };
@@ -121,7 +128,7 @@ function allAnswers(call: CallView): Answer[] {
 }
 
 const CRITERION_ICON: Record<CriterionState, { icon: typeof CircleCheck; tone: string; text: string }> = {
-  ok: { icon: CircleCheck, tone: "text-emerald-600", text: "OK" },
+  ok: { icon: CircleCheck, tone: "text-green-600", text: "OK" },
   ko: { icon: CircleX, tone: "text-rose-600", text: "Non sélectionné" },
   check: { icon: CircleAlert, tone: "text-amber-600", text: "À vérifier" },
   ask: { icon: CircleHelp, tone: "text-slate-400", text: "À demander" },
@@ -166,6 +173,7 @@ export default function CloserPage() {
   const [now, setNow] = useState(() => Date.now());
   const [openId, setOpenId] = useState<string | null>(null);
   const [leadId, setLeadId] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("agenda");
   const [view, setView] = useState<string>("all");
   const [past, setPast] = useState(false);
   // Pop-up « à confirmer » : s'ouvre tout seul pour le closer tant qu'un call attend sa confirmation ; « Plus tard » le ferme jusqu'au prochain chargement.
@@ -220,6 +228,7 @@ export default function CloserPage() {
   const leads = !isAdmin || view === "all" ? allLeads : view === "none" ? allLeads.filter((lead) => !lead.ownerId) : allLeads.filter((lead) => lead.ownerId === view);
   const openLead = allLeads.find((lead) => lead.id === leadId) ?? null;
   const closerNames = new Map((data?.closers ?? []).map((closer) => [closer.id, closer.name]));
+  const toCall = leads.filter((lead) => lead.reason && !isCalled(lead)).length;
 
   const act = async (body: Record<string, unknown>, done?: string) => {
     try {
@@ -280,15 +289,38 @@ export default function CloserPage() {
         </div>
       )}
 
+      <div className="grid grid-cols-4 gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-slate-800/80">
+        {TABS.map((item) => {
+          const Icon = item.icon;
+          const count = item.id === "leads" ? toCall : 0;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={cn(
+                "relative flex flex-col items-center gap-0.5 rounded-xl py-2 text-[12px] font-semibold sm:flex-row sm:justify-center sm:gap-1.5 sm:text-[13px]",
+                tab === item.id ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white" : "text-slate-500"
+              )}
+            >
+              <Icon className="h-4 w-4" /> {item.label}
+              {count > 0 && <span className="absolute right-1.5 top-1 rounded-full bg-amber-500 px-1.5 text-[10px] font-bold leading-4 text-white sm:static">{count}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "agenda" && (
+        <>
       {next ? (
         <div
           className={cn(
             "flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 p-4 shadow-sm",
-            isLive(next, now) ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10" : "border-sky-500 bg-sky-50 dark:bg-sky-500/10"
+            isLive(next, now) ? "border-green-500 bg-green-50 dark:bg-green-500/10" : "border-sky-500 bg-sky-50 dark:bg-sky-500/10"
           )}
         >
           <div className="min-w-0">
-            <p className={cn("flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wide", isLive(next, now) ? "text-emerald-700 dark:text-emerald-300" : "text-sky-700 dark:text-sky-300")}>
+            <p className={cn("flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wide", isLive(next, now) ? "text-green-700 dark:text-green-300" : "text-sky-700 dark:text-sky-300")}>
               <CalendarClock className="h-4 w-4" /> {isLive(next, now) ? "C'est l'heure !" : "Prochain call"}
             </p>
             <p className="mt-0.5 truncate text-[20px] font-bold">{next.name}</p>
@@ -361,7 +393,7 @@ export default function CloserPage() {
                   {items.map((call) => (
                     <div
                       key={call.id}
-                      className={cn("flex items-center gap-2 px-3 py-2.5 sm:gap-3", isLive(call, now) && call.status === "booked" && "bg-emerald-50 dark:bg-emerald-500/10")}
+                      className={cn("flex items-center gap-2 px-3 py-2.5 sm:gap-3", isLive(call, now) && call.status === "booked" && "bg-green-50 dark:bg-green-500/10")}
                     >
                       <div className="w-14 shrink-0 sm:w-[92px]">
                         <p className="text-[15px] font-bold tabular-nums">{fmt(call.startAt, tz, { hour: "2-digit", minute: "2-digit" })}</p>
@@ -374,7 +406,7 @@ export default function CloserPage() {
                             <span className="shrink-0 rounded bg-amber-100 px-1.5 py-px text-[10px] font-bold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">À confirmer</span>
                           )}
                           {call.confirmedAt && call.status === "booked" && (
-                            <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-px text-[10px] font-bold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">Confirmé</span>
+                            <span className="shrink-0 rounded bg-green-100 px-1.5 py-px text-[10px] font-bold text-green-700 dark:bg-green-500/15 dark:text-green-300">Confirmé</span>
                           )}
                           {overallVerdict(evaluateCriteria(allAnswers(call))) === "ko" && (
                             <span className="shrink-0 rounded bg-rose-100 px-1.5 py-px text-[10px] font-bold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">Non éligible</span>
@@ -397,16 +429,28 @@ export default function CloserPage() {
         )}
       </div>
 
-      <LeadsCard leads={leads} now={now} tz={tz} onOpen={setLeadId} onAct={act} showOwner={isAdmin ? (lead) => (lead.ownerId && closerNames.get(lead.ownerId)) || "sans closer" : undefined} />
-
-      {!isAdmin && <TasksCard leads={leads} toConfirm={toConfirm.length} todayCalls={todayCount} now={now} tz={tz} onConfirm={() => setConfirmOpen(true)} />}
-      {!isAdmin && <GoalCard />}
-
-      <ScriptsCard />
-
-      <CriteriaCard open={!isAdmin} />
+      <TasksCard toCall={toCall} toConfirm={toConfirm.length} todayCalls={todayCount} onLeads={() => setTab("leads")} onConfirm={() => setConfirmOpen(true)} />
 
       {isAdmin && <AdminPanel data={data} onAct={act} />}
+        </>
+      )}
+
+      {tab === "leads" && (
+        <>
+          <LeadsCard leads={leads} now={now} onOpen={setLeadId} onAct={act} showOwner={isAdmin ? (lead) => (lead.ownerId && closerNames.get(lead.ownerId)) || "sans closer" : undefined} />
+          <ScriptsSection />
+        </>
+      )}
+
+      {tab === "contrat" && <ContractCard />}
+
+      {tab === "ressources" && (
+        <>
+          <ObjectionsCard />
+          <GoalCard />
+          <CriteriaCard open />
+        </>
+      )}
 
       {(confirmOpen || (!isAdmin && !confirmDismissed)) && toConfirm.length > 0 && (
         <ConfirmModal
@@ -420,7 +464,7 @@ export default function CloserPage() {
         />
       )}
 
-      {openLead && <LeadSheet key={openLead.id} lead={openLead} now={now} tz={tz} host={IBOSTATE_HOST} onClose={() => setLeadId(null)} onAct={act} />}
+      {openLead && <LeadSheet key={openLead.id} lead={openLead} now={now} tz={tz} onClose={() => setLeadId(null)} onAct={act} />}
 
       {open && <ProspectSheet call={open} now={now} tz={tz} isAdmin={isAdmin} closers={data.closers} onClose={() => setOpenId(null)} onAct={act} />}
     </div>
@@ -433,7 +477,7 @@ function JoinButton({ call, big, compact }: { call: CallView; big?: boolean; com
   const text = compact ? "hidden sm:inline" : "";
   if (call.joinUrl) {
     return (
-      <a href={call.joinUrl} target="_blank" rel="noreferrer" className={cn("inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 font-semibold text-white hover:bg-emerald-700", size)}>
+      <a href={call.joinUrl} target="_blank" rel="noreferrer" className={cn("inline-flex items-center gap-1.5 rounded-xl bg-green-600 font-semibold text-white hover:bg-green-700", size)}>
         <Video className="h-4 w-4" /> <span className={text}>Rejoindre</span>
       </a>
     );
@@ -491,7 +535,7 @@ function ProspectSheet({
               <span
                 className={cn(
                   "mt-1 inline-block rounded-md px-2 py-0.5 text-[11px] font-bold",
-                  lead.eligibility === "qualified" ? "bg-emerald-100 text-emerald-700" : lead.eligibility === "disqualified" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"
+                  lead.eligibility === "qualified" ? "bg-green-100 text-green-700" : lead.eligibility === "disqualified" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"
                 )}
               >
                 {lead.eligibility === "qualified" ? "✅ Qualifié" : lead.eligibility === "disqualified" ? "❌ Non qualifié" : "⚠️ À vérifier"}
@@ -527,7 +571,7 @@ function ProspectSheet({
         </dl>
 
         {call.status === "booked" && Date.parse(call.startAt) > now - 3_600_000 && (
-          <div className={cn("mb-4 rounded-xl p-3", call.confirmedAt ? "bg-emerald-50 dark:bg-emerald-500/10" : "bg-amber-50 dark:bg-amber-500/10")}>
+          <div className={cn("mb-4 rounded-xl p-3", call.confirmedAt ? "bg-green-50 dark:bg-green-500/10" : "bg-amber-50 dark:bg-amber-500/10")}>
             <p className={cn(label, "mb-1")}>Confirmation du rendez-vous</p>
             {call.confirmedAt ? (
               <p className="text-[13px]">
@@ -601,10 +645,9 @@ function ProspectSheet({
           </div>
         )}
 
-        <GoalCard compact />
-        <ScriptView script={CLOSING_SCRIPT} name={call.name} />
-        <div className="mb-4">
-          <ContractButtons />
+        <div className="mb-4 space-y-3">
+          <ScriptView script={CLOSING_SCRIPT} name={call.name} />
+          <ContractCard />
         </div>
 
         <p className={cn(label, "mb-1.5")}>Résultat du call</p>
@@ -748,7 +791,7 @@ function CriteriaCard({ open }: { open?: boolean }) {
       <ul className="mt-3 space-y-2 text-[13px]">
         {CRITERIA.map((criterion) => (
           <li key={criterion.key} className="flex gap-2">
-            {criterion.soft ? <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /> : <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />}
+            {criterion.soft ? <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /> : <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />}
             <div>
               <p className="font-semibold">{criterion.title}</p>
               <p className="text-[12px] text-slate-500">{criterion.rule}</p>
@@ -896,7 +939,7 @@ function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record
               if (ok) setForm({ name: "", identifier: "", timezone: form.timezone, aliases: "" });
             })
           }
-          className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white"
+          className="mt-2 inline-flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-[12px] font-semibold text-white"
         >
           <Plus className="h-3.5 w-3.5" /> Ajouter
         </button>
@@ -907,7 +950,7 @@ function AdminPanel({ data, onAct }: { data: CloserPayload; onAct: (body: Record
           <h2 className="mb-1 text-[15px] font-bold">Réception IBOState</h2>
           <p className="text-[13px]">
             {data.ingestReady ? (
-              <span className="text-emerald-700 dark:text-emerald-400">Branchée : chaque call réservé sur ibostate.com/book arrive ici, en même temps que sur Telegram.</span>
+              <span className="text-green-700 dark:text-green-400">Branchée : chaque call réservé sur ibostate.com/book arrive ici, en même temps que sur Telegram.</span>
             ) : (
               <span className="text-amber-700">Pas encore branchée (clé de réception absente sur le serveur).</span>
             )}

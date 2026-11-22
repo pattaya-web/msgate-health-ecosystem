@@ -1,23 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BookOpenText, CalendarPlus, Check, CircleAlert, CircleCheck, CircleHelp, CircleX, FileText, ListChecks, MessageCircle, MessageSquare, Phone, Share2, Target, X } from "lucide-react";
+import { BookOpenText, CalendarPlus, Check, CircleCheck, Copy, FileText, MessageCircle, Phone, Share2, Target, X } from "lucide-react";
 import { toast } from "sonner";
 import type { LeadView } from "@/app/api/closer/route";
-import { evaluateCriteria, type CriterionState } from "@/lib/closer/criteria";
-import { LEAD_STATUS_LABEL, MAX_ATTEMPTS, REASON_LABEL, bookingLink, creditOf, followUpText, type LeadCallStatus, type LeadReason } from "@/lib/closer/leads";
+import { REASON_LABEL, creditOf, followUpText, type LeadReason } from "@/lib/closer/leads";
+import { OBJECTIONS } from "@/lib/closer/resources";
 import { CALL_GOAL, CLOSING_SCRIPT, CONTRACT_FILE, SETTING_SCRIPT, fillScript, type CallScript } from "@/lib/closer/scripts";
 import { cn } from "@/lib/utils";
 
 /**
- * Les tâches du jour du closer : appeler les leads (qualifiés, à vérifier, et
- * non qualifiés à 550–599 seulement), expliquer le programme, filtrer, poser
- * le 2e rendez-vous. Avec les scripts (setting et closing) et le contrat.
+ * Les onglets Leads, Contrat et Ressources du closer : la liste des leads à
+ * appeler (case « appelé »), la fiche d'un lead (appel, message de relance,
+ * 2e rendez-vous), les scripts, le contrat et les objections.
  */
 
 const card = "rounded-2xl bg-white p-4 ring-1 ring-slate-900/[0.06] dark:bg-slate-900/70 dark:ring-white/[0.06]";
-const field = "h-10 w-full rounded-lg bg-slate-50 px-3 text-[13px] outline-none ring-1 ring-slate-900/10 focus:bg-white dark:bg-slate-800 dark:ring-white/10";
-const label = "text-[11px] font-semibold uppercase tracking-wide text-slate-500";
+const field = "h-11 w-full rounded-xl bg-slate-50 px-3 text-[15px] outline-none ring-1 ring-slate-900/10 focus:bg-white dark:bg-slate-800 dark:ring-white/10";
 
 type Act = (body: Record<string, unknown>, done?: string) => Promise<boolean>;
 
@@ -27,10 +26,6 @@ function fmt(iso: string | number, tz: string, options: Intl.DateTimeFormatOptio
   } catch {
     return "—";
   }
-}
-
-function dayKey(iso: string | number, tz: string) {
-  return fmt(iso, tz, { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
 function hourIn(now: number, tz: string) {
@@ -56,270 +51,152 @@ function zonedToUtc(local: string, tz: string) {
 }
 
 const city = (tz: string) => tz.split("/").pop()?.replace(/_/g, " ") ?? tz;
+const state = (place: string) => place.split(",").pop()?.trim() || place;
 const digits = (phone: string) => phone.replace(/\D/g, "");
 
+/** Le numéro lisible : +1 305 555 0102. */
+function prettyPhone(phone: string) {
+  const d = digits(phone);
+  if (d.length === 11 && d.startsWith("1")) return `+1 ${d.slice(1, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
+  return d ? `+${d}` : phone;
+}
+
+function copy(text: string, what: string) {
+  navigator.clipboard
+    .writeText(text)
+    .then(() => toast.success(`${what} copié`))
+    .catch(() => toast.error("Copie impossible : sélectionne le texte à la main"));
+}
+
 const REASON_TONE: Record<LeadReason, string> = {
-  qualified: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  qualified: "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300",
   review: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
   "credit-550": "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
 };
 
-/** « new » = jamais appelé ; « retry » = sans réponse, à relancer aujourd'hui ; null = rien à faire. */
-export function leadTask(lead: LeadView, now: number, tz: string): "new" | "retry" | null {
-  if (!lead.reason || lead.callAt) return null;
-  const status = lead.callStatus ?? "todo";
-  if (status === "todo") return "new";
-  if (status !== "no-answer" || (lead.callAttempts ?? 0) >= MAX_ATTEMPTS) return null;
-  return lead.lastCallAt && dayKey(lead.lastCallAt, tz) === dayKey(now, tz) ? null : "retry";
+/** Coché = appelé (ou rendez-vous posé). La case reste cochée, le lead garde sa place. */
+export function isCalled(lead: LeadView) {
+  return (lead.callStatus ?? "todo") !== "todo";
 }
 
-/* ---------- Le but de l'appel ---------- */
+function toggleCalled(lead: LeadView, onAct: Act) {
+  const checked = isCalled(lead);
+  void onAct({ action: "update-lead", id: lead.id, callStatus: checked ? "todo" : "called" });
+}
 
-export function GoalCard({ compact }: { compact?: boolean }) {
+function CheckBox({ lead, onAct, big }: { lead: LeadView; onAct: Act; big?: boolean }) {
+  const checked = isCalled(lead);
   return (
-    <div className={cn(compact ? "mb-4 rounded-xl bg-emerald-50 p-3 dark:bg-emerald-500/10" : cn(card, "bg-emerald-50/70 ring-emerald-200 dark:bg-emerald-500/10 dark:ring-emerald-500/30"))}>
-      <p className={cn("flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-300", compact ? "mb-1 text-[13px]" : "mb-2 text-[15px]")}>
-        <Target className="h-4 w-4" /> {CALL_GOAL.title}
-      </p>
-      <ul className={cn("space-y-1", compact ? "text-[12px]" : "text-[13px]")}>
-        {CALL_GOAL.points.map((point) => (
-          <li key={point} className="flex gap-2">
-            <CircleCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-            <span>{point}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={checked ? `${lead.name} appelé` : `Cocher ${lead.name} comme appelé`}
+      onClick={() => toggleCalled(lead, onAct)}
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-lg border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900",
+        big ? "h-9 w-9" : "h-8 w-8"
+      )}
+    >
+      {checked && <Check className={cn("text-green-600", big ? "h-6 w-6" : "h-5 w-5")} strokeWidth={3.5} />}
+    </button>
   );
 }
 
-/* ---------- Tâches du jour ---------- */
+/* ---------- Tâches du jour (onglet Agenda) ---------- */
 
-export function TasksCard({
-  leads,
-  toConfirm,
-  todayCalls,
-  now,
-  tz,
-  onConfirm,
-}: {
-  leads: LeadView[];
-  toConfirm: number;
-  todayCalls: number;
-  now: number;
-  tz: string;
-  onConfirm: () => void;
-}) {
-  const fresh = leads.filter((lead) => leadTask(lead, now, tz) === "new").length;
-  const retry = leads.filter((lead) => leadTask(lead, now, tz) === "retry").length;
-  const doneToday = leads.filter((lead) => lead.lastCallAt && dayKey(lead.lastCallAt, tz) === dayKey(now, tz)).length;
-  const booked = leads.filter((lead) => lead.callStatus === "booked" && lead.lastCallAt && dayKey(lead.lastCallAt, tz) === dayKey(now, tz)).length;
-  const tasks: Array<{ text: string; count: number; action?: () => void; href?: string }> = [
-    { text: "Appeler les nouveaux leads", count: fresh, href: "#leads" },
-    { text: `Relancer les leads sans réponse (${MAX_ATTEMPTS} essais max, 1 par jour)`, count: retry, href: "#leads" },
-    { text: "Confirmer les rendez-vous (WhatsApp ou SMS)", count: toConfirm, action: onConfirm },
-    { text: "Faire les calls de closing du jour", count: todayCalls, href: "#planning" },
+export function TasksCard({ toCall, toConfirm, todayCalls, onLeads, onConfirm }: { toCall: number; toConfirm: number; todayCalls: number; onLeads: () => void; onConfirm: () => void }) {
+  const tasks = [
+    { text: "Leads à appeler", count: toCall, onClick: onLeads },
+    { text: "Rendez-vous à confirmer", count: toConfirm, onClick: onConfirm },
+    { text: "Calls aujourd'hui", count: todayCalls },
   ];
   return (
-    <div className={card}>
-      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-[15px] font-bold">
-          <ListChecks className="h-4 w-4" /> Tâches du jour
-        </h2>
-        <p className="text-[12px] text-slate-500">
-          Aujourd&apos;hui : <b>{doneToday}</b> appel{doneToday > 1 ? "s" : ""} noté{doneToday > 1 ? "s" : ""} · <b>{booked}</b> RDV posé{booked > 1 ? "s" : ""}
-        </p>
-      </div>
-      <ul className="space-y-1.5">
-        {tasks.map((task, index) => {
-          const done = task.count === 0;
-          const body = (
-            <>
-              <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold", done ? "bg-emerald-500 text-white" : "bg-slate-900 text-white dark:bg-white dark:text-slate-900")}>
-                {done ? "✓" : index + 1}
-              </span>
-              <span className={cn("flex-1 text-[13px]", done && "text-slate-400 line-through")}>{task.text}</span>
-              {!done && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[12px] font-bold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">{task.count}</span>}
-            </>
-          );
-          return (
-            <li key={task.text}>
-              {task.action ? (
-                <button type="button" onClick={task.action} disabled={done} className="flex w-full items-center gap-2.5 rounded-lg px-1 py-1 text-left">
-                  {body}
-                </button>
-              ) : (
-                <a href={task.href} className="flex items-center gap-2.5 rounded-lg px-1 py-1">
-                  {body}
-                </a>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+    <div className="grid grid-cols-3 gap-2">
+      {tasks.map((task) => (
+        <button
+          key={task.text}
+          type="button"
+          onClick={task.onClick}
+          disabled={!task.onClick}
+          className={cn(card, "p-3 text-left disabled:cursor-default", task.count > 0 && task.onClick && "ring-amber-300 dark:ring-amber-500/40")}
+        >
+          <p className={cn("text-[24px] font-bold leading-none", task.count === 0 ? "text-green-600" : "text-slate-900 dark:text-white")}>{task.count === 0 ? "✓" : task.count}</p>
+          <p className="mt-1 text-[12px] font-medium leading-tight text-slate-500">{task.text}</p>
+        </button>
+      ))}
     </div>
   );
 }
 
-/* ---------- La liste des leads ---------- */
+/* ---------- Onglet Leads ---------- */
 
-/** Coché aujourd'hui : le lead a été appelé (ou son résultat noté) aujourd'hui. */
-function calledToday(lead: LeadView, now: number, tz: string) {
-  return Boolean(lead.lastCallAt && dayKey(lead.lastCallAt, tz) === dayKey(now, tz));
-}
-
-/** La case « appelé » : cochée = appelé aujourd'hui ; décocher remet le lead « à appeler ». */
-function toggleCalled(lead: LeadView, now: number, tz: string, onAct: Act) {
-  const checked = calledToday(lead, now, tz);
-  void onAct({ action: "update-lead", id: lead.id, callStatus: checked ? "todo" : "called" }, checked ? `${lead.name} : à appeler` : `${lead.name} : appelé ✓`);
-}
-
-const rank = (lead: LeadView, now: number, tz: string) => (calledToday(lead, now, tz) ? 2 : leadTask(lead, now, tz) === "new" ? 0 : 1);
-
-export function LeadsCard({ leads, now, tz, onOpen, onAct, showOwner }: { leads: LeadView[]; now: number; tz: string; onOpen: (id: string) => void; onAct: Act; showOwner?: (lead: LeadView) => string }) {
-  const [tab, setTab] = useState<"todo" | "done">("todo");
-  const callable = leads.filter((lead) => lead.reason);
-  // À appeler : les nouveaux, les relances du jour, puis ceux cochés aujourd'hui (en bas, grisés).
-  const inTodo = (lead: LeadView) => Boolean(leadTask(lead, now, tz)) || calledToday(lead, now, tz);
-  const todo = callable.filter(inTodo).sort((a, b) => rank(a, now, tz) - rank(b, now, tz) || b.receivedAt.localeCompare(a.receivedAt));
-  const done = callable.filter((lead) => !inTodo(lead)).sort((a, b) => (b.lastCallAt ?? b.receivedAt).localeCompare(a.lastCallAt ?? a.receivedAt));
-  const left = todo.filter((lead) => !calledToday(lead, now, tz)).length;
-  const shown = tab === "todo" ? todo : done;
+export function LeadsCard({ leads, now, onOpen, onAct, showOwner }: { leads: LeadView[]; now: number; onOpen: (id: string) => void; onAct: Act; showOwner?: (lead: LeadView) => string }) {
+  // Ordre fixe (le plus récent en haut) : cocher ne déplace rien.
+  const list = leads.filter((lead) => lead.reason).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
+  const left = list.filter((lead) => !isCalled(lead)).length;
 
   return (
-    <div id="leads" className={cn(card, "scroll-mt-20")}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-[15px] font-bold">
+    <div className={card}>
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-[16px] font-bold">
           <Phone className="h-4 w-4" /> Leads à appeler
         </h2>
-        <div className="flex gap-1 rounded-lg bg-slate-100 p-0.5 text-[12px] font-semibold dark:bg-slate-800">
-          <button type="button" onClick={() => setTab("todo")} className={cn("rounded-md px-2.5 py-1", tab === "todo" && "bg-white shadow-sm dark:bg-slate-700")}>
-            À appeler ({left})
-          </button>
-          <button type="button" onClick={() => setTab("done")} className={cn("rounded-md px-2.5 py-1", tab === "done" && "bg-white shadow-sm dark:bg-slate-700")}>
-            Traités ({done.length})
-          </button>
-        </div>
+        <span className="text-[13px] font-semibold text-slate-500">{left} à appeler</span>
       </div>
-      <CallRule />
-      {shown.length === 0 ? (
-        <p className="py-5 text-center text-[13px] text-slate-500">{tab === "todo" ? "Aucun lead à appeler pour l'instant. Les nouveaux arrivent ici tout seuls." : "Aucun lead traité."}</p>
+      <p className="mb-3 text-[13px] text-slate-500">WhatsApp d&apos;abord, sinon son numéro. Pas de réponse : le message (dans sa fiche). Puis coche ✓.</p>
+      {list.length === 0 ? (
+        <p className="py-6 text-center text-[14px] text-slate-500">Aucun lead pour l&apos;instant. Les nouveaux arrivent ici tout seuls.</p>
       ) : (
         <div className="divide-y divide-slate-100 overflow-hidden rounded-xl ring-1 ring-slate-900/[0.06] dark:divide-white/5 dark:ring-white/[0.06]">
-          {shown.map((lead) => {
-            const task = leadTask(lead, now, tz);
+          {list.map((lead) => {
             const hour = hourIn(now, lead.tz);
             const late = hour < 9 || hour >= 21;
-            const checked = calledToday(lead, now, tz);
             return (
-              <div key={lead.id} className={cn("flex items-center gap-2 px-3 py-2.5", checked && "bg-slate-50 dark:bg-slate-800/40")}>
+              <div key={lead.id} className="flex items-center gap-2 px-3 py-2.5">
                 <button type="button" onClick={() => onOpen(lead.id)} className="min-w-0 flex-1 text-left">
-                  <p className="flex flex-wrap items-center gap-1.5 text-[14px] font-semibold">
-                    <span className={cn("truncate", checked && "text-slate-400 line-through")}>{lead.name || lead.email || lead.phone}</span>
-                    {lead.reason && <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", REASON_TONE[lead.reason])}>{REASON_LABEL[lead.reason]}</span>}
-                    {task === "retry" && <span className="shrink-0 rounded bg-slate-200 px-1.5 py-px text-[10px] font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">Relance · essai {(lead.callAttempts ?? 0) + 1}</span>}
-                    {!task && !checked && (
-                      <span className="shrink-0 rounded bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                        {lead.callAt ? `RDV ${fmt(lead.callAt, tz, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : LEAD_STATUS_LABEL[lead.callStatus ?? "todo"]}
-                      </span>
+                  <p className="flex items-center gap-1.5 text-[15px] font-semibold">
+                    <span className="truncate">{lead.name || lead.email || lead.phone}</span>
+                    {lead.reason && lead.reason !== "qualified" && (
+                      <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", REASON_TONE[lead.reason])}>{REASON_LABEL[lead.reason]}</span>
                     )}
                   </p>
-                  <p className="truncate text-[11px] text-slate-500">
-                    Crédit {creditOf(lead) || "—"} · {lead.place || "—"} · chez lui {fmt(now, lead.tz, { hour: "2-digit", minute: "2-digit" })}
-                    {late ? " 🌙" : ""} · reçu {fmt(lead.receivedAt, tz, { day: "numeric", month: "short" })}
+                  <p className="truncate text-[12px] text-slate-500">
+                    {creditOf(lead) || "—"} · {state(lead.place) || "—"} · {fmt(now, lead.tz, { hour: "2-digit", minute: "2-digit" })} chez lui{late ? " 🌙" : ""}
                     {showOwner ? ` · ${showOwner(lead)}` : ""}
                   </p>
                 </button>
-                {lead.phone && !checked && (
+                {lead.phone && (
                   <a
                     href={`https://wa.me/${digits(lead.phone)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#25D366] px-2.5 py-1.5 text-[12px] font-semibold text-white"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#25D366] text-white"
                     aria-label={`WhatsApp ${lead.name}`}
                   >
-                    <MessageCircle className="h-4 w-4" /> <span className="hidden sm:inline">WhatsApp</span>
+                    <MessageCircle className="h-5 w-5" />
                   </a>
                 )}
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={checked}
-                  aria-label={checked ? `${lead.name} appelé : décocher` : `Cocher : ${lead.name} appelé`}
-                  onClick={() => toggleCalled(lead, now, tz, onAct)}
-                  className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
-                    checked ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900"
-                  )}
-                >
-                  {checked && <Check className="h-5 w-5" strokeWidth={3} />}
-                </button>
+                <CheckBox lead={lead} onAct={onAct} />
               </div>
             );
           })}
         </div>
       )}
-      <p className="mt-2 text-[11px] text-slate-500">Leads appelés : qualifiés, à vérifier, et non qualifiés seulement à 550–599 de crédit. 🌙 = avant 9 h ou après 21 h chez le lead : mieux vaut attendre.</p>
+      <p className="mt-2 text-[12px] text-slate-500">🌙 trop tôt ou trop tard chez lui (avant 9 h, après 21 h).</p>
     </div>
   );
 }
 
-/* ---------- La règle d'appel ---------- */
+/* ---------- Fiche du lead ---------- */
 
-export function CallRule() {
-  return (
-    <div className="mb-3 rounded-xl bg-sky-50 p-3 text-[13px] dark:bg-sky-500/10">
-      <p className="mb-1 font-bold text-sky-900 dark:text-sky-200">Comment appeler un lead</p>
-      <ol className="space-y-1">
-        <li>
-          <b>1.</b> Il a WhatsApp : appelle-le <b>sur WhatsApp</b>. Pas de réponse → envoie <b>le message sur WhatsApp</b>.
-        </li>
-        <li>
-          <b>2.</b> Pas de WhatsApp : appelle <b>son numéro normal</b>. Pas de réponse → envoie <b>le message par SMS</b>.
-        </li>
-        <li>
-          <b>3.</b> Coche la case ✓ à droite une fois appelé.
-        </li>
-      </ol>
-      <p className="mt-1 text-[12px] text-slate-600 dark:text-slate-400">Le message est déjà écrit à son prénom : ouvre sa fiche (touche son nom).</p>
-    </div>
-  );
-}
-
-/* ---------- La fiche du lead ---------- */
-
-const CRIT_ICON: Record<CriterionState, { icon: typeof CircleCheck; tone: string }> = {
-  ok: { icon: CircleCheck, tone: "text-emerald-600" },
-  ko: { icon: CircleX, tone: "text-rose-600" },
-  check: { icon: CircleAlert, tone: "text-amber-600" },
-  ask: { icon: CircleHelp, tone: "text-slate-400" },
-};
-
-function bookingText(lead: LeadView, host: string) {
-  const first = lead.name.trim().split(/\s+/)[0] || "there";
-  return `Hi ${first}, this is ${host} from IBOState. Thanks for your application! You can pick a time for a quick 10-minute call with me here: ${bookingLink(lead)}\n\nAnd if you have any questions about the program, I'm here, just reply to this message.`;
-}
-
-export function LeadSheet({ lead, now, tz, host, onClose, onAct }: { lead: LeadView; now: number; tz: string; host: string; onClose: () => void; onAct: Act }) {
+export function LeadSheet({ lead, now, tz, onClose, onAct }: { lead: LeadView; now: number; tz: string; onClose: () => void; onAct: Act }) {
   const [note, setNote] = useState(lead.callNote ?? "");
   const [start, setStart] = useState("");
-  const [duration, setDuration] = useState("15");
   const phone = digits(lead.phone);
-  const results = evaluateCriteria(lead.answers);
+  const message = followUpText(lead.name);
   const startMs = start ? zonedToUtc(start, tz) : NaN;
-  const status = lead.callStatus ?? "todo";
-  const text = encodeURIComponent(bookingText(lead, host));
-  const followUp = followUpText(lead.name);
-  const rows: Array<[string, string]> = [
-    ["Reçu le", fmt(lead.receivedAt, tz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })],
-    ["Heure chez lui", `${fmt(now, lead.tz, { hour: "2-digit", minute: "2-digit" })} (${city(lead.tz)})`],
-    ...(lead.place ? [["Lieu", lead.place] as [string, string]] : []),
-    ...(lead.email ? [["E-mail", lead.email] as [string, string]] : []),
-    ...(lead.preferredContact ? [["Contact préféré", lead.preferredContact] as [string, string]] : []),
-    ...(lead.telegram ? [["Telegram", `@${lead.telegram.replace(/^@/, "")}`] as [string, string]] : []),
-    ["Essais d'appel", `${lead.callAttempts ?? 0}${lead.lastCallAt ? ` · dernier ${fmt(lead.lastCallAt, tz, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}`],
-  ];
-  const setStatus = (callStatus: LeadCallStatus) => void onAct({ action: "update-lead", id: lead.id, callStatus, ...(note !== (lead.callNote ?? "") ? { callNote: note } : {}) }, `${lead.name} : ${LEAD_STATUS_LABEL[callStatus]}`);
+  const step = "mb-2 text-[14px] font-bold";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40" onClick={onClose}>
@@ -327,187 +204,118 @@ export function LeadSheet({ lead, now, tz, host, onClose, onAct }: { lead: LeadV
         className="h-full w-full max-w-md overflow-y-auto overscroll-contain bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-[calc(1.25rem+env(safe-area-inset-top))] shadow-xl dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-3 flex items-start justify-between gap-2">
-          <div>
-            <p className={label}>Lead à appeler</p>
-            <h2 className="text-[20px] font-bold">{lead.name || lead.email || lead.phone}</h2>
-            <p className="mt-1 flex flex-wrap gap-1.5">
-              {lead.reason && <span className={cn("rounded-md px-2 py-0.5 text-[11px] font-bold", REASON_TONE[lead.reason])}>{REASON_LABEL[lead.reason]}</span>}
-              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {lead.callAt ? `RDV le ${fmt(lead.callAt, tz, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : LEAD_STATUS_LABEL[status]}
-              </span>
+        <div className="mb-4 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="truncate text-[22px] font-bold">{lead.name || lead.email || lead.phone}</h2>
+            <p className="text-[13px] text-slate-500">
+              {creditOf(lead) || "—"} · {lead.place || "—"} · {fmt(now, lead.tz, { hour: "2-digit", minute: "2-digit" })} chez lui
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Fermer">
-            <X className="h-5 w-5" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
         {phone ? (
-          <div className="mb-4 space-y-3 rounded-xl bg-sky-50 p-3 dark:bg-sky-500/10">
-            <div>
-              <p className="mb-1.5 text-[13px] font-bold text-sky-900 dark:text-sky-200">1. Appelle-le</p>
-              <div className="flex flex-wrap gap-2">
-                <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2.5 text-[13px] font-bold text-white">
-                  <MessageCircle className="h-4 w-4" /> Sur WhatsApp
-                </a>
-                <a href={`tel:+${phone}`} className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-2.5 text-[13px] font-bold text-white">
-                  <Phone className="h-4 w-4" /> Pas de WhatsApp : {lead.phone}
-                </a>
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">WhatsApp s&apos;ouvre sur sa conversation : touche l&apos;icône 📞 pour l&apos;appeler.</p>
+          <>
+            <p className={step}>1. Appelle-le</p>
+            <div className="mb-5 grid grid-cols-2 gap-2">
+              <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1.5 rounded-xl bg-[#25D366] py-3 text-[14px] font-bold text-white">
+                <MessageCircle className="h-5 w-5" /> WhatsApp
+              </a>
+              <a href={`tel:+${phone}`} className="flex items-center justify-center gap-1.5 rounded-xl bg-sky-600 py-3 text-[14px] font-bold text-white">
+                <Phone className="h-5 w-5" /> Appel normal
+              </a>
             </div>
-            <div>
-              <p className="mb-1.5 text-[13px] font-bold text-sky-900 dark:text-sky-200">2. Pas de réponse : envoie ce message</p>
-              <p className="mb-2 whitespace-pre-line rounded-lg bg-white p-2.5 text-[12px] leading-relaxed ring-1 ring-slate-900/10 dark:bg-slate-900 dark:ring-white/10">{followUp}</p>
-              <div className="flex flex-wrap gap-2">
-                <a href={`https://wa.me/${phone}?text=${encodeURIComponent(followUp)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2 text-[13px] font-bold text-white">
-                  <MessageCircle className="h-4 w-4" /> Par WhatsApp
-                </a>
-                <a href={`sms:+${phone}?&body=${encodeURIComponent(followUp)}`} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-[13px] font-bold text-white dark:bg-white dark:text-slate-900">
-                  <MessageSquare className="h-4 w-4" /> Par SMS
-                </a>
-              </div>
-            </div>
-            <div>
-              <p className="mb-1.5 text-[13px] font-bold text-sky-900 dark:text-sky-200">3. Coche-le</p>
-              <button
-                type="button"
-                onClick={() => toggleCalled(lead, now, tz, onAct)}
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-bold ring-1",
-                  calledToday(lead, now, tz) ? "bg-emerald-500 text-white ring-emerald-500" : "bg-white ring-slate-900/15 dark:bg-slate-900 dark:ring-white/15"
-                )}
+
+            <p className={step}>2. Pas de réponse : envoie le message</p>
+            <p className="mb-2 whitespace-pre-line rounded-xl bg-slate-50 p-3 text-[13px] leading-relaxed dark:bg-slate-800/60">{message}</p>
+            <div className="mb-5 grid grid-cols-2 gap-2">
+              <a
+                href={`https://wa.me/${phone}?text=${encodeURIComponent(message)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="col-span-2 flex items-center justify-center gap-1.5 rounded-xl bg-[#25D366] py-3 text-[14px] font-bold text-white"
               >
-                <span className={cn("flex h-5 w-5 items-center justify-center rounded border-2", calledToday(lead, now, tz) ? "border-white" : "border-slate-400")}>
-                  {calledToday(lead, now, tz) && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
-                </span>
-                {calledToday(lead, now, tz) ? "Appelé aujourd'hui" : "Appelé"}
+                <MessageCircle className="h-5 w-5" /> Envoyer sur WhatsApp
+              </a>
+              <button type="button" onClick={() => copy(prettyPhone(lead.phone), "Numéro")} className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 py-3 text-[13px] font-bold dark:bg-slate-800">
+                <Copy className="h-4 w-4" /> {prettyPhone(lead.phone)}
+              </button>
+              <button type="button" onClick={() => copy(message, "Message")} className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 py-3 text-[13px] font-bold text-white dark:bg-white dark:text-slate-900">
+                <Copy className="h-4 w-4" /> Copier le message
               </button>
             </div>
-          </div>
+          </>
         ) : (
-          <p className="mb-4 text-[13px] text-rose-600">Pas de numéro pour ce lead.</p>
+          <p className="mb-5 text-[14px] text-rose-600">Pas de numéro pour ce lead.</p>
         )}
 
-        <GoalCard compact />
-
-        <dl className="mb-4 space-y-1.5 text-[13px]">
-          {rows.map(([key, value]) => (
-            <div key={key} className="flex gap-3">
-              <dt className="w-32 shrink-0 text-slate-500">{key}</dt>
-              <dd className="min-w-0 break-words font-medium">{value}</dd>
-            </div>
-          ))}
-        </dl>
-
-        <div className="mb-4 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
-          <p className={cn(label, "mb-1.5")}>Ses réponses au formulaire</p>
-          {lead.reason === "credit-550" && (
-            <p className="mb-2 rounded-lg bg-violet-100 px-2 py-1 text-[12px] font-semibold text-violet-800 dark:bg-violet-500/15 dark:text-violet-300">
-              Crédit 550–599 : non qualifié sur le site, mais on l&apos;appelle quand même.
-            </p>
-          )}
-          <ul className="space-y-1 text-[13px]">
-            {lead.answers.map((item) => (
-              <li key={item.label} className="flex justify-between gap-3">
-                <span className="text-slate-500">{item.label}</span>
-                <b className="text-right">{item.value}</b>
-              </li>
-            ))}
-          </ul>
-          <p className={cn(label, "mb-1 mt-3")}>À vérifier au téléphone</p>
-          <ul className="space-y-1 text-[12px]">
-            {results.map(({ criterion, state }) => {
-              const look = CRIT_ICON[state];
-              const Icon = look.icon;
-              return (
-                <li key={criterion.key} className="flex items-center gap-1.5">
-                  <Icon className={cn("h-3.5 w-3.5 shrink-0", look.tone)} /> {criterion.title}
-                </li>
-              );
-            })}
-          </ul>
+        <div className="mb-5 flex items-center gap-3">
+          <CheckBox lead={lead} onAct={onAct} big />
+          <p className="text-[14px] font-bold">{isCalled(lead) ? "Appelé" : "3. Coche quand il est appelé"}</p>
         </div>
 
-        <p className={cn(label, "mb-1.5")}>Résultat de l&apos;appel</p>
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {(["no-answer", "not-interested", "not-eligible", "todo"] as LeadCallStatus[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setStatus(item)}
-              className={cn("rounded-lg px-3 py-1.5 text-[12px] font-semibold ring-1 ring-slate-900/10 dark:ring-white/10", status === item ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-white dark:bg-slate-900")}
-            >
-              {LEAD_STATUS_LABEL[item]}
-            </button>
-          ))}
-        </div>
-
-        <div className="mb-4 rounded-xl bg-sky-50 p-3 dark:bg-sky-500/10">
-          <p className="mb-1 flex items-center gap-2 text-[13px] font-bold text-sky-900 dark:text-sky-200">
-            <CalendarPlus className="h-4 w-4" /> Poser le 2e rendez-vous (call de closing)
+        <p className={cn(step, "flex items-center gap-1.5")}>
+          <CalendarPlus className="h-4 w-4" /> Il est d&apos;accord : pose le rendez-vous
+        </p>
+        {lead.callAt ? (
+          <p className="mb-5 rounded-xl bg-green-50 p-3 text-[14px] font-semibold text-green-800 dark:bg-green-500/10 dark:text-green-300">
+            RDV le {fmt(lead.callAt, tz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
           </p>
-          <p className="mb-2 text-[12px] text-slate-600 dark:text-slate-400">Choisis l&apos;heure avec lui au téléphone. Tu la saisis à ton heure ({city(tz)}) ; le call arrive dans ton planning avec ton lien Meet.</p>
-          <div className="flex gap-2">
-            <input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} className={cn(field, "flex-1")} />
-            <select value={duration} onChange={(event) => setDuration(event.target.value)} className={cn(field, "w-24")}>
-              {["15", "20", "30"].map((min) => (
-                <option key={min} value={min}>
-                  {min} min
-                </option>
-              ))}
-            </select>
-          </div>
-          {Number.isFinite(startMs) && (
-            <p className="mt-1 text-[12px] font-semibold">
-              = {fmt(startMs, lead.tz, { weekday: "long", hour: "2-digit", minute: "2-digit" })} chez lui ({city(lead.tz)})
+        ) : (
+          <div className="mb-5">
+            <input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} className={field} />
+            <p className="mt-1 text-[12px] text-slate-500">
+              {Number.isFinite(startMs)
+                ? `Ton heure (${city(tz)}). Chez lui : ${fmt(startMs, lead.tz, { weekday: "long", hour: "2-digit", minute: "2-digit" })}`
+                : `À ton heure (${city(tz)}). Le call arrive dans ton agenda avec ton lien Meet.`}
             </p>
-          )}
-          <button
-            type="button"
-            disabled={!Number.isFinite(startMs)}
-            onClick={() =>
-              void onAct({ action: "book-lead", id: lead.id, startAt: new Date(startMs).toISOString(), durationMin: Number(duration) }, "Rendez-vous posé : pense à lui envoyer la confirmation").then((ok) => {
-                if (ok) onClose();
-              })
-            }
-            className="mt-2 w-full rounded-xl bg-sky-600 py-2.5 text-[13px] font-bold text-white disabled:opacity-40"
-          >
-            Poser le rendez-vous
-          </button>
-          {phone && (
-            <div className="mt-3 border-t border-sky-200/70 pt-2 dark:border-sky-500/20">
-              <p className="mb-1.5 text-[12px] text-slate-600 dark:text-slate-400">Pas de réponse ou il préfère choisir seul ? Envoie-lui le lien de réservation (le call arrivera tout seul ici) :</p>
-              <div className="flex flex-wrap gap-2">
-                <a href={`https://wa.me/${phone}?text=${text}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-3 py-2 text-[12px] font-bold text-white">
-                  <MessageCircle className="h-4 w-4" /> Lien par WhatsApp
-                </a>
-                <a href={`sms:+${phone}?&body=${text}`} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-[12px] font-bold text-white dark:bg-white dark:text-slate-900">
-                  <MessageSquare className="h-4 w-4" /> Lien par SMS
-                </a>
-              </div>
-            </div>
-          )}
-        </div>
+            <button
+              type="button"
+              disabled={!Number.isFinite(startMs)}
+              onClick={() =>
+                void onAct({ action: "book-lead", id: lead.id, startAt: new Date(startMs).toISOString(), durationMin: 15 }, "Rendez-vous posé").then((ok) => {
+                  if (ok) onClose();
+                })
+              }
+              className="mt-2 w-full rounded-xl bg-sky-600 py-3 text-[14px] font-bold text-white disabled:opacity-40"
+            >
+              Poser le rendez-vous
+            </button>
+          </div>
+        )}
 
         <textarea
           value={note}
           onChange={(event) => setNote(event.target.value)}
           rows={3}
-          placeholder="Ta note sur l'appel (réponses, objections, rappel prévu…)"
-          className="mb-2 w-full rounded-lg bg-slate-50 p-3 text-[16px] outline-none ring-1 ring-slate-900/10 focus:bg-white sm:text-[13px] dark:bg-slate-800 dark:ring-white/10"
+          placeholder="Note (rappel, objection…)"
+          className="mb-2 w-full rounded-xl bg-slate-50 p-3 text-[16px] outline-none ring-1 ring-slate-900/10 focus:bg-white dark:bg-slate-800 dark:ring-white/10"
         />
-        <button
-          type="button"
-          disabled={note === (lead.callNote ?? "")}
-          onClick={() => void onAct({ action: "update-lead", id: lead.id, callNote: note }, "Note enregistrée")}
-          className="mb-4 rounded-lg bg-slate-900 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-slate-900"
-        >
-          Enregistrer la note
-        </button>
+        {note !== (lead.callNote ?? "") && (
+          <button
+            type="button"
+            onClick={() => void onAct({ action: "update-lead", id: lead.id, callNote: note }, "Note enregistrée")}
+            className="mb-5 rounded-xl bg-slate-900 px-4 py-2 text-[13px] font-bold text-white dark:bg-white dark:text-slate-900"
+          >
+            Enregistrer la note
+          </button>
+        )}
 
-        <ScriptView script={SETTING_SCRIPT} name={lead.name} open />
+        {lead.answers.length > 0 && (
+          <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+            <p className="mb-1.5 text-[13px] font-bold">Ses réponses</p>
+            <ul className="space-y-1 text-[13px]">
+              {lead.answers.map((item) => (
+                <li key={item.label} className="flex justify-between gap-3">
+                  <span className="text-slate-500">{item.label}</span>
+                  <b className="text-right">{item.value}</b>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -517,22 +325,21 @@ export function LeadSheet({ lead, now, tz, host, onClose, onAct }: { lead: LeadV
 
 export function ScriptView({ script, name, open }: { script: CallScript; name?: string; open?: boolean }) {
   return (
-    <details className="group mb-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60" open={open}>
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[14px] font-bold">
+    <details className={cn(card, "group")} open={open}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[15px] font-bold">
         <span className="flex items-center gap-2">
           <BookOpenText className="h-4 w-4" /> {script.title}
         </span>
-        <span className="text-[12px] font-semibold text-slate-500 group-open:hidden">Voir</span>
-        <span className="hidden text-[12px] font-semibold text-slate-500 group-open:inline">Masquer</span>
+        <span className="text-[13px] font-semibold text-sky-600 group-open:hidden">Ouvrir</span>
+        <span className="hidden text-[13px] font-semibold text-slate-500 group-open:inline">Fermer</span>
       </summary>
-      <p className="mt-1 text-[12px] text-slate-500">{script.goal}</p>
-      <div className="mt-3 space-y-3">
+      <div className="mt-3 space-y-4">
         {script.sections.map((section) => {
           let n = 0;
           return (
             <div key={section.title}>
-              <p className="mb-1 text-[12px] font-bold text-emerald-700 dark:text-emerald-400">{section.title}</p>
-              <div className="space-y-1.5 text-[13px] leading-relaxed">
+              <p className="mb-1 text-[13px] font-bold text-green-700 dark:text-green-400">{section.title}</p>
+              <div className="space-y-1.5 text-[14px] leading-relaxed">
                 {section.lines.map((line, index) =>
                   line.t === "note" ? (
                     <p key={index} className="pl-5 text-[12px] italic text-slate-500">
@@ -556,27 +363,67 @@ export function ScriptView({ script, name, open }: { script: CallScript; name?: 
   );
 }
 
-export function ScriptsCard() {
+export function ScriptsSection() {
   return (
-    <div className={card}>
-      <h2 className="mb-1 flex items-center gap-2 text-[15px] font-bold">
-        <BookOpenText className="h-4 w-4" /> Scripts et contrat
-      </h2>
-      <p className="mb-3 text-[12px] text-slate-500">Setting = quand tu appelles un lead qui vient de remplir le formulaire. Closing = le call réservé. Le contrat part au lead qui dit oui.</p>
+    <div className="space-y-3">
       <ScriptView script={SETTING_SCRIPT} />
       <ScriptView script={CLOSING_SCRIPT} />
-      <ContractButtons />
     </div>
   );
 }
 
-/* ---------- Contrat ---------- */
+/* ---------- Le but de l'appel ---------- */
+
+export function GoalCard() {
+  return (
+    <div className={card}>
+      <p className="mb-2 flex items-center gap-2 text-[15px] font-bold">
+        <Target className="h-4 w-4" /> {CALL_GOAL.title}
+      </p>
+      <ul className="space-y-1.5 text-[14px]">
+        {CALL_GOAL.points.map((point) => (
+          <li key={point} className="flex gap-2">
+            <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+            <span>{point}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ---------- Onglet Ressources : objections ---------- */
+
+export function ObjectionsCard() {
+  return (
+    <div className={card}>
+      <h2 className="mb-3 text-[16px] font-bold">Objections courantes</h2>
+      <div className="space-y-2">
+        {OBJECTIONS.map((item) => (
+          <details key={item.title} className="group rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[14px] font-semibold">
+              {item.title}
+              <span className="text-[18px] leading-none text-slate-400 group-open:rotate-45">+</span>
+            </summary>
+            <p className="mt-2 text-[13px] italic text-slate-500">“{item.q}”</p>
+            <p className="mt-1.5 text-[14px] leading-relaxed">“{item.a}”</p>
+            <button type="button" onClick={() => copy(item.a, "Réponse")} className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-sky-600">
+              <Copy className="h-3.5 w-3.5" /> Copier
+            </button>
+          </details>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Onglet Contrat ---------- */
 
 /**
  * Le PDF est chargé à l'avance : sur iPhone, le partage (WhatsApp, Mail…) doit
  * partir directement du toucher, sans attendre un téléchargement.
  */
-export function ContractButtons() {
+export function ContractCard() {
   const [file, setFile] = useState<File | null>(null);
   useEffect(() => {
     let alive = true;
@@ -608,17 +455,17 @@ export function ContractButtons() {
   };
 
   return (
-    <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
-      <p className="mb-1 flex items-center gap-2 text-[14px] font-bold">
-        <FileText className="h-4 w-4" /> Contrat à envoyer (IBOState Agreement)
-      </p>
-      <p className="mb-2 text-[12px] text-slate-500">Quand le lead dit oui : envoie-lui le contrat juste après le call, il le signe sur son téléphone. Confirme son e-mail et son numéro.</p>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={share} disabled={!file} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-[13px] font-bold text-white disabled:opacity-40">
-          <Share2 className="h-4 w-4" /> Envoyer le contrat
+    <div className={card}>
+      <h2 className="mb-1 flex items-center gap-2 text-[16px] font-bold">
+        <FileText className="h-5 w-5" /> Contrat IBOState
+      </h2>
+      <p className="mb-4 text-[14px] text-slate-500">À envoyer au lead qui dit oui, juste après le call.</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button type="button" onClick={share} disabled={!file} className="flex items-center justify-center gap-2 rounded-xl bg-green-600 py-3.5 text-[15px] font-bold text-white disabled:opacity-40">
+          <Share2 className="h-5 w-5" /> Envoyer le contrat
         </button>
-        <a href="/api/closer/contrat" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-[13px] font-semibold ring-1 ring-slate-900/10 dark:bg-slate-900 dark:ring-white/10">
-          <FileText className="h-4 w-4" /> Voir le PDF
+        <a href="/api/closer/contrat" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 rounded-xl bg-slate-100 py-3.5 text-[15px] font-bold dark:bg-slate-800">
+          <FileText className="h-5 w-5" /> Voir le PDF
         </a>
       </div>
     </div>
