@@ -337,6 +337,14 @@ const ZONES: Array<[string, string]> = [
   ["Europe/Paris", "Paris (France)"],
 ];
 
+/** Les heures à l'américaine (« 4:00 PM »), de 7 AM à 10 PM, toutes les 15 min : plus de confusion 04:00 / 16:00. */
+const TIMES: Array<[string, string]> = Array.from({ length: (22 - 7) * 4 + 1 }, (_, i) => {
+  const h = 7 + Math.floor(i / 4);
+  const min = (i % 4) * 15;
+  const value = `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  return [value, `${h % 12 || 12}:${String(min).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`];
+});
+
 /**
  * Le lead dit « demain 13 h » : la closeuse tape 13 h à SON heure à lui
  * (fuseau de son État, modifiable) ; le CRM convertit et range le call dans
@@ -344,14 +352,55 @@ const ZONES: Array<[string, string]> = [
  */
 export function BookForm({ leadTz, myTz, onBook }: { leadTz: string; myTz: string; onBook: (startAt: string, prospectTz: string) => Promise<boolean> }) {
   const [zone, setZone] = useState(leadTz);
-  const [start, setStart] = useState("");
+  const [day, setDay] = useState("");
+  const [time, setTime] = useState("");
   const [busy, setBusy] = useState(false);
-  const startMs = start ? zonedToUtc(start, zone) : NaN;
+  // Les 10 prochains jours, comptés à SON heure à lui (aujourd'hui chez lui d'abord).
+  const [days] = useState(() => {
+    const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: leadTz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).split("-").map(Number);
+    return Array.from({ length: 10 }, (_, i) => {
+      const at = Date.UTC(y, m - 1, d + i, 12);
+      const label = i === 0 ? "Aujourd'hui" : i === 1 ? "Demain" : fmt(at, "UTC", { weekday: "short", day: "numeric" });
+      return { id: new Date(at).toISOString().slice(0, 10), label };
+    });
+  });
+  const startMs = day && time ? zonedToUtc(`${day}T${time}`, zone) : NaN;
   const zones = ZONES.some(([id]) => id === zone) ? ZONES : [[zone, city(zone)] as [string, string], ...ZONES];
+  const when = (tz: string, locale: string) =>
+    new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(new Date(startMs));
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div>
-        <p className="mb-1 text-[12px] font-semibold text-slate-500">Son fuseau horaire</p>
+        <p className="mb-1 text-[12px] font-semibold text-slate-500">1. Quel jour ? (le jour qu&apos;il t&apos;a dit)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {days.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setDay(item.id)}
+              className={cn(
+                "rounded-xl px-3 py-2 text-[14px] font-semibold capitalize ring-1",
+                day === item.id ? "bg-sky-600 text-white ring-sky-600" : "bg-slate-50 ring-slate-900/10 dark:bg-slate-800 dark:ring-white/10"
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="mb-1 text-[12px] font-semibold text-slate-500">2. Quelle heure ? (l&apos;heure qu&apos;il t&apos;a dite, chez lui)</p>
+        <select value={time} onChange={(event) => setTime(event.target.value)} className={cn(field, "font-semibold")}>
+          <option value="">Choisir l&apos;heure…</option>
+          {TIMES.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <p className="mb-1 text-[12px] font-semibold text-slate-500">Son fuseau (rempli tout seul selon son État)</p>
         <select value={zone} onChange={(event) => setZone(event.target.value)} className={field}>
           {zones.map(([id, name]) => (
             <option key={id} value={id}>
@@ -360,14 +409,15 @@ export function BookForm({ leadTz, myTz, onBook }: { leadTz: string; myTz: strin
           ))}
         </select>
       </div>
-      <div>
-        <p className="mb-1 text-[12px] font-semibold text-slate-500">Jour et heure, à SON heure (ce qu&apos;il t&apos;a dit)</p>
-        <input type="datetime-local" step={900} value={start} onChange={(event) => setStart(event.target.value)} className={field} />
-      </div>
       {Number.isFinite(startMs) && (
-        <p className="rounded-xl bg-sky-50 p-2.5 text-[14px] dark:bg-sky-500/10">
-          Pour toi : <b>{fmt(startMs, myTz, { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}</b> ({city(myTz)})
-        </p>
+        <div className="space-y-1 rounded-xl bg-sky-50 p-3 text-[14px] dark:bg-sky-500/10">
+          <p>
+            Lui : <b>{when(zone, "en-US")}</b> ({city(zone)})
+          </p>
+          <p>
+            Toi : <b>{when(myTz, "fr-FR")}</b> ({city(myTz)})
+          </p>
+        </div>
       )}
       <button
         type="button"
