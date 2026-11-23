@@ -462,7 +462,7 @@ export function MetaUploader() {
     return {
       headlines: own?.headline.trim() ? [own.headline.trim()] : clean(headlines),
       bodies: own?.body.trim() ? [own.body.trim()] : clean(bodies),
-      descriptions: [],
+      descriptions: own?.description.trim() ? [own.description.trim()] : clean(descriptions),
     };
   };
   const setOwn = (key: string, field: keyof OwnCopy, value: string) =>
@@ -583,8 +583,7 @@ export function MetaUploader() {
           startNumber: Math.max(1, Number(startNumber) || 1),
           headlines,
           bodies,
-          // Pas de ligne grise sous le titre (« Link description » chez Meta) : Mady n'en veut pas.
-          descriptions: [],
+          descriptions,
           // Textes par ad set ou par pub : un élément par média, dans l'ordre d'envoi.
           copies:
             textMode === "all"
@@ -592,7 +591,11 @@ export function MetaUploader() {
               : uploaded.map((_, index) => {
                   const own = ownCopyFor(index);
                   return own
-                    ? { headlines: own.headline.trim() ? [own.headline] : [], bodies: own.body.trim() ? [own.body] : [], descriptions: [] }
+                    ? {
+                        headlines: own.headline.trim() ? [own.headline] : [],
+                        bodies: own.body.trim() ? [own.body] : [],
+                        descriptions: own.description.trim() ? [own.description] : [],
+                      }
                     : null;
                 }),
           websiteUrl: link,
@@ -1257,7 +1260,7 @@ export function MetaUploader() {
             <Sparkles className="h-3.5 w-3.5 text-sky-700" />
             IA Ad Copy
           </p>
-          <p className="mt-1 text-[12px] text-slate-500">Colle l’URL produit — génération headlines + descriptions style Meta ads.</p>
+          <p className="mt-1 text-[12px] text-slate-500">Colle l’URL produit — génération primary text + headline + description style Meta ads.</p>
           <div className="mt-2 flex gap-2">
             <input
               value={productUrl}
@@ -1277,20 +1280,25 @@ export function MetaUploader() {
           </div>
         </div>
 
-        <FieldHeader
-          label="Headlines"
-          flexible={flexible}
-          onFlexible={setFlexible}
-          onAdd={() => setHeadlines((list) => [...list, ""])}
-        />
+        {/* Les trois textes dans l'ordre et sous les noms de Meta : Primary text (au-dessus du visuel), Headline, Description (ligne grise sous le titre). */}
+        <FieldHeader label="Primary text" hint="texte au-dessus du visuel" flexible={flexible} onFlexible={setFlexible} onAdd={() => setBodies((list) => [...list, ""])} />
+        {bodies.map((value, i) => (
+          <Area key={`b-${i}`} value={value} onChange={(v) => setBodies(patch(bodies, i, v))} onRemove={() => setBodies(bodies.filter((_, idx) => idx !== i))} />
+        ))}
+
+        <FieldHeader label="Headline" hint="titre sous le visuel" onAdd={() => setHeadlines((list) => [...list, ""])} />
         {headlines.map((value, i) => (
           <Line key={`h-${i}`} value={value} onChange={(v) => setHeadlines(patch(headlines, i, v))} onRemove={() => setHeadlines(headlines.filter((_, idx) => idx !== i))} />
         ))}
 
-        {/* Le texte au-dessus du visuel (« Primary text » chez Meta) : appelé « Description » ici, comme Mady le nomme. */}
-        <FieldHeader label="Descriptions (texte au-dessus du visuel)" onAdd={() => setBodies((list) => [...list, ""])} />
-        {bodies.map((value, i) => (
-          <Area key={`b-${i}`} value={value} onChange={(v) => setBodies(patch(bodies, i, v))} onRemove={() => setBodies(bodies.filter((_, idx) => idx !== i))} />
+        <FieldHeader label="Description" hint="ligne grise sous le titre, facultative" onAdd={() => setDescriptions((list) => [...list, ""])} />
+        {descriptions.map((value, i) => (
+          <Line
+            key={`d-${i}`}
+            value={value}
+            onChange={(v) => setDescriptions(patch(descriptions, i, v))}
+            onRemove={() => setDescriptions(descriptions.filter((_, idx) => idx !== i))}
+          />
         ))}
 
         <label className="mt-4 block text-[13px] font-medium">
@@ -1546,22 +1554,31 @@ function OwnCopyEditor({
       ) : (
         <div className="mt-2 space-y-2">
           <label className="block text-[12px] font-medium">
+            Primary text
+            <textarea
+              value={value.body}
+              onChange={(e) => onChange("body", e.target.value)}
+              placeholder={common.bodies[0] ?? "Texte au-dessus du visuel"}
+              rows={3}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] font-normal"
+            />
+          </label>
+          <label className="block text-[12px] font-medium">
             Headline
             <input
               value={value.headline}
               onChange={(e) => onChange("headline", e.target.value)}
-              placeholder={common.headlines[0] ?? "Titre"}
+              placeholder={common.headlines[0] ?? "Titre sous le visuel"}
               className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-[13px] font-normal"
             />
           </label>
           <label className="block text-[12px] font-medium">
-            Description (texte au-dessus du visuel)
-            <textarea
-              value={value.body}
-              onChange={(e) => onChange("body", e.target.value)}
-              placeholder={common.bodies[0] ?? "Description"}
-              rows={3}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] font-normal"
+            Description
+            <input
+              value={value.description}
+              onChange={(e) => onChange("description", e.target.value)}
+              placeholder={common.descriptions[0] ?? "Ligne grise sous le titre (facultative)"}
+              className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-[13px] font-normal"
             />
           </label>
         </div>
@@ -1677,18 +1694,23 @@ function CheckRow({ label, checked, onChange }: { label: string; checked: boolea
 
 function FieldHeader({
   label,
+  hint,
   flexible,
   onFlexible,
   onAdd,
 }: {
   label: string;
+  hint?: string;
   flexible?: boolean;
   onFlexible?: (v: boolean) => void;
   onAdd: () => void;
 }) {
   return (
     <div className="mt-5 mb-2 flex items-center gap-2">
-      <p className="text-[13px] font-semibold">{label}</p>
+      <p className="text-[13px] font-semibold">
+        {label}
+        {hint ? <span className="ml-1.5 text-[11px] font-normal text-slate-400">{hint}</span> : null}
+      </p>
       {onFlexible ? (
         <div className="ml-2 inline-flex rounded-md bg-slate-100 p-0.5 text-[11px] font-medium">
           <button type="button" onClick={() => onFlexible(true)} className={cn("rounded px-2 py-0.5", flexible ? "bg-slate-900 text-white" : "text-slate-500")}>
