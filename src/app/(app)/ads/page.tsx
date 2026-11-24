@@ -1452,15 +1452,17 @@ export default function AdsPage() {
     return [...byId.values()];
   }, [tree]);
 
-  const groups = useMemo(
+  /** Toutes les campagnes, non catégorisées comprises (la vue téléphone les montre dans « Toutes »). */
+  const allGroups = useMemo(
     () =>
       filterGroups(tree?.groups || [], {
         query: query.trim().toLowerCase(),
         activeOnly,
         hiddenAdIds,
-      }).filter((group) => showOther || group.bucket !== "other"),
-    [tree, query, activeOnly, showOther, hiddenAdIds]
+      }),
+    [tree, query, activeOnly, hiddenAdIds]
   );
+  const groups = useMemo(() => allGroups.filter((group) => showOther || group.bucket !== "other"), [allGroups, showOther]);
 
   /** « Normaliser » : les pubs affichées (filtres compris) dont le nom ne suit pas la convention, par ad set. */
   const openNormalize = useCallback(() => {
@@ -2059,7 +2061,7 @@ export default function AdsPage() {
         <div className="order-4 space-y-2.5 lg:order-6">
           <RenameDialogHost />
           <MobilePilot
-            groups={groups}
+            groups={allGroups}
             busy={busy}
             onWrite={write}
             onOpenAd={setPanelAd}

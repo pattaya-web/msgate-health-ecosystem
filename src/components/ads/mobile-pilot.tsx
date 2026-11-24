@@ -733,10 +733,11 @@ export function MobilePilot({
 }) {
   const campaigns = useMemo(() => flattenCampaigns(groups), [groups]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [phaseTab, setPhaseTab] = useState<PhaseTab>("hyperscaling");
+  // « Toutes » d'abord : chaque campagne active, quel que soit son nom (non catégorisées comprises).
+  const [phaseTab, setPhaseTab] = useState<PhaseTab | "all">("all");
 
   const visible = useMemo(
-    () => campaigns.filter((row) => row.bucket === phaseTab),
+    () => (phaseTab === "all" ? campaigns : campaigns.filter((row) => row.bucket === phaseTab)),
     [campaigns, phaseTab]
   );
 
@@ -745,12 +746,15 @@ export function MobilePilot({
     : null;
 
   const phaseCounts = useMemo(() => {
-    const counts: Record<PhaseTab, { camp: number; budget: number }> = {
+    const counts: Record<PhaseTab | "all", { camp: number; budget: number }> = {
+      all: { camp: 0, budget: 0 },
       hyperscaling: { camp: 0, budget: 0 },
       scaling: { camp: 0, budget: 0 },
       testing: { camp: 0, budget: 0 },
     };
     for (const row of campaigns) {
+      counts.all.camp += 1;
+      counts.all.budget += row.campaign.dailyBudget || 0;
       if (row.bucket === "hyperscaling" || row.bucket === "scaling" || row.bucket === "testing") {
         counts[row.bucket].camp += 1;
         counts[row.bucket].budget += row.campaign.dailyBudget || 0;
@@ -761,14 +765,14 @@ export function MobilePilot({
 
   return (
     <div className="space-y-2.5 lg:hidden">
-      <div className="grid grid-cols-3 gap-0.5 rounded-lg bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
-        {PHASE_TABS.map((bucket) => (
+      <div className="grid grid-cols-4 gap-0.5 rounded-lg bg-slate-100/80 p-0.5 dark:bg-slate-800/70">
+        {(["all", ...PHASE_TABS] as const).map((bucket) => (
           <button
             key={bucket}
             type="button"
             onClick={() => setPhaseTab(bucket)}
             className={cn(
-              "flex min-w-0 items-center justify-center gap-1 overflow-hidden rounded-md px-1 py-1 whitespace-nowrap transition-colors",
+              "flex min-w-0 flex-col items-center justify-center overflow-hidden rounded-md px-1 py-1 whitespace-nowrap transition-colors",
               phaseTab === bucket
                 ? "bg-white shadow-sm dark:bg-slate-900"
                 : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
@@ -780,7 +784,7 @@ export function MobilePilot({
                 phaseTab === bucket ? "text-slate-900 dark:text-slate-50" : ""
               )}
             >
-              {bucket === "hyperscaling" ? "Main/Hyper" : bucket === "scaling" ? "Scaling" : "Testing"}
+              {bucket === "all" ? "Toutes" : bucket === "hyperscaling" ? "Main/Hyper" : bucket === "scaling" ? "Scaling" : "Testing"}
             </span>
             <span
               className={cn(
@@ -856,7 +860,7 @@ export function MobilePilot({
           })
         ) : (
           <p className="py-12 text-center text-xs text-slate-400">
-            Aucune campagne active — {BUCKET_LABELS[phaseTab]}
+            Aucune campagne active{phaseTab === "all" ? "" : ` — ${BUCKET_LABELS[phaseTab]}`}
           </p>
         )}
       </div>

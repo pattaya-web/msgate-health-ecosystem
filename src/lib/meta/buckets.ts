@@ -30,7 +30,8 @@ export function classifyCampaign(name: string): CampaignBucket {
   if (/^\W*(MAIN|BID\s*CAP|COST\s*CAP)\b/.test(upper)) return "hyperscaling";
   if (normalised.includes("SCALING")) return "scaling";
   // « TEST - NECKLACE S45 » (nouveau nommage) comme « [TESTING] … ».
-  if (normalised.includes("TESTING") || /^\W*TEST\b/.test(upper)) return "testing";
+  // « S48 - TEST - ABO - Black Friday » : le mot TEST n'importe où dans le nom.
+  if (normalised.includes("TESTING") || /\bTEST\b/.test(upper)) return "testing";
   return "other";
 }
 
