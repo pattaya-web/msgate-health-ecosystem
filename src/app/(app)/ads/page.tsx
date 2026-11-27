@@ -49,7 +49,6 @@ import { ConnectBmButton } from "@/components/ads/connect-bm-dialog";
 import { HS_SPEND_MIN, PROMO_LABEL, PROMO_ROAS_MIN, collectAdsAlerts, type PromoTarget } from "@/components/ads/alerts-rail";
 import { MobilePilot } from "@/components/ads/mobile-pilot";
 import { ProductThresholdsContext, RoasBreakevenContext, roasToneFor, useRoasTone } from "@/components/ads/roas-tone";
-import { ObjectivesBar } from "@/components/ads/objectives-bar";
 import { ScalingRamp } from "@/components/ads/scaling-ramp";
 import { CreativePipeline } from "@/components/ads/creative-pipeline";
 import { MorningView } from "@/components/ads/morning-view";
@@ -1033,7 +1032,7 @@ export default function AdsPage() {
       // stockage refusé : sans gravité
     }
   };
-  const [objectivesLoading, setObjectivesLoading] = useState(false);
+  const [, setObjectivesLoading] = useState(false);
   const [shopify, setShopify] = useState<{
     netSales: number;
     orders: number;
@@ -1132,15 +1131,17 @@ export default function AdsPage() {
 
     void (async () => {
       try {
-        const res = await fetch(`/api/shopify/daily?start=${window.start}&end=${window.end}`);
+        // Ventes de la boutique du périmètre (Réglages > périmètre, aujourd'hui moosha.us), lues dans Reign :
+        // l'ancienne lecture /api/shopify/daily ne voyait qu'une seule boutique fixe (Venom).
+        const res = await fetch(`/api/associate/overview?start=${window.start}&end=${window.end}`);
         const body = await res.json();
         if (cancelled) return;
-        if (!res.ok) throw new Error(body.error || "Shopify indisponible");
+        if (!res.ok || !body.overview) throw new Error(body.error || "Ventes indisponibles");
         setShopify({
-          netSales: Number(body.totals?.netSales) || 0,
-          orders: Number(body.totals?.orders) || 0,
-          returns: Number(body.totals?.returns) || 0,
-          currency: body.currency || "USD",
+          netSales: Number(body.overview.sales?.revenue) || 0,
+          orders: Number(body.overview.sales?.orders) || 0,
+          returns: 0,
+          currency: "USD",
         });
       } catch {
         if (!cancelled) setShopify(null);
@@ -1691,12 +1692,8 @@ export default function AdsPage() {
       </div>
 
       <div className="order-1 lg:order-1">
-        <ObjectivesBar
-          data={objectives}
-          loading={objectivesLoading}
-          periodLabel={preset === "today" ? "aujourd'hui" : preset === "yesterday" ? "hier" : preset === "last_3d" ? "3 j" : preset === "last_7d" ? "7 j" : preset === "last_30d" ? "30 j" : "période"}
-        />
-        <div className="mt-1.5">
+        {/* Barre « Objectifs » (seuils calculés sur le produit Venom à 29,99 $) retirée à la demande de Mady. */}
+        <div>
           {view === "tout" ? (
           <ScalingRamp
             onApplied={(level, id, patch) => {
@@ -1832,7 +1829,7 @@ export default function AdsPage() {
                 : "—"}
           </p>
           <p className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400">
-            {objectives?.thresholds.breakeven != null ? `ROAS réel : Shopify ÷ spend total · minimum ${objectives.thresholds.breakeven.toFixed(2)}` : " "}
+            ROAS réel : ventes ÷ spend total
           </p>
         </div>
       </div>
