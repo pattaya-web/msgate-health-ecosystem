@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, BookOpenText, CalendarClock, FileText, LifeBuoy, Phone, Clapperboard, Film, HandCoins, Handshake, Lightbulb, ListChecks, Mail, Megaphone, Menu, Workflow } from "lucide-react";
+import { BarChart3, BookOpenText, CalendarClock, FileText, LifeBuoy, Phone, Clapperboard, Film, Handshake, Lightbulb, ListChecks, Mail, Megaphone, Menu, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
@@ -13,17 +13,15 @@ const items = [
   { href: "/process", label: "Process", icon: Workflow },
 ];
 
-/** L'associée : ses ventes, sa paie, le tableau des produits ; le reste passe par « Menu ». */
+/** Le rôle associé (plus utilisé) : ses ventes et le tableau des produits ; le reste passe par « Menu ». */
 const associateItems = [
   { href: "/associate", label: "Ventes", icon: Handshake },
-  { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
   { href: "/associate/produits", label: "Produits", icon: Lightbulb },
 ];
 
-/** L'admin, rangé comme l'associée : ses ventes, MoneyTalk et le Meta Ads Manager ; le reste passe par « Menu ». */
+/** L'admin : ses ventes et le Meta Ads Manager ; le reste passe par « Menu ». */
 const adminItems = [
   { href: "/associate", label: "Ventes", icon: Handshake },
-  { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
   { href: "/ads", label: "Ads", icon: Megaphone },
 ];
 

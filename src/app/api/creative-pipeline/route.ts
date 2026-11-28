@@ -40,8 +40,8 @@ export async function POST(request: Request) {
   const session = allowed(request);
   if (!session) return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
   const who = session.email;
-  /** Qui a coché une case : « Admin » ou « Alison » (le compte associé). */
-  const person = session.role === "associate" ? "Alison" : "Admin";
+  /** Qui a coché une case : « Admin » ou « Associé ». */
+  const person = session.role === "associate" ? "Associé" : "Admin";
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   try {
     const result = await updateStore((store) => {

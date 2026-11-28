@@ -35,7 +35,7 @@ const blank = (today: string): Draft => ({
   formats: ["3:4", "1:1"],
   targetAdset: "",
   deadline: defaultDeadline(today),
-  assignee: "Alison",
+  assignee: "Mady",
   status: "BRIEF",
   postId: "",
 });
@@ -215,7 +215,6 @@ export function BriefBoard({ briefs, today, onChanged }: { briefs: Brief[]; toda
               </Field>
               <Field label="Assigné">
                 <select value={draft.assignee} onChange={(e) => set("assignee", e.target.value)} className={INPUT}>
-                  <option>Alison</option>
                   <option>Mady</option>
                 </select>
               </Field>

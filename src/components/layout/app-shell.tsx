@@ -244,8 +244,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {previewAssociate ? (
           <div className="mx-3 mt-2 flex flex-wrap items-center gap-2 rounded-2xl bg-indigo-600 px-3 py-2 text-[12px] text-white shadow-sm sm:mx-4" data-preview-banner>
-            <span className="font-semibold">Vue Alison</span>
-            <span className="text-indigo-100">Tu vois l&apos;application exactement comme elle : Venom, ses pubs Meta et le Studio IA.</span>
+            <span className="font-semibold">Vue associé</span>
+            <span className="text-indigo-100">Tu vois l&apos;application comme le rôle associé.</span>
             <button
               type="button"
               onClick={() => {

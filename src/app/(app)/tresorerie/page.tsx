@@ -2,20 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowDownToLine, Check, HandCoins, Landmark, Loader2, Plus, Trash2, Wallet, X } from "lucide-react";
+import { ArrowDownToLine, Landmark, Loader2, Plus, Trash2, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { reportToday } from "@/lib/report-tz";
 import type { TreasuryPeriod, TreasuryReport } from "@/lib/accounting/treasury";
 
 /**
  * Comptabilité › Trésorerie (admin) : ce qui est à Mady (Initial, Recurring,
- * Salvage, Upsell), ce que Reign a encaissé et ce qui est arrivé en banque,
- * et la paie d'Alison sur le Straight sale (dû, versé, comment, quand).
+ * Salvage, Upsell), ce que Reign a encaissé et ce qui est arrivé en banque.
  */
 
 const inputClass = "h-10 w-full rounded-xl border bg-transparent px-3 text-[13px] outline-none transition-shadow focus:ring-2";
 const inputStyle = { borderColor: "var(--line)", color: "var(--ink)" } as const;
-const METHODS = ["Virement bancaire", "Espèces", "PayPal", "Wise", "Autre"];
 
 const usd = (amount: number) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "USD", currencyDisplay: "narrowSymbol" }).format(amount);
 const day = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -35,7 +33,6 @@ export default function TreasuryPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [busy, setBusy] = useState(false);
   const [deposit, setDeposit] = useState({ date: reportToday(), amount: "", processor: "", note: "" });
-  const [paying, setPaying] = useState<{ key: string; amount: string; method: string; date: string; note: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -85,18 +82,18 @@ export default function TreasuryPage() {
             <Landmark className="h-3.5 w-3.5" />
             Comptabilité
           </span>
-          {report ? <span className="r-chip">{report.frequency === "monthly" ? "Par mois" : "Par semaine"} · comme MoneyTalk</span> : null}
+          {report ? <span className="r-chip">{report.frequency === "monthly" ? "Par mois" : "Par semaine"}</span> : null}
         </div>
         <h1 className="text-[26px] font-semibold leading-tight tracking-tight" style={{ color: "var(--ink)" }}>
           Trésorerie
         </h1>
         <p className="mt-0.5 text-[12.5px]" style={{ color: "var(--ink-3)" }}>
-          Ce qui est à toi, ce que Reign t&apos;a viré en banque, et ce que tu verses à Alison : période par période.
+          Ce qui est à toi et ce que Reign t&apos;a viré en banque : période par période.
         </p>
       </div>
 
       {/* Les trois comptes */}
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-2">
         <div className="r-card p-4">
           <p className="r-label flex items-center gap-1.5">
             <Wallet className="h-3.5 w-3.5" /> À toi · 100 %
@@ -104,7 +101,7 @@ export default function TreasuryPage() {
           <p className="mt-1 text-[24px] font-semibold tabular-nums" style={{ color: "var(--ink)" }}>
             {totals ? usd(totals.mine) : "…"}
           </p>
-          <p className="r-sub mt-0.5">VIP Initial + Recurring + Salvage + Upsell. Alison n&apos;y touche pas, même quand tu paies la pub.</p>
+          <p className="r-sub mt-0.5">VIP Initial + Recurring + Salvage + Upsell.</p>
         </div>
         <div className="r-card p-4">
           <p className="r-label flex items-center gap-1.5">
@@ -126,18 +123,6 @@ export default function TreasuryPage() {
               "Chargement…"
             )}
           </p>
-        </div>
-        <div className="r-card p-4">
-          <p className="r-label flex items-center gap-1.5">
-            <HandCoins className="h-3.5 w-3.5" /> Alison · Straight sale
-          </p>
-          <p className="mt-1 text-[24px] font-semibold tabular-nums" style={{ color: totals && totals.alisonDue > 0 ? "#b45309" : "var(--ink)" }}>
-            {totals ? usd(totals.alisonDue) : "…"}
-            <span className="ml-1.5 text-[13px] font-normal" style={{ color: "var(--ink-3)" }}>
-              à lui verser
-            </span>
-          </p>
-          <p className="r-sub mt-0.5">{totals ? `Dû ${usd(totals.alisonOwed)} · déjà versé ${usd(totals.alisonPaid)}. Calcul MoneyTalk.` : "Chargement…"}</p>
         </div>
       </div>
 
@@ -186,8 +171,6 @@ export default function TreasuryPage() {
       {/* Période par période */}
       <div className="space-y-2">
         {(report?.periods ?? []).map((period) => {
-          const paid = period.alison.paid;
-          const form = paying?.key === period.key ? paying : null;
           return (
             <div key={period.key} className="r-card p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -197,7 +180,7 @@ export default function TreasuryPage() {
                 {period.current ? <span className="r-chip">En cours</span> : null}
                 {period.error ? <span className="r-sub text-[11px]">{period.error}</span> : null}
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <p className="r-label">À toi</p>
                   <p className="text-[18px] font-semibold tabular-nums" style={{ color: "var(--ink)" }}>
@@ -218,77 +201,8 @@ export default function TreasuryPage() {
                   </p>
                   <p className="r-sub text-[11px]">Encaissé par les processeurs sur la période : {usd(period.reignCollected)}</p>
                 </div>
-                <div>
-                  <p className="r-label">Alison · Straight sale {usd(period.straight)}</p>
-                  <p className="text-[18px] font-semibold tabular-nums" style={{ color: period.alison.due > 0 ? "#b45309" : "var(--ink)" }}>
-                    {paid ? `Versé ${usd(paid.amount)}` : `Dû ${usd(period.alison.owed)}`}
-                  </p>
-                  <p className="r-sub text-[11px]">
-                    {period.alison.version === 2 ? "Version 2 · 50/50, tu paies la pub" : "Version 1 · elle avance la pub, tout le bénéfice est à elle"}
-                    {paid ? ` · ${paid.method ?? "versé"}${paid.date ? ` le ${fullDay(paid.date)}` : ""}${paid.note ? ` · ${paid.note}` : ""}` : ""}
-                    {paid && period.alison.due > 0.009 ? ` · reste ${usd(period.alison.due)}` : ""}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {paid ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => window.confirm("Annuler ce versement ?") && void send({ action: "unpayAlison", key: period.key }, "Versement annulé")}
-                        className="r-chip"
-                      >
-                        <X className="h-3 w-3" /> Annuler le versement
-                      </button>
-                    ) : period.alison.owed > 0 && !form ? (
-                      <button
-                        type="button"
-                        onClick={() => setPaying({ key: period.key, amount: String(period.alison.owed), method: METHODS[0], date: reportToday(), note: "" })}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12px] font-semibold text-white"
-                        style={{ background: "var(--r-accent, #233137)" }}
-                      >
-                        <HandCoins className="h-3.5 w-3.5" /> Noter le versement
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
               </div>
 
-              {form ? (
-                <div className="mt-3 grid gap-3 rounded-xl p-3 sm:grid-cols-2 lg:grid-cols-[8rem_10rem_9rem_1fr_auto_auto]" style={{ background: "var(--r-accent-soft)" }}>
-                  <label className="block space-y-1.5">
-                    <span className="r-label">Montant ($)</span>
-                    <input inputMode="decimal" value={form.amount} onChange={(event) => setPaying({ ...form, amount: event.target.value })} className={inputClass} style={inputStyle} />
-                  </label>
-                  <label className="block space-y-1.5">
-                    <span className="r-label">Comment</span>
-                    <select value={form.method} onChange={(event) => setPaying({ ...form, method: event.target.value })} className={inputClass} style={inputStyle}>
-                      {METHODS.map((method) => (
-                        <option key={method}>{method}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block space-y-1.5">
-                    <span className="r-label">Date</span>
-                    <input type="date" value={form.date} onChange={(event) => setPaying({ ...form, date: event.target.value })} className={inputClass} style={inputStyle} />
-                  </label>
-                  <label className="block space-y-1.5">
-                    <span className="r-label">Note</span>
-                    <input placeholder="ex. référence du virement" value={form.note} onChange={(event) => setPaying({ ...form, note: event.target.value })} className={inputClass} style={inputStyle} />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={busy || !form.amount.trim()}
-                    onClick={() => void send({ action: "payAlison", ...form }, "Versement noté").then((ok) => ok && setPaying(null))}
-                    className="inline-flex h-10 items-center justify-center gap-1.5 self-end rounded-xl px-4 text-[13px] font-semibold text-white disabled:opacity-50"
-                    style={{ background: "var(--r-accent, #233137)" }}
-                  >
-                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    Enregistrer
-                  </button>
-                  <button type="button" onClick={() => setPaying(null)} className="r-icon h-10 w-10 self-end rounded-xl" title="Annuler">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : null}
             </div>
           );
         })}

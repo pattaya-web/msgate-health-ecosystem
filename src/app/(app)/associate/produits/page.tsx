@@ -97,7 +97,7 @@ export default function ProductIdeasPage() {
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="r-chip">
             <Lightbulb className="h-3.5 w-3.5" />
-            Tableau commun · Mady & Alison
+            Tableau des produits
           </span>
           {ideas ? <span className="r-chip">{ideas.length} produit(s)</span> : null}
         </div>

@@ -64,7 +64,7 @@
 <div class="card">
   <table>
     <tr><th>Campagne</th><th>Rôle</th><th>Qui pilote</th></tr>
-    <tr><td><span class="tag red">TEST</span> ABO</td><td>Tester chaque batch de créas avec un budget propre par ad set, pour avoir la data créa par créa</td><td>Alison upload, Mady coupe</td></tr>
+    <tr><td><span class="tag red">TEST</span> ABO</td><td>Tester chaque batch de créas avec un budget propre par ad set, pour avoir la data créa par créa</td><td>Mady upload et coupe</td></tr>
     <tr><td><span class="tag green">MAIN</span> CBO</td><td>Scaler les créas validées. C'est elle qui porte le volume.</td><td>Mady</td></tr>
     <tr><td><span class="tag amber">BIDCAP / COSTCAP</span></td><td>À 3-5 k/jour stable : presser les winners et sécuriser la marge</td><td>Mady</td></tr>
   </table>
@@ -75,26 +75,17 @@
 <h2>2. Qui fait quoi</h2>
 <div class="grid">
   <div class="card">
-    <h3>Alison</h3>
-    <ul>
-      <li>Produit les créas à partir des briefs.</li>
-      <li>Vérifie chaque image (chapitre 9).</li>
-      <li>Upload le jeudi : les nouveaux ad sets TEST.</li>
-      <li>Lit l'onglet Matin le vendredi et le dimanche, note pour Mady ce que l'écran propose.</li>
-      <li>Prépare en brouillon l'ad set MAIN des winners de la semaine.</li>
-    </ul>
-  </div>
-  <div class="card">
     <h3>Mady</h3>
     <ul>
-      <li>Écrit les briefs du lundi.</li>
-      <li>Valide les créas le mercredi.</li>
+      <li>Écrit les briefs du lundi, produit et vérifie les créas (chapitre 9).</li>
+      <li>Upload le jeudi : les nouveaux ad sets TEST.</li>
+      <li>Lit l'onglet Matin le vendredi et le dimanche.</li>
       <li>Tous les budgets, toutes les enchères, toutes les coupes, toutes les campagnes.</li>
       <li>Gère les fournisseurs, paie les factures fournisseurs et les ads.</li>
     </ul>
   </div>
 </div>
-<div class="rule ok"><b>Règle d'or :</b> une décision par campagne tous les 2 jours, le matin, sur les chiffres de la veille. Alison ne modifie jamais un budget.</div>
+<div class="rule ok"><b>Règle d'or :</b> une décision par campagne tous les 2 jours, le matin, sur les chiffres de la veille.</div>
 
 <h2>3. Les chiffres</h2>
 <div class="card">
@@ -187,7 +178,7 @@
 
 <h2>7. Pas à pas dans le Gestionnaire de pubs</h2>
 <div class="card">
-  <h3>A. L'ABO de test, chaque jeudi (Alison)</h3>
+  <h3>A. L'ABO de test, chaque jeudi (Mady)</h3>
   <ol>
     <li>Campagne <code>TEST - [PRODUIT]</code> (créée une fois : objectif Ventes, campagne de ventes manuelle, <b>budget de campagne Advantage+ DÉSACTIVÉ</b>).</li>
     <li><b>Créer un ad set</b> : nom <code>TEST - S[semaine] - MIX n</code>. Conversion Site web → pixel du shop → événement <b>Achat</b>. <b>Budget quotidien 50 €</b>. Démarrage au prochain 00:00, heure du compte, pas de date de fin.</li>
@@ -200,7 +191,7 @@
     <li><b>Créer</b> → Ventes → campagne de ventes manuelle. Nom <code>MAIN - [PRODUIT]</code>. <b>Budget de campagne Advantage+ ACTIVÉ</b>, budget quotidien de départ.</li>
     <li>Démarrage au prochain 00:00, heure du compte. Pas de date de fin.</li>
   </ol>
-  <h3>C. Passer les validées de la semaine en MAIN (Alison prépare, Mady publie)</h3>
+  <h3>C. Passer les validées de la semaine en MAIN (Mady prépare et publie)</h3>
   <ol>
     <li>Dans le CRM, copier le <b>post ID</b> de chaque créa validée (colonne Post ID). Il ressemble à <code>123456_789012</code>.</li>
     <li>Dans la MAIN, <b>Créer un ad set</b> : nom <code>MAIN - S[semaine]</code>, mêmes réglages qu'un ad set TEST, <b>sans budget propre</b>.</li>
@@ -216,12 +207,12 @@
 <table>
   <tr><th>Jour</th><th>Qui</th><th>Quoi</th></tr>
   <tr><td><b>Lundi</b></td><td>Mady</td><td>Analyse : créas TEST validées → ad set MAIN de la semaine ; créas MAIN → BidCap / CostCap (quand ils existent). Écrit 15 à 20 briefs.</td></tr>
-  <tr><td><b>Mardi, mercredi</b></td><td>Alison</td><td>Produit les créas. Vérifie chaque image. Statut PRÊTE.</td></tr>
+  <tr><td><b>Mardi, mercredi</b></td><td>Mady</td><td>Produit les créas. Vérifie chaque image. Statut PRÊTE.</td></tr>
   <tr><td><b>Mercredi 18h</b></td><td>Mady</td><td>Valide ou renvoie avec un commentaire.</td></tr>
-  <tr><td><b>Jeudi</b></td><td>Alison</td><td>5 nouveaux ad sets TEST. Démarrage à 00:00.</td></tr>
-  <tr><td><b>Vendredi 10h</b></td><td>Alison</td><td>Check J1 des ad sets TEST dans l'onglet Matin. Signale à Mady ce qui est à couper.</td></tr>
+  <tr><td><b>Jeudi</b></td><td>Mady</td><td>5 nouveaux ad sets TEST. Démarrage à 00:00.</td></tr>
+  <tr><td><b>Vendredi 10h</b></td><td>Mady</td><td>Check J1 des ad sets TEST dans l'onglet Matin. Coupe ce qui est à couper.</td></tr>
   <tr><td><b>Week-end</b></td><td>Mady</td><td>Palier +25 % sur la MAIN si la marge le permet, surf scaling si la journée est très bonne.</td></tr>
-  <tr><td><b>Dimanche soir</b></td><td>Alison puis Mady</td><td>Les KPI de la semaine. Mady prépare les briefs du lundi.</td></tr>
+  <tr><td><b>Dimanche soir</b></td><td>Mady</td><td>Les KPI de la semaine. Mady prépare les briefs du lundi.</td></tr>
 </table>
 
 <h2>9. Avant de passer une créa en PRÊTE</h2>
@@ -237,7 +228,7 @@
 </div>
 
 <h2>10. Le brief</h2>
-<p>Un brief = une créa à produire. Mady en écrit 15 à 20 chaque lundi dans le pipeline. Alison produit exactement ce qui est écrit.</p>
+<p>Un brief = une créa à produire. Mady en écrit 15 à 20 chaque lundi dans le pipeline. La créa produite suit exactement ce qui est écrit.</p>
 <pre>Créa ID      : S_CONCEPT_MÉTHODE_vN        ex. S_BUNDLE_HEADLINE_v3
 Type         : Itération (hook / script / headline / visuel / avatar) de [créa source] ou Nouveau concept
 Angle        : pain point, preuve sociale, cadeau, démo, prix…

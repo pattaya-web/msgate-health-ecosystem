@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, BookOpen, BookOpenText, CalendarClock, FileText, LifeBuoy, Phone, Film, ListChecks, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, HandCoins, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
+import { BarChart3, BookOpen, BookOpenText, CalendarClock, FileText, LifeBuoy, Phone, Film, ListChecks, Calculator, ChevronDown, Clapperboard, Compass, Download, Eye, FolderOpen, GripVertical, Handshake, HardDrive, ImagePlus, Landmark, Library, Lightbulb, LogOut, Mail, Megaphone, Network, Package, PanelLeftClose, Receipt, ReceiptText, Settings, ShieldAlert, ShoppingBag, Sparkles, type LucideIcon, Upload, Video, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 import { BrandLogo } from "@/components/layout/brand-logo";
@@ -99,7 +99,6 @@ const ASSOCIATE_SECTIONS: NavSection[] = [
       { href: "/pilotage", label: "Pilotage", icon: Compass },
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
-      { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
       { href: "/associate/produits", label: "Produits à lancer", icon: Lightbulb },
       { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
       { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
@@ -161,7 +160,7 @@ const ASSISTANT_SECTIONS: NavSection[] = [
 ];
 
 /**
- * La barre de l'admin, rangée comme celle d'Alison : Venom d'abord, puis la
+ * La barre de l'admin : Venom d'abord, puis la
  * comptabilité, le Studio IA, la boutique et l'organisation. Les autres pages
  * (Stats, Creatives, UGC, Bank pages…) restent ouvertes par leur adresse.
  */
@@ -173,7 +172,6 @@ const ADMIN_SECTIONS: NavSection[] = [
       { href: "/pilotage", label: "Pilotage", icon: Compass },
       { href: "/associate", label: "Ventes & Meta Ads", icon: Handshake },
       { href: "/associate/profit", label: "Profit", icon: Calculator },
-      { href: "/associate/moneytalk", label: "MoneyTalk", icon: HandCoins },
       { href: "/associate/produits", label: "Produits à lancer", icon: Lightbulb },
       { href: "/ads", label: "Meta Ads Manager", icon: Megaphone },
       { href: "/ads-uploader", label: "Ads uploader", icon: Upload },
@@ -242,7 +240,7 @@ const ADMIN_SECTIONS: NavSection[] = [
   },
 ];
 
-/** Quelle barre s'affiche : celle d'Alison (et de la « Vue Alison »), celle de l'admin, ou la barre réglable des autres rôles. */
+/** Quelle barre s'affiche : celle du rôle associé, celle de l'admin, ou la barre réglable des autres rôles. */
 export type MenuKind = "associate" | "assistant" | "closer" | "admin" | "default";
 
 const SECTIONS_KEY = "msgate-nav-sections";
@@ -419,9 +417,9 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, isAssociate, isAssistant, isCloser, isAdmin, previewAssociate, setPreviewAssociate } = useAuth();
+  const { user, logout, isAssociate, isAssistant, isCloser, isAdmin } = useAuth();
   const realAssociate = user?.role === "associate";
-  // Associé, ou admin en « Vue Alison » : le menu de l'associé ; l'admin : le sien, rangé pareil. Ni l'un ni l'autre ne se réordonne.
+  // Associé : le menu de l'associé ; l'admin : le sien, rangé pareil. Ni l'un ni l'autre ne se réordonne.
   const kind: MenuKind = isCloser ? "closer" : isAssistant ? "assistant" : isAssociate ? "associate" : isAdmin ? "admin" : "default";
   const fixedMenu = kind !== "default";
   const openKey = kind === "admin" ? ADMIN_SECTIONS_KEY : SECTIONS_KEY;
@@ -634,42 +632,10 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-slate-200/70 p-3 dark:border-slate-800">
-        {/* Le solde Kie AI : Alison s'en sert aussi pour le Studio IA. */}
+        {/* Le solde Kie AI, pour le Studio IA. */}
         {/* Un closer n'utilise pas le Studio : pas de solde Kie. */}
         {!isCloser && <KieCredit />}
 
-        {/* La « Vue Alison » est supprimée (accès Associé fermé le 16/11/2026). */}
-        {false ? (
-          <div className="mb-2 rounded-2xl border border-slate-200/70 bg-white/70 p-1 dark:border-slate-800 dark:bg-slate-900/50" data-view-switch>
-            <p className="eyebrow px-2 pb-1 pt-1">Vue</p>
-            <div className="grid grid-cols-2 gap-1">
-              {[
-                { on: false, label: "Admin" },
-                { on: true, label: "Alison" },
-              ].map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  onClick={() => {
-                    setPreviewAssociate(option.on);
-                    // Les deux vues ouvrent sur Ventes & Meta Ads : en bleu pour l'admin, en rose comme Alison.
-                    router.push("/associate");
-                    onNavigate?.();
-                  }}
-                  className={cn(
-                    "rounded-xl px-2 py-1.5 text-[11.5px] font-medium transition-colors",
-                    previewAssociate === option.on
-                      ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                      : "text-slate-500 hover:bg-slate-900/5 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100"
-                  )}
-                  title={option.on ? "Voir l'application exactement comme Alison la voit" : "Revenir à ta vue complète"}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
 
         <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 dark:border-slate-800 dark:bg-slate-900/50">
           <div className="flex items-center gap-2.5">
@@ -689,7 +655,7 @@ export function Sidebar({
             </div>
           </div>
           <div className="mt-2.5 flex items-center justify-between gap-2">
-            <span className="eyebrow">{realAssociate ? "associé" : previewAssociate ? "admin · vue Alison" : (user?.role ?? "viewer")}</span>
+            <span className="eyebrow">{realAssociate ? "associé" : (user?.role ?? "viewer")}</span>
             <button
               onClick={() => {
                 logout();

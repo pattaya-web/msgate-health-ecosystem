@@ -49,7 +49,7 @@ function AdminCategories({ admin, loading, metaSpend, realRoas }: { admin: Admin
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="r-chip" style={{ height: 26 }} title="Alison ne voit pas ce bloc">
+          <span className="r-chip" style={{ height: 26 }}>
             Admin seulement
           </span>
           <Link href="/settings" className="r-sub font-medium underline underline-offset-2">
@@ -231,7 +231,7 @@ export default function AssociatePage() {
     <div className="space-y-4">
       {!isAssociate && !isAdmin ? (
         <div className="r-chip w-full justify-between" style={{ height: "auto", padding: "8px 14px", borderRadius: 16 }}>
-          <span>Vue Associé : exactement ce que voit Alison.</span>
+          <span>Vue Associé.</span>
         </div>
       ) : null}
 

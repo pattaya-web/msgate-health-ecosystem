@@ -1,4 +1,3 @@
-import { getReignConfig } from "@/lib/reign/client";
 import { toReportLocal } from "@/lib/report-tz";
 import { fetchShopifySales, isShopifySalesConfigured, type ShopifySalesFeed } from "@/lib/shopify/sales-orders";
 
@@ -18,9 +17,13 @@ const state = ((globalThis as typeof globalThis & {
   __msgateLiveShopify?: { feed: (ShopifySalesFeed & { since: string; fetchedAt: string }) | null; inflight: Promise<unknown> | null };
 }).__msgateLiveShopify ??= { feed: null, inflight: null });
 
-/** Vrai quand les ventes viennent de Shopify en direct (pas de Reign, Shopify branché). */
+/**
+ * Vrai dès que Shopify est branché : le CA et les commandes du CRM viennent
+ * toujours de l'API Shopify (consigne de Mady, 28/11/2026), jamais de Reign.
+ * Reign ne sert plus qu'au taux d'approbation des paiements.
+ */
 export function shopifyDirectMode() {
-  return !getReignConfig() && isShopifySalesConfigured();
+  return isShopifySalesConfigured();
 }
 
 /** Les commandes depuis `since`, relues au plus toutes les 30 s (une seule lecture à la fois) ; `force` relit tout de suite. */
