@@ -9,7 +9,7 @@ import type { SupplierGrid, SupplierGridConfig } from "@/lib/metrics/supplier-gr
  * Comptabilité › Grille fournisseur (admin) : le coût d'un colis selon le
  * nombre de colliers de la commande, et la commande ou la date à partir de
  * laquelle chaque grille s'applique. Le coût des articles de la page Profit,
- * de MoneyTalk et de la Trésorerie en découle.
+ * de la Trésorerie en découle.
  */
 
 const inputClass = "h-10 w-full rounded-xl border bg-transparent px-3 text-[13px] outline-none transition-shadow focus:ring-2";
@@ -107,7 +107,7 @@ export default function SupplierGridPage() {
         </h1>
         <p className="mt-0.5 text-[12.5px]" style={{ color: "var(--ink-3)" }}>
           Le coût d&apos;un colis selon le nombre de colliers de la commande, en USD. Chaque commande prend la grille la plus récente dont le départ est
-          atteint ; une commande remboursée en entier coûte 0. La page Profit, MoneyTalk et la Trésorerie s&apos;en servent.
+          atteint ; une commande remboursée en entier coûte 0. La page Profit et la Trésorerie s&apos;en servent.
         </p>
       </div>
 
