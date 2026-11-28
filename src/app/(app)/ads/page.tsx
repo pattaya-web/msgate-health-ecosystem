@@ -1131,17 +1131,16 @@ export default function AdsPage() {
 
     void (async () => {
       try {
-        // Ventes de la boutique du périmètre (Réglages > périmètre, aujourd'hui moosha.us), lues dans Reign :
-        // l'ancienne lecture /api/shopify/daily ne voyait qu'une seule boutique fixe (Venom).
-        const res = await fetch(`/api/associate/overview?start=${window.start}&end=${window.end}`);
+        // CA lu directement dans Shopify (boutique SHOPIFY_SHOP_DOMAIN, aujourd'hui Moosha), comme du temps de Venom.
+        const res = await fetch(`/api/shopify/daily?start=${window.start}&end=${window.end}`, { cache: "no-store" });
         const body = await res.json();
         if (cancelled) return;
-        if (!res.ok || !body.overview) throw new Error(body.error || "Ventes indisponibles");
+        if (!res.ok) throw new Error(body.error || "Shopify indisponible");
         setShopify({
-          netSales: Number(body.overview.sales?.revenue) || 0,
-          orders: Number(body.overview.sales?.orders) || 0,
-          returns: 0,
-          currency: "USD",
+          netSales: Number(body.totals?.netSales) || 0,
+          orders: Number(body.totals?.orders) || 0,
+          returns: Number(body.totals?.returns) || 0,
+          currency: body.currency || "USD",
         });
       } catch {
         if (!cancelled) setShopify(null);
@@ -1829,7 +1828,7 @@ export default function AdsPage() {
                 : "—"}
           </p>
           <p className="mt-0.5 truncate text-[9.5px] tabular-nums text-slate-400">
-            ROAS réel : ventes ÷ spend total
+            ROAS réel : CA Shopify ÷ spend total
           </p>
         </div>
       </div>

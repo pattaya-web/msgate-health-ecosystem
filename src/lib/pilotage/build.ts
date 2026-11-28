@@ -9,6 +9,7 @@ import { resolveSource } from "@/lib/phoenix/sources";
 import { getDashboardApproval, getReignConfig } from "@/lib/reign/client";
 import { reportToday } from "@/lib/report-tz";
 import { fetchShopifyTraffic, isShopifySalesConfigured } from "@/lib/shopify/sales-orders";
+import { getShopifyDaily, isShopifyConfigured } from "@/lib/shopify/client";
 import { adDailyInsights, type AdDay } from "@/lib/pilotage/meta-daily";
 
 /**
@@ -131,11 +132,18 @@ export async function buildPilotage(force = false): Promise<PilotageReport> {
   const traffic = (start: string, end: string) => (isShopifySalesConfigured() ? fetchShopifyTraffic(start, end).catch(() => null) : Promise.resolve(null));
   const approval = (start: string, end: string) => (reign ? getDashboardApproval(start, end).catch(() => null) : Promise.resolve(null));
 
-  const [overview, spendDaily, daily, fullTree, grids, snapshot, sales7, tToday, tD1, tD2, t7, aToday, aD1, aD2, a7] = await Promise.all([
+  const [overview, shopifyDaily, spendDaily, daily, fullTree, grids, snapshot, sales7, tToday, tD1, tD2, t7, aToday, aD1, aD2, a7] = await Promise.all([
     buildAssociateOverview(from7, today).catch((error) => {
       warnings.push(`Ventes : ${error instanceof Error ? error.message : "indisponibles"}`);
       return null;
     }),
+    // CA du jour lu directement dans Shopify (boutique SHOPIFY_SHOP_DOMAIN, aujourd'hui Moosha), comme du temps de Venom.
+    isShopifyConfigured()
+      ? getShopifyDaily({ start: from7, end: today }).catch((error) => {
+          warnings.push(`Shopify : ${error instanceof Error ? error.message : "indisponible"} (CA lu dans Reign)`);
+          return null;
+        })
+      : Promise.resolve(null),
     scopedDailySpend(from7, today),
     adDailyInsights(accountIds, from7, today).catch((error) => {
       warnings.push(`Meta (jour par jour) : ${error instanceof Error ? error.message : "indisponible"}`);
@@ -163,9 +171,10 @@ export async function buildPilotage(force = false): Promise<PilotageReport> {
 
   /* ---------------- Profit ---------------- */
   const dayFigures = (date: string): DayFigures => {
+    const shop = shopifyDaily?.series.find((row) => row.date === date);
     const point = overview?.sales.series.find((row) => row.date === date);
-    const revenue = point?.revenue ?? 0;
-    const orders = point?.orders ?? 0;
+    const revenue = shopifyDaily ? shop?.netSales ?? 0 : point?.revenue ?? 0;
+    const orders = shopifyDaily ? shop?.orders ?? 0 : point?.orders ?? 0;
     const cogs = overview?.profit.cogsByDay[date] ?? 0;
     const fees = revenue * rate;
     const spend = spendDaily.days[date] ?? 0;
