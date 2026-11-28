@@ -6,12 +6,11 @@ import { usePathname } from "next/navigation";
 const TABS: { href: string; label: string; short?: string }[] = [
   { href: "/associate", label: "Ventes" },
   { href: "/associate/profit", label: "Profit" },
-  { href: "/associate/moneytalk", label: "MoneyTalk" },
   { href: "/associate/produits", label: "Produits à lancer", short: "Produits" },
 ];
 
 /**
- * Les pages de l'accès Associé, en onglets doux (et accessibles depuis la « Vue Alison » de l'admin).
+ * Les pages de l'accès Associé, en onglets doux.
  * Sur iPhone : une seule ligne, libellés courts, et la rangée glisse sur le côté sans barre si elle manque de place.
  */
 export default function AssociateLayout({ children }: { children: React.ReactNode }) {
